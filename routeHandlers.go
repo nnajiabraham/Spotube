@@ -1,10 +1,10 @@
 package main
 
 import (
-	// "log"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"net/http"
 
 	"github.com/gorilla/mux"
@@ -20,12 +20,6 @@ var events = allEvents{
 		Description: "Come join us for a chance to learn how golang works and get to eventually try it out",
 	},
 }
-
-// var (
-// 	scopes= "user-read-private user-read-email playlist-read-private playlist-read-collaborative"
-// 	redirectURICallback= "https://741604de.ngrok.io/spotify-callback"
-// 	auth = spotify.NewAuthenticator(redirectURICallback, scopes)
-// )
 
 func createEvent(w http.ResponseWriter, r *http.Request) {
 	var newEvent event
@@ -55,7 +49,7 @@ func getOneEvent(w http.ResponseWriter, r *http.Request) {
 
 
 func homeLink(w http.ResponseWriter, r *http.Request) {
-	fmt.Println("asdfg")
+	fmt.Println("hello")
 	fmt.Fprintf(w, "Welcome home!")
 }
 
@@ -93,12 +87,14 @@ func spotifyLogin(w http.ResponseWriter, r *http.Request) {
 // }
 
 func spotifyPlaylist(w http.ResponseWriter, r *http.Request){
-	// user, err := client.CurrentUser()
+	client := <-clientChannel
+	token, err := client.Token()
+	// userPlaylist, err := client.CurrentUsersPlaylists()
 
-	// if err != nil {
-	// 	log.Fatal(err)
-	// }
-	// json.NewEncoder(w).Encode(user)
+	if err != nil {
+		log.Fatal(err)
+	}
+	json.NewEncoder(w).Encode(token)
 	fmt.Print("sdf")
 }
 

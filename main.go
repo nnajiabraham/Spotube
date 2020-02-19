@@ -10,6 +10,7 @@ import (
 
 func main() {
 	initEvents()
+	println("starting")
 	router := mux.NewRouter().StrictSlash(true)
 	router.Use(contentJSONMiddleware)
 
@@ -21,7 +22,7 @@ func main() {
 	router.HandleFunc("/event", createEvent).Methods("POST")
 	router.HandleFunc("/events/{id}", getOneEvent).Methods("GET")
 
-	log.Fatal(http.ListenAndServe(":2580", handlers.CombinedLoggingHandler(os.Stdout, router)))
+	log.Println(http.ListenAndServe(":2580", handlers.CombinedLoggingHandler(os.Stdout, router)))
 
 }
 

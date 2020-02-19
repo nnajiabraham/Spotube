@@ -12,20 +12,22 @@ import (
 // You must register an application at Spotify's developer portal
 // and enter this value.
 
+//lt --port 2580 --subdomain nnajiabraham 
+
 var (
 	clientID= "0c411be60c2943679ce623ca8055126d"
 	clientSecret = "4d8bbadad5bc41dab9490d2e304f7881"
 	scopes= "user-read-private user-read-email playlist-read-private playlist-read-collaborative"
-	redirectURICallback= "https://741604de.ngrok.io/spotify-callback"
-	ch    = make(chan *spotify.Client)
+	redirectURICallback= "https://nnajiabraham.localtunnel.me/spotify-callback"
+
+	clientChannel    = make(chan *spotify.Client)
 	state = "abc123"
 	auth = spotify.NewAuthenticator(redirectURICallback, scopes)
-	client = <-ch
 )
 
 func getSpotifyAuthLoginURL() string{
 	auth.SetAuthInfo(clientID, clientSecret)
-	url := auth.AuthURL("state1")
+	url := auth.AuthURL(state)
 	return url
 }
 
@@ -47,17 +49,14 @@ func mains() {
 }
 
 func spotifyCallback(w http.ResponseWriter, r *http.Request) {
+	println("Callback hit \n")
 	token, err := auth.Token(state, r)
 	if err != nil {
 		http.Error(w, "Couldn't get token", http.StatusForbidden)
 		log.Fatal(err)
 	}
-	if st := r.FormValue("state"); st != state {
-		http.NotFound(w, r)
-		log.Fatalf("State mismatch: %s != %s\n", st, state)
-	}
 	// use the token to get an authenticated client
 	client := auth.NewClient(token)
 	fmt.Fprintf(w, "Login Completed!")
-	ch <- &client
+	clientChannel <- &client
 }
