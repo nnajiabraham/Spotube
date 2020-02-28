@@ -30,8 +30,6 @@ var (
 
 
 func (h *AppHandlers) HomeHandler(w http.ResponseWriter, r *http.Request) {
-	var user models.User
-	h.UserService.CreateUser(&user)
 	fmt.Fprintf(w, "Welcome home from new handler!")
 }
 
@@ -80,7 +78,6 @@ func (h *AppHandlers) SpotifyCallback(w http.ResponseWriter, r *http.Request) {
 	// 	log.Fatal(err)
 	// }
 	// json.NewEncoder(w).Encode(token)
-	// fmt.Print("sdf")
 	newUUID, err := uuid.NewV4()
 	if err != nil {
 		fmt.Printf("Something went wrong generating UUID: %s", err)
@@ -94,10 +91,16 @@ func (h *AppHandlers) SpotifyCallback(w http.ResponseWriter, r *http.Request) {
 		 SpotifyToken: token.AccessToken, 
 		 SpotifyRefreshToken: token.RefreshToken,}
 
-	h.UserService.CreateUser(newUser)
+	h.UserService.FetchOrCreateUser(newUser)
 
-	fmt.Println(user.ID)
-	fmt.Println(user.DisplayName)
+	tokenString, err := h.UserService.CreateToken(*newUser)
+
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		return;
+	}
+	w.Header().Add("Auth", tokenString)
+	w.Write([]byte(tokenString))
 	json.NewEncoder(w).Encode(newUser)
 }
 
