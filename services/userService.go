@@ -1,11 +1,13 @@
 package services
 
 import (
-	"time"
+	"fmt"
 
-	"github.com/dgrijalva/jwt-go"
+	"github.com/gofrs/uuid"
 	"github.com/jinzhu/gorm"
 	"github.com/nnajiabraham/spotube/models"
+	"github.com/zmb3/spotify"
+	"golang.org/x/oauth2"
 )
 
 type UserService struct {
@@ -13,57 +15,56 @@ type UserService struct {
 }
 
 func (s *UserService) FetchUser(userId string) (*models.User) {
-	var user models.User
+	registeredUser := &models.User{}
 	
-	s.DB.First(&user, "user_id = ?", userId)
-	return &user
+	s.DB.Where(&models.User{
+		SpotifyId: userId,}).First(registeredUser)
+	return registeredUser
 }
 
-func (s *UserService) FetchOrCreateUser(user *models.User) (error) {
-	result:= s.DB.FirstOrCreate(user, models.User{SpotifyId: user.SpotifyId})
+func (s *UserService) FetchOrCreateUser(user *spotify.PrivateUser, token *oauth2.Token) (error, *models.User) {
+
+	registeredUser := &models.User{}
 	
-	if result.Error!= nil {
-		return result.Error
+	//check if user or email is registered
+	s.DB.Where(&models.User{
+		SpotifyId: user.ID, 
+		Email: user.Email}).First(registeredUser)
+
+		// t,_:=time.Parse("2020-04-04 03:01:07.440281", time.Now().String())
+
+	if (models.User{}) != *registeredUser {
+		registeredUser.SpotifyToken=token.AccessToken
+		registeredUser.SpotifyRefreshToken=token.RefreshToken
+		registeredUser.SpotifyTokenType=token.TokenType
+		registeredUser.SpotifyTokenExpiry=token.Expiry.String()
+		s.DB.Save(registeredUser)
+
+		
+		return nil, registeredUser
 	}
 
-	return nil
-}
 
-type Claims struct {
-	Username string `json:"username"`
-	UserId string `json:"userId"`
-	SpotifyId string `json:"spotifyId"`
-	jwt.StandardClaims
-}
-
-/* Set up a global string for our secret */
-var mySigningKey = []byte("secret")
-
-  /* Handlers */
-func (s *UserService) CreateToken (user models.User) (string, error){
-	
-	expirationTime := time.Now().Add(time.Hour * 24).Unix()
-
-	// Create the JWT claims, which includes the username and expiry time
-	claims := &Claims{
-		UserId: user.UserId,
-		SpotifyId: user.SpotifyId,
-		Username: user.Username,
-		StandardClaims: jwt.StandardClaims{
-			ExpiresAt: expirationTime,
-		},
+	newUUID, err := uuid.NewV4()
+	if err != nil {
+		fmt.Printf("Something went wrong generating UUID: %s", err)
+		return err, nil
 	}
+	
+	fmt.Println("NEW USER REGISTERED")
 
-	// Declare the token with the algorithm used for signing, and the claims
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	newUser := &models.User{
+	UserId: newUUID.String(),
+	Username: user.DisplayName, 
+	Email: user.Email, 
+	SpotifyId: user.ID, 
+	SpotifyToken: token.AccessToken, 
+	SpotifyRefreshToken: token.RefreshToken,
+	SpotifyTokenType: token.TokenType,
+	SpotifyTokenExpiry: token.Expiry.String()}
 
-    /* Sign the token with our secret */
-	tokenString,err := token.SignedString(mySigningKey)
+	s.DB.Create(newUser)
 
-	 if err!=nil {
-		return "", err
-	 }
-
-	 return tokenString, nil
+	return nil,newUser
 }
 
