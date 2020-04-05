@@ -37,7 +37,6 @@ func main() {
 
 	router := mux.NewRouter().StrictSlash(true)
 	router.Use(contentJSONMiddleware)
-	router.
 	appHandler.RegisterRoutes(router);
 
 	log.Println(http.ListenAndServe(":2580", handlers.CombinedLoggingHandler(os.Stdout, router)))

@@ -6,10 +6,13 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
+	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/nnajiabraham/spotube/services"
 	"github.com/zmb3/spotify"
+	"golang.org/x/oauth2"
 )
  
 type AppHandler struct{
@@ -20,6 +23,11 @@ type AppHandler struct{
 type UserDto struct{
 	UserId string
 	UserName string
+}
+
+type ErrorDto struct{
+	Status int
+	Message string
 }
 
 var (
@@ -37,7 +45,7 @@ func (h *AppHandler) RegisterRoutes(router *mux.Router) {
 	router.HandleFunc("/spotify-login", h.SpotifyLogin)
 	router.HandleFunc("/spotify-callback", h.SpotifyCallback)
 	router.HandleFunc("/spotify-playlist", h.SpotifyPlaylist).Methods("GET")
-	router.HandleFunc("user", h.getUser).Methods("GET")
+	router.HandleFunc("/user", h.GetUser)
 }
 
 //npm install -g localtunnel
@@ -64,40 +72,58 @@ func (h *AppHandler) SpotifyLogin(w http.ResponseWriter, r *http.Request) {
 	url:= getSpotifyAuthLoginURL()
 	
 	
-	fmt.Println("Redirect URL %s\n", url)
+	fmt.Printf("Redirect URL %s\n", url)
 	http.Redirect(w, r, url, 301)
 }
 
 func (h *AppHandler) SpotifyCallback(w http.ResponseWriter, r *http.Request) {
-	log.Printf("Callback hit \n")
 
 	token, err := auth.Token(state, r)
 	if err != nil {
-		fmt.Println("Error with callback invalid")
-		log.Fatal(err)
-		w.WriteHeader(http.StatusForbidden)
+		log.Printf("Spotify login callback: %s ",err.Error())
+		w.WriteHeader(http.StatusUnauthorized)	
+		json.NewEncoder(w).Encode(ErrorDto{
+			Status: http.StatusUnauthorized, 
+			Message: "Unauthorized",
+		})
+        return
 	}
 	// use the token to get an authenticated client
 	client := auth.NewClient(token)
 	user, userErr := client.CurrentUser()
 
 	if userErr!=nil {
-		log.Fatal(userErr)
-		w.Write([]byte(fmt.Sprintf("%s",http.StatusForbidden)))
+		log.Printf("Spotify User Not Found: %s ",userErr.Error())
+		w.WriteHeader(http.StatusInternalServerError)	
+		json.NewEncoder(w).Encode(ErrorDto{
+			Status: http.StatusInternalServerError, 
+			Message: "Something went wrong with fetching user info",
+		})
+        return
 	}
 
 	rUserErr, registeredUser:=h.UserService.FetchOrCreateUser(user, token)
 
 	if rUserErr!=nil{
-		log.Fatal(rUserErr)
-		w.Write([]byte(fmt.Sprintf("%s",http.StatusInternalServerError)))
+		log.Printf("Unable to fetch or create user: %s ",rUserErr.Error())
+		w.WriteHeader(http.StatusInternalServerError)	
+		json.NewEncoder(w).Encode(ErrorDto{
+			Status: http.StatusInternalServerError, 
+			Message: "Something went wrong with fetching user info",
+		})
+        return
 	}
 
 	tokenString, tokenErr := h.TokenService.CreateToken(*registeredUser)
 
 	if tokenErr != nil {
-		log.Fatal(rUserErr)
-		w.Write([]byte(fmt.Sprintf("%s",http.StatusInternalServerError)))
+		log.Printf("Unable to create token for user: %s ",tokenErr.Error())
+		w.WriteHeader(http.StatusInternalServerError)	
+		json.NewEncoder(w).Encode(ErrorDto{
+			Status: http.StatusInternalServerError, 
+			Message: "Something went wrong with fetching user info",
+		})
+        return
 	}
 
 	w.Header().Add("Auth", tokenString)
@@ -111,31 +137,95 @@ func (h *AppHandler) SpotifyPlaylist(w http.ResponseWriter, r *http.Request){
 	fmt.Print("sdf")
 }
 
-func (h *AppHandler) getUser(w http.ResponseWriter, r *http.Request){
-	token := r.URL.Query().Get("token")
+func (h *AppHandler) GetUser(w http.ResponseWriter, r *http.Request){
+	fmt.Println("Getting User")
+	token := r.URL.Query()["token"][0]
+	fmt.Println("Token Gotten")
+	fmt.Printf("Token %s\n", token)
 
 	if len(token)==0{
-		w.WriteHeader(http.StatusUnauthorized)
-		w.Write([]byte(fmt.Sprintf("%s",http.StatusUnauthorized)))
+		log.Printf("Empty token tried authenticating: %s ",token)
+		w.WriteHeader(http.StatusUnauthorized)	
+		json.NewEncoder(w).Encode(ErrorDto{
+			Status: http.StatusUnauthorized, 
+			Message: "Unauthorized",
+		})
+        return
 	}
 
 	claims, err := h.TokenService.ValidateToken(token)
 
 	if err!=nil{
-		w.WriteHeader(http.StatusUnauthorized)
-		w.Write([]byte(fmt.Sprintf("%s",http.StatusUnauthorized)))
+		log.Printf("Error validating token/claims: %s ",err.Error())
+		w.WriteHeader(http.StatusUnauthorized)	
+		json.NewEncoder(w).Encode(ErrorDto{
+			Status: http.StatusUnauthorized, 
+			Message: "Unauthorized",
+		})
+        return
 	}
 
+	user := h.UserService.FetchUser(claims.SpotifyId)
 
-	user := h.UserService.FetchUser(claims.UserId)
+	tokenExpTime, timeParseErr:= strconv.ParseInt(user.SpotifyTokenExpiry, 10, 64)
+	if err != nil {
+		log.Printf("Error parsing time to oauth2token type : %s ",timeParseErr.Error())
+		w.WriteHeader(http.StatusInternalServerError)	
+		json.NewEncoder(w).Encode(ErrorDto{
+			Status: http.StatusInternalServerError,
+			Message: "Internal Server Error",
+		})
+        return
+	}
 	
-	// client := auth.NewClient(user.SpotifyRefreshToken)
-	// user, userErr := client.CurrentUser()
+	userOauthToken :=  &oauth2.Token{
+		Expiry: time.Unix(tokenExpTime, 0),
+		TokenType: user.SpotifyTokenType,
+		AccessToken: user.SpotifyToken,
+		RefreshToken: user.SpotifyRefreshToken,
+	}
 
-	// if userErr!=nil 
-	// 	log.Fatal(userErr)
-	// 	w.Write([]byte(fmt.Sprintf("%s",http.StatusForbidden)))
-	// }
+	if userOauthToken.Valid() {
+		getSpotifyAuthLoginURL()
+		client:= auth.NewClient(userOauthToken)
+		playlist, err:= client.CurrentUsersPlaylists()
+		if err!=nil{
+			json.NewEncoder(w).Encode(user)
+		}
+		json.NewEncoder(w).Encode(playlist)
+		return ;
+	}
 
-	json.NewEncoder(w).Encode(user)
+	getSpotifyAuthLoginURL()
+	client:= auth.NewClient(userOauthToken)
+	reAuthUser, userErr := client.CurrentUser()
+
+	if userErr!=nil {
+		log.Printf("Spotify User Not Found: %s ",userErr.Error())
+		w.WriteHeader(http.StatusInternalServerError)	
+		json.NewEncoder(w).Encode(ErrorDto{
+			Status: http.StatusInternalServerError, 
+			Message: "StatusUnauthorized",
+		})
+        return
+	}
+
+	updateUserErr, updatedUser := h.UserService.UpdateUser(reAuthUser, userOauthToken)
+	
+	if updateUserErr!=nil {
+		log.Printf("Err Updating User: %s ",updateUserErr.Error())
+		w.WriteHeader(http.StatusUnauthorized)	
+		json.NewEncoder(w).Encode(ErrorDto{
+			Status: http.StatusUnauthorized, 
+			Message: "StatusUnauthorized",
+		})
+        return
+	}
+	playlist, err:= client.CurrentUsersPlaylists()
+	if err!=nil{
+		json.NewEncoder(w).Encode(user)
+	}
+	fmt.Println(updatedUser)
+	fmt.Println("UPDATED USER TOKEN")
+	json.NewEncoder(w).Encode(playlist)
 }
