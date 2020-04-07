@@ -21,7 +21,7 @@ type Claims struct {
 /* Set up a global string for our secret */
 var mySigningKey = []byte("secret")
 
-func (s *TokenService) CreateToken (user models.User) (string, error){	
+func (s *TokenService) CreateToken (user *models.User) (string, error){	
 	expirationTime := time.Now().Add(time.Hour * 24).Unix()
 
 	// Create the JWT claims, which includes the username and expiry time

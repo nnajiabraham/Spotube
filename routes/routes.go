@@ -32,10 +32,9 @@ type ErrorDto struct{
 
 var (
 	scopes					= "user-read-private user-read-email playlist-read-private playlist-read-collaborative"
-	redirectURICallback		= "http://nnajiabraham.serverless.social/spotify-callback"
-
+	redirectURICallback		= "http://nnajiabraham.viewshd.com/spotify-callback"
+	state = os.Getenv("TOKEN_STATE") 
 	// clientChannel    = make(chan *spotify.Client)
-	state = "abc123"
 	auth = spotify.NewAuthenticator(redirectURICallback, scopes)
 )
 
@@ -52,7 +51,7 @@ func (h *AppHandler) RegisterRoutes(router *mux.Router) {
 //npx localtunnel --port 8000
 //lt --port 2580 --subdomain nnajiabraham 
 // lt -h "http://serverless.social" --port 2580 --open true --subdomain nnajiabraham
-
+// lt -h "http://viewshd.com" --port 2580 --subdomain nnajiabraham
 
 func (h *AppHandler) HomeHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "Welcome home from new handler!")
@@ -114,7 +113,7 @@ func (h *AppHandler) SpotifyCallback(w http.ResponseWriter, r *http.Request) {
         return
 	}
 
-	tokenString, tokenErr := h.TokenService.CreateToken(*registeredUser)
+	tokenString, tokenErr := h.TokenService.CreateToken(registeredUser)
 
 	if tokenErr != nil {
 		log.Printf("Unable to create token for user: %s ",tokenErr.Error())
@@ -127,6 +126,12 @@ func (h *AppHandler) SpotifyCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Add("Auth", tokenString)
+
+	http.SetCookie(w, &http.Cookie{
+		Name:    "token",
+		Value:   tokenString,
+		// Expires: tokenString,
+	})
 	json.NewEncoder(w).Encode(UserDto{
 		UserId: registeredUser.UserId, 
 		UserName: registeredUser.Username,
