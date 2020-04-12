@@ -2,6 +2,7 @@ package routes
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -23,21 +24,14 @@ type AppHandler struct{
 	Config *config.Configs
 }
 
-type ErrorDto struct{
-	Status int
-	Message string
+type response struct {
+	StatusCode int        `json:"statusCode"`
+	Data    interface{} `json:"response"`
 }
 
 type claimKeyType string
 
 const claimKey claimKeyType = "claims"
-
-func contentJSONMiddleware(next http.Handler) http.Handler {
-    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        w.Header().Add("Content-Type", "application/json")
-        next.ServeHTTP(w, r)
-    })
-}
 
 func (h *AppHandler) verifyJWT(next http.Handler) http.Handler {
     return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -49,18 +43,19 @@ func (h *AppHandler) verifyJWT(next http.Handler) http.Handler {
 				log.Printf("unauthorized: %s ",err.Error())
 				// If the cookie is not set, return an unauthorized status
 				w.WriteHeader(http.StatusUnauthorized)
-				json.NewEncoder(w).Encode(ErrorDto{
-					Status: http.StatusUnauthorized, 
-					Message: "Unauthorized",
+				json.NewEncoder(w).Encode(response{
+					StatusCode: http.StatusUnauthorized, 
+					Data: "Unauthorized",
 				})
 				return
 			}
+			
 			// For any other type of error, return a bad request status
 			log.Printf("StatusBadRequest: %s ",err.Error())
 			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(ErrorDto{
-					Status: http.StatusBadRequest, 
-					Message: "StatusBadRequest",
+			json.NewEncoder(w).Encode(response{
+					StatusCode: http.StatusBadRequest, 
+					Data: "StatusBadRequest",
 			})
 			return
 		}
@@ -70,30 +65,54 @@ func (h *AppHandler) verifyJWT(next http.Handler) http.Handler {
 		if err!=nil{
 			log.Printf("Error validating token/claims: %s ",err.Error())
 			w.WriteHeader(http.StatusUnauthorized)	
-			json.NewEncoder(w).Encode(ErrorDto{
-				Status: http.StatusUnauthorized, 
-				Message: "Unauthorized",
+			json.NewEncoder(w).Encode(response{
+				StatusCode: http.StatusUnauthorized, 
+				Data: "Unauthorized",
 			})
 			return
 		}
-
 
 		ctx := context.WithValue(r.Context(), claimKey, claims)
         next.ServeHTTP(w, r.WithContext(ctx))
     })
 }
 
+func contentJSONMiddleware(next http.Handler) http.Handler {
+    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        w.Header().Add("Content-Type", "application/json")
+        next.ServeHTTP(w, r)
+    })
+}
+
+func responseHandler(handler func(w http.ResponseWriter, r *http.Request) (interface{}, int, error)) func(http.ResponseWriter, *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
+		data, status, err := handler(w, r)
+
+		if err != nil {
+			data = err.Error()
+		}
+
+		w.WriteHeader(status)
+		w.Header().Set("Content-Type", "application/json")
+
+		err = json.NewEncoder(w).Encode(response{Data: data, StatusCode: status})
+		if err != nil {
+			log.Printf("could not encode response to output: %v", err)
+		}
+	}
+}
+
 // RegisterRoutes registers all routes paths with handlers.
 func (h *AppHandler) RegisterRoutes(router *mux.Router) {
 	router.Use(contentJSONMiddleware)
-	router.HandleFunc("/", h.HomeHandler)
-	router.HandleFunc("/spotify-login", h.SpotifyLogin)
-	router.HandleFunc("/spotify-callback", h.SpotifyCallback)
+	router.HandleFunc("/", h.homeHandler)
+	router.HandleFunc("/spotify-login", h.spotifyLogin)
+	router.HandleFunc("/spotify-callback", responseHandler(h.spotifyCallback))
 
 	protectedRoutes := router.NewRoute().Subrouter()
 	protectedRoutes.Use(h.verifyJWT)
-	protectedRoutes.HandleFunc("/spotify-playlist", h.SpotifyPlaylist).Methods("GET")
-	protectedRoutes.HandleFunc("/user", h.GetUserProfile)
+	protectedRoutes.HandleFunc("/spotify-playlist", h.spotifyPlaylist).Methods("GET")
+	protectedRoutes.HandleFunc("/user", responseHandler(h.getUserProfile))
 }
 
 //npm install -g localtunnel
@@ -102,11 +121,12 @@ func (h *AppHandler) RegisterRoutes(router *mux.Router) {
 // lt -h "http://serverless.social" --port 2580 --open true --subdomain nnajiabraham
 // lt -h "http://viewshd.com" --port 2580 --subdomain nnajiabraham
 
-func (h *AppHandler) HomeHandler(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprintf(w, "Welcome home from new handler!")
+
+func (h *AppHandler) homeHandler(w http.ResponseWriter, r *http.Request) {
+	fmt.Fprintf(w, "No place like home")
 }
 
-func (h *AppHandler) SpotifyLogin(w http.ResponseWriter, r *http.Request) {
+func (h *AppHandler) spotifyLogin(w http.ResponseWriter, r *http.Request) {
 
 	url:= h.SpotifyService.GetSpotifyAuthLoginURL()
 	
@@ -114,38 +134,24 @@ func (h *AppHandler) SpotifyLogin(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, url, 301)
 }
 
-func (h *AppHandler) SpotifyCallback(w http.ResponseWriter, r *http.Request) {
+func (h *AppHandler) spotifyCallback(w http.ResponseWriter, r *http.Request) (interface{}, int, error){
 
 	client, err:= h.SpotifyService.GetSpotifyClientToken(r)
 	if err != nil {
 		log.Printf("Spotify login callback: %s ",err.Error())
-		w.WriteHeader(http.StatusUnauthorized)	
-		json.NewEncoder(w).Encode(ErrorDto{
-			Status: http.StatusUnauthorized, 
-			Message: "Unauthorized",
-		})
+		return nil, http.StatusUnauthorized, errors.New("Unauthorized")
 	}
 
 	user, userErr := client.SpotifyClient.CurrentUser()
 	if userErr!=nil {
 		log.Printf("Spotify User Not Found: %s ",userErr.Error())
-		w.WriteHeader(http.StatusInternalServerError)	
-		json.NewEncoder(w).Encode(ErrorDto{
-			Status: http.StatusInternalServerError, 
-			Message: "Something went wrong with fetching user info",
-		})
-        return
+        return nil, http.StatusNotFound, errors.New("Spotify User Not Found")
 	}
 
 	registeredUserErr, registeredUser:=h.UserService.FetchOrCreateUser(user, client.UserToken)
 	if registeredUserErr!=nil{
 		log.Printf("Unable to fetch or create user: %s ",registeredUserErr.Error())
-		w.WriteHeader(http.StatusInternalServerError)	
-		json.NewEncoder(w).Encode(ErrorDto{
-			Status: http.StatusInternalServerError, 
-			Message: "Something went wrong with fetching user info",
-		})
-        return
+        return nil, http.StatusInternalServerError, errors.New("Internal Server Error")
 	}
 
 	expirationTime := time.Now().Add(time.Hour * 24)
@@ -154,15 +160,10 @@ func (h *AppHandler) SpotifyCallback(w http.ResponseWriter, r *http.Request) {
 
 	if jwtErr != nil {
 		log.Printf("Unable to create token for user: %s ",jwtErr.Error())
-		w.WriteHeader(http.StatusInternalServerError)	
-		json.NewEncoder(w).Encode(ErrorDto{
-			Status: http.StatusInternalServerError, 
-			Message: "Something went wrong with fetching user info",
-		})
-        return
+        return nil, http.StatusInternalServerError, errors.New("Internal Server Error")
 	}
 
-	w.Header().Add("Auth", jwtString)
+	// w.Header().Add("Auth", jwtString)
 
 	http.SetCookie(w, &http.Cookie{
 		Name:    "token",
@@ -170,32 +171,27 @@ func (h *AppHandler) SpotifyCallback(w http.ResponseWriter, r *http.Request) {
 		Expires: expirationTime,
 	})
 
-	json.NewEncoder(w).Encode(models.User{
+    return models.User{
 		UserID: registeredUser.UserID,
 		SpotifyID: registeredUser.SpotifyID, 
 		Username: registeredUser.Username,
 		Email: registeredUser.Email,
-	})
+	}, http.StatusOK, nil
 }
 
-func (h *AppHandler) SpotifyPlaylist(w http.ResponseWriter, r *http.Request){
+func (h *AppHandler) spotifyPlaylist(w http.ResponseWriter, r *http.Request){
 	fmt.Print("sdf")
 }
 
-func (h *AppHandler) GetUserProfile(w http.ResponseWriter, r *http.Request){
+func (h *AppHandler) getUserProfile(w http.ResponseWriter, r *http.Request) (interface{}, int, error){
 
 	claims := r.Context().Value(claimKey).(services.Claims)
 	user := h.UserService.FetchUser(claims.SpotifyId)
-
 	tokenExpTime, timeParseErr:= strconv.ParseInt(user.SpotifyTokenExpiry, 10, 64)
+
 	if timeParseErr != nil {
 		log.Printf("Error parsing time to oauth2token type : %s ",timeParseErr.Error())
-		w.WriteHeader(http.StatusInternalServerError)	
-		json.NewEncoder(w).Encode(ErrorDto{
-			Status: http.StatusInternalServerError,
-			Message: "Internal Server Error",
-		})
-        return
+		return nil, http.StatusInternalServerError, errors.New("Internal Server Error")
 	}
 	
 	userOauthToken :=  &oauth2.Token{
@@ -206,12 +202,12 @@ func (h *AppHandler) GetUserProfile(w http.ResponseWriter, r *http.Request){
 	}
 
 	if userOauthToken.Valid() {
-		json.NewEncoder(w).Encode(models.User{
+		return models.User{
 			UserID: user.UserID, 
 			SpotifyID: user.SpotifyID,
 			Username: user.Username,
 			Email: user.Email,
-		})
+		}, http.StatusOK, nil
 	}
 
 	client:= h.SpotifyService.GetSpotifyAuth().NewClient(userOauthToken)
@@ -219,29 +215,21 @@ func (h *AppHandler) GetUserProfile(w http.ResponseWriter, r *http.Request){
 
 	if userErr!=nil {
 		log.Printf("Spotify User Not Found: %s ",userErr.Error())
-		w.WriteHeader(http.StatusInternalServerError)	
-		json.NewEncoder(w).Encode(ErrorDto{
-			Status: http.StatusInternalServerError, 
-			Message: "StatusUnauthorized",
-		})
+		return nil, http.StatusInternalServerError, errors.New("Internal Server Error")
 	}
 
 	updatedUser, updateUserErr := h.UserService.UpdateUser(userSpotifyProfile, userOauthToken)
 	
 	if updateUserErr!=nil {
 		log.Printf("Err Updating User: %s ",updateUserErr.Error())
-		w.WriteHeader(http.StatusUnauthorized)	
-		json.NewEncoder(w).Encode(ErrorDto{
-			Status: http.StatusUnauthorized, 
-			Message: "StatusUnauthorized",
-		})
+		return nil, http.StatusInternalServerError, errors.New("Internal Server Error")
 	}
 
 	fmt.Println("UPDATED USER TOKEN")
-	json.NewEncoder(w).Encode(models.User{
+	return models.User{
 			UserID: updatedUser.UserID, 
 			SpotifyID: updatedUser.SpotifyID,
 			Username: updatedUser.Username,
 			Email: updatedUser.Email,
-	})
+	}, http.StatusOK, nil
 }
