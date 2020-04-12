@@ -8,54 +8,39 @@ import (
 
 	"github.com/gorilla/handlers"
 	"github.com/gorilla/mux"
-	"github.com/jinzhu/gorm"
 	_ "github.com/jinzhu/gorm/dialects/mysql"
-	"github.com/joho/godotenv"
-	"github.com/nnajiabraham/spotube/models"
+	"github.com/nnajiabraham/spotube/config"
 	"github.com/nnajiabraham/spotube/routes"
 	"github.com/nnajiabraham/spotube/services"
 )
 
-func main() {
-    // loads values from .env into the system
-    if err := godotenv.Load(); err != nil {
-        log.Print("No .env file found")
-    }
-	
-	db, err := connectToDB()
-	if err != nil {
-		panic("failed to connect database")
+func main() {	
+	config := &config.Config{}
+	configs, err:= config.ReadConfig()
+	db := config.ConnectToDB()
+
+	if err != nil{
+		panic(fmt.Sprintf("Startup issues: \n%s", err.Error()))
 	}
+	
 	defer db.Close()
 
-	userService := &services.UserService{DB: db}
-	tokenService := &services.TokenService{}
+	spotifyService := &services.SpotifyService{Config: configs}
+	tokenService := &services.TokenService{Config: configs}
+	userService := &services.UserService{DB: db, Config: configs}
 	appHandler:= routes.AppHandler{
 		UserService: userService,
-		TokenService: tokenService,
+		TokenService: tokenService, 
+		SpotifyService: spotifyService,
+		Config: configs,
 	}
 
 	router := mux.NewRouter().StrictSlash(true)
-	router.Use(contentJSONMiddleware)
-	appHandler.RegisterRoutes(router);
+	appHandler.RegisterRoutes(router)
 
 	log.Println(http.ListenAndServe(":2580", handlers.CombinedLoggingHandler(os.Stdout, router)))
 }
 
-func contentJSONMiddleware(next http.Handler) http.Handler {
-    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        w.Header().Add("Content-Type", "application/json")
-        next.ServeHTTP(w, r)
-    })
-}
 
-func connectToDB()(db *gorm.DB, err error){
-	db, err = gorm.Open("mysql", "root:password@(localhost)/spotube?charset=utf8mb4&parseTime=True&loc=Local")
-	if err != nil {
-		fmt.Println("err", err.Error())
-		return nil, err
-	}
 
-	db.AutoMigrate(&models.User{})
-	return db, nil
-}
+

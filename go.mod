@@ -13,6 +13,7 @@ require (
 	github.com/s1s1ty/go-mysql-crud v0.0.0-20181126175725-0d81d1289c43
 	github.com/satori/go.uuid v1.2.0
 	github.com/zmb3/spotify v0.0.0-20200112163645-71a4c67d18db
+	golang.org/x/net v0.0.0-20190404232315-eb5bcb51f2a3
 	golang.org/x/oauth2 v0.0.0-20200107190931-bf48bf16ab8d
 	gopkg.in/check.v1 v1.0.0-20200227125254-8fa46927fb4f // indirect
 )

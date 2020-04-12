@@ -4,11 +4,12 @@ import (
 	"time"
 
 	"github.com/dgrijalva/jwt-go"
+	"github.com/nnajiabraham/spotube/config"
 	"github.com/nnajiabraham/spotube/models"
 )
 
 type TokenService struct {
-	
+	Config *config.Configs
 }
 
 type Claims struct {
@@ -18,19 +19,19 @@ type Claims struct {
 	jwt.StandardClaims
 }
 
-/* Set up a global string for our secret */
-var mySigningKey = []byte("secret")
+func (s *TokenService) getSigningKey() []byte{
+	return []byte(s.Config.JWT_SIGNING_KEY)
+}
 
-func (s *TokenService) CreateToken (user *models.User) (string, error){	
-	expirationTime := time.Now().Add(time.Hour * 24).Unix()
+func (s *TokenService) CreateToken (user *models.User, expirationTime time.Time) (string, error){	
 
 	// Create the JWT claims, which includes the username and expiry time
 	claims := &Claims{
-		UserId: user.UserId,
-		SpotifyId: user.SpotifyId,
+		UserId: user.UserID,
+		SpotifyId: user.SpotifyID,
 		Username: user.Username,
 		StandardClaims: jwt.StandardClaims{
-			ExpiresAt: expirationTime,
+			ExpiresAt: expirationTime.Unix(),
 		},
 	}
 
@@ -38,7 +39,7 @@ func (s *TokenService) CreateToken (user *models.User) (string, error){
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 
     /* Sign the token with our secret */
-	tokenString,err := token.SignedString(mySigningKey)
+	tokenString,err := token.SignedString(s.getSigningKey())
 
 	if err!=nil {
 	return "", err
@@ -51,7 +52,7 @@ func (s *TokenService) ValidateToken (token string) (Claims, error){
 	claims := &Claims{}
 
 	tkn, err := jwt.ParseWithClaims(token, claims, func(token *jwt.Token) (interface{}, error) {
-		return mySigningKey, nil
+		return s.getSigningKey(), nil
 	})
 
 	if err != nil || !tkn.Valid {
