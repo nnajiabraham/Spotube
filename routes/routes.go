@@ -77,8 +77,8 @@ func (h *AppHandler) verifyJWT(next http.Handler) http.Handler {
 			return
 		}
 
-		ctx := context.WithValue(r.Context(), claimKey, claims)
 
+		ctx := context.WithValue(r.Context(), claimKey, claims)
         next.ServeHTTP(w, r.WithContext(ctx))
     })
 }
@@ -91,7 +91,7 @@ func (h *AppHandler) RegisterRoutes(router *mux.Router) {
 	router.HandleFunc("/spotify-callback", h.SpotifyCallback)
 
 	protectedRoutes := router.NewRoute().Subrouter()
-	protectedRoutes.Use(contentJSONMiddleware)
+	protectedRoutes.Use(h.verifyJWT)
 	protectedRoutes.HandleFunc("/spotify-playlist", h.SpotifyPlaylist).Methods("GET")
 	protectedRoutes.HandleFunc("/user", h.GetUserProfile)
 }
@@ -184,14 +184,7 @@ func (h *AppHandler) SpotifyPlaylist(w http.ResponseWriter, r *http.Request){
 
 func (h *AppHandler) GetUserProfile(w http.ResponseWriter, r *http.Request){
 
-	// claimss := context.Get(r, "claims")
-	claimss := r.Context().Value(claimKey).(services.Claims)
-	fmt.Println("asd")
-	fmt.Println(claimss)
-	fmt.Println("asd")
-
 	claims := r.Context().Value(claimKey).(services.Claims)
-
 	user := h.UserService.FetchUser(claims.SpotifyId)
 
 	tokenExpTime, timeParseErr:= strconv.ParseInt(user.SpotifyTokenExpiry, 10, 64)
@@ -219,7 +212,6 @@ func (h *AppHandler) GetUserProfile(w http.ResponseWriter, r *http.Request){
 			Username: user.Username,
 			Email: user.Email,
 		})
-		return ;
 	}
 
 	client:= h.SpotifyService.GetSpotifyAuth().NewClient(userOauthToken)
@@ -232,7 +224,6 @@ func (h *AppHandler) GetUserProfile(w http.ResponseWriter, r *http.Request){
 			Status: http.StatusInternalServerError, 
 			Message: "StatusUnauthorized",
 		})
-        return
 	}
 
 	updatedUser, updateUserErr := h.UserService.UpdateUser(userSpotifyProfile, userOauthToken)
@@ -244,14 +235,13 @@ func (h *AppHandler) GetUserProfile(w http.ResponseWriter, r *http.Request){
 			Status: http.StatusUnauthorized, 
 			Message: "StatusUnauthorized",
 		})
-        return
 	}
 
 	fmt.Println("UPDATED USER TOKEN")
-	json.NewEncoder(w).Encode(json.NewEncoder(w).Encode(models.User{
+	json.NewEncoder(w).Encode(models.User{
 			UserID: updatedUser.UserID, 
 			SpotifyID: updatedUser.SpotifyID,
 			Username: updatedUser.Username,
 			Email: updatedUser.Email,
-		}))
+	})
 }
