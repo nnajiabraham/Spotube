@@ -111,7 +111,7 @@ func (h *AppHandler) RegisterRoutes(router *mux.Router) {
 
 	protectedRoutes := router.NewRoute().Subrouter()
 	protectedRoutes.Use(h.verifyJWT)
-	protectedRoutes.HandleFunc("/spotify-playlist", h.spotifyPlaylist).Methods("GET")
+	protectedRoutes.HandleFunc("/spotify-playlist", responseHandler(h.spotifyPlaylist)).Methods("GET")
 	protectedRoutes.HandleFunc("/user", responseHandler(h.getUserProfile))
 }
 
@@ -179,26 +179,36 @@ func (h *AppHandler) spotifyCallback(w http.ResponseWriter, r *http.Request) (in
 	}, http.StatusOK, nil
 }
 
-func (h *AppHandler) spotifyPlaylist(w http.ResponseWriter, r *http.Request){
-	fmt.Print("sdf")
+func (h *AppHandler) spotifyPlaylist(w http.ResponseWriter, r *http.Request) (interface{}, int, error) {
+	claims := r.Context().Value(claimKey).(services.Claims)
+	user := h.UserService.FetchUser(claims.SpotifyId)
+
+	userOauthToken, userOauthTokenErr := createSpotifyUserToken(user)
+	if userOauthTokenErr!=nil {
+		log.Printf("Unable to get token: %s ",userOauthTokenErr.Error())
+		return nil, http.StatusInternalServerError, errors.New("Internal Server Error")
+	}
+
+	client:= h.SpotifyService.GetSpotifyAuth().NewClient(userOauthToken)
+	usersPlaylist, usersPlaylistErr := client.CurrentUsersPlaylists()
+
+	if usersPlaylistErr != nil{
+		log.Printf("Unable to get users playlist: %s ",usersPlaylistErr.Error())
+		return nil, http.StatusInternalServerError, errors.New("Internal Server Error")
+	}
+
+	return usersPlaylist, http.StatusOK, nil
 }
 
 func (h *AppHandler) getUserProfile(w http.ResponseWriter, r *http.Request) (interface{}, int, error){
 
 	claims := r.Context().Value(claimKey).(services.Claims)
 	user := h.UserService.FetchUser(claims.SpotifyId)
-	tokenExpTime, timeParseErr:= strconv.ParseInt(user.SpotifyTokenExpiry, 10, 64)
 
-	if timeParseErr != nil {
-		log.Printf("Error parsing time to oauth2token type : %s ",timeParseErr.Error())
+	userOauthToken, userOauthTokenErr := createSpotifyUserToken(user)
+	if userOauthTokenErr!=nil {
+		log.Printf("Unable to get token: %s ",userOauthTokenErr.Error())
 		return nil, http.StatusInternalServerError, errors.New("Internal Server Error")
-	}
-	
-	userOauthToken :=  &oauth2.Token{
-		Expiry: time.Unix(tokenExpTime, 0),
-		TokenType: user.SpotifyTokenType,
-		AccessToken: user.SpotifyToken,
-		RefreshToken: user.SpotifyRefreshToken,
 	}
 
 	if userOauthToken.Valid() {
@@ -232,4 +242,20 @@ func (h *AppHandler) getUserProfile(w http.ResponseWriter, r *http.Request) (int
 			Username: updatedUser.Username,
 			Email: updatedUser.Email,
 	}, http.StatusOK, nil
+}
+
+func createSpotifyUserToken(user *models.User) (*oauth2.Token, error){
+	tokenExpTime, timeParseErr:= strconv.ParseInt(user.SpotifyTokenExpiry, 10, 64)
+
+	if timeParseErr != nil {
+		log.Printf("Error parsing time to oauth2token type")
+		return nil, timeParseErr
+	}
+	
+	return &oauth2.Token{
+		Expiry: time.Unix(tokenExpTime, 0),
+		TokenType: user.SpotifyTokenType,
+		AccessToken: user.SpotifyToken,
+		RefreshToken: user.SpotifyRefreshToken,
+	}, nil
 }
