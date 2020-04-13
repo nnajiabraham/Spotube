@@ -23,6 +23,7 @@ func (s *TokenService) getSigningKey() []byte{
 	return []byte(s.Config.JWT_SIGNING_KEY)
 }
 
+//CreateToken creates and signs a jwt token from user info
 func (s *TokenService) CreateToken (user *models.User, expirationTime time.Time) (string, error){	
 
 	// Create the JWT claims, which includes the username and expiry time
@@ -48,6 +49,7 @@ func (s *TokenService) CreateToken (user *models.User, expirationTime time.Time)
 	return tokenString, nil
 }
 
+//ValidateToken validates a signed jwt token and returns Claim
 func (s *TokenService) ValidateToken (token string) (Claims, error){
 	claims := &Claims{}
 

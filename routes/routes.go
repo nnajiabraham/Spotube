@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"math"
 	"net/http"
 	"strconv"
 	"time"
@@ -14,7 +13,6 @@ import (
 	"github.com/nnajiabraham/spotube/config"
 	"github.com/nnajiabraham/spotube/models"
 	"github.com/nnajiabraham/spotube/services"
-	"github.com/zmb3/spotify"
 	"golang.org/x/net/context"
 	"golang.org/x/oauth2"
 )
@@ -150,7 +148,7 @@ func (h *AppHandler) spotifyCallback(w http.ResponseWriter, r *http.Request) (in
         return nil, http.StatusNotFound, errors.New("Spotify User Not Found")
 	}
 
-	registeredUserErr, registeredUser:=h.UserService.FetchOrCreateUser(user, client.UserToken)
+	registeredUser, registeredUserErr:=h.UserService.FetchOrCreateUser(user, client.UserToken)
 	if registeredUserErr!=nil{
 		log.Printf("Unable to fetch or create user: %s ",registeredUserErr.Error())
         return nil, http.StatusInternalServerError, errors.New("Internal Server Error")
@@ -191,48 +189,11 @@ func (h *AppHandler) getSpotifyPlaylist(w http.ResponseWriter, r *http.Request) 
 		return nil, http.StatusInternalServerError, errors.New("Internal Server Error")
 	}
 
-	client:= h.SpotifyService.GetSpotifyAuth().NewClient(userOauthToken)
+	userPlaylist, userPlaylistErr:= h.SpotifyService.GetUserPlaylists(userOauthToken)
 
-	offset, limit := 0, 20
-	
-	options := &spotify.Options{
-		Offset: &offset, 
-		Limit: &limit,
-	}
-
-	userPlaylist := []spotify.SimplePlaylist{}
-
-	initialPlaylist, initialPlaylistErr := client.CurrentUsersPlaylistsOpt(options)
-
-	if initialPlaylistErr != nil{
-		log.Printf("Unable to get users playlist: %s ",initialPlaylistErr.Error())
+	if userPlaylistErr!=nil {
+		log.Printf("Unable to get user Playlists: %s ",userPlaylistErr.Error())
 		return nil, http.StatusInternalServerError, errors.New("Internal Server Error")
-	}
-
-	for _, playlist := range initialPlaylist.Playlists{
-		userPlaylist = append(userPlaylist, playlist)
-	}
-
-	if initialPlaylist.Total <= 20 {
-		return userPlaylist, http.StatusOK, nil
-	}
-
-	noOfPlaylistPages:= int(math.Ceil(float64(initialPlaylist.Total) / float64(limit)))
-
-	for page:=1; page<noOfPlaylistPages;{
-		page++
-		nextOffset := (limit*page)-limit
-		options.Offset = &nextOffset
-		nextPlaylists, nextPlaylistsErr := client.CurrentUsersPlaylistsOpt(options)
-
-		if nextPlaylistsErr != nil{
-			log.Printf("Unable to get users playlist: %s ",nextPlaylistsErr.Error())
-			return nil, http.StatusInternalServerError, errors.New("Internal Server Error")
-		}
-
-		for _, playlist := range nextPlaylists.Playlists{
-			userPlaylist = append(userPlaylist, playlist)
-		}
 	}
 
 	return userPlaylist, http.StatusOK, nil

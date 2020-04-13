@@ -13,20 +13,23 @@ import (
 	"golang.org/x/oauth2"
 )
 
+//UserService ..
 type UserService struct {
 	DB *gorm.DB
 	Config *config.Configs
 }
 
-func (s *UserService) FetchUser(userId string) (*models.User) {
+//FetchUser fetches a user record
+func (s *UserService) FetchUser(userID string) (*models.User) {
 	registeredUser := &models.User{}
 	
 	s.DB.Where(&models.User{
-		SpotifyID: userId,}).First(registeredUser)
+		SpotifyID: userID,}).First(registeredUser)
 	return registeredUser
 }
 
-func (s *UserService) FetchOrCreateUser(user *spotify.PrivateUser, token *oauth2.Token) (error, *models.User) {
+//FetchOrCreateUser fetches a user record if exist or creates one
+func (s *UserService) FetchOrCreateUser(user *spotify.PrivateUser, token *oauth2.Token) (*models.User, error) {
 
 	registeredUser := &models.User{}
 	
@@ -35,8 +38,6 @@ func (s *UserService) FetchOrCreateUser(user *spotify.PrivateUser, token *oauth2
 		SpotifyID: user.ID, 
 		Email: user.Email}).First(registeredUser)
 
-		// t,_:=time.Parse("2020-04-04 03:01:07.440281", time.Now().String())
-
 	if (models.User{}) != *registeredUser {
 		registeredUser.SpotifyToken=token.AccessToken
 		registeredUser.SpotifyRefreshToken=token.RefreshToken
@@ -44,14 +45,14 @@ func (s *UserService) FetchOrCreateUser(user *spotify.PrivateUser, token *oauth2
 		registeredUser.SpotifyTokenExpiry=strconv.FormatInt(token.Expiry.Unix(), 10)
 		s.DB.Save(registeredUser)
 
-		return nil, registeredUser
+		return registeredUser, nil
 	}
 
 
 	newUUID, err := uuid.NewV4()
 	if err != nil {
 		fmt.Printf("Something went wrong generating UUID: %s", err)
-		return err, nil
+		return nil, err
 	}
 	
 	fmt.Println("NEW USER REGISTERED")
@@ -68,9 +69,11 @@ func (s *UserService) FetchOrCreateUser(user *spotify.PrivateUser, token *oauth2
 
 	s.DB.Create(newUser)
 
-	return nil,newUser
+	return newUser, nil
 }
 
+
+//UpdateUser updates an existing user record
 func (s *UserService) UpdateUser(user *spotify.PrivateUser, token *oauth2.Token) (*models.User, error) {
 
 	registeredUser := &models.User{}
