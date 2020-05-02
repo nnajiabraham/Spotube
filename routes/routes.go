@@ -142,24 +142,24 @@ func (h *AppHandler) spotifyCallback(w http.ResponseWriter, r *http.Request) (in
 		return nil, http.StatusUnauthorized, errors.New("Unauthorized")
 	}
 
-	user, userErr := client.SpotifyClient.CurrentUser()
-	if userErr!=nil {
-		log.Printf("Spotify User Not Found: %s ",userErr.Error())
+	user, err := client.SpotifyClient.CurrentUser()
+	if err!=nil {
+		log.Printf("Spotify User Not Found: %s ",err.Error())
         return nil, http.StatusNotFound, errors.New("Spotify User Not Found")
 	}
 
-	registeredUser, registeredUserErr:=h.UserService.FetchOrCreateUser(user, client.UserToken)
-	if registeredUserErr!=nil{
-		log.Printf("Unable to fetch or create user: %s ",registeredUserErr.Error())
+	registeredUser, err:=h.UserService.FetchOrCreateUser(user, client.UserToken)
+	if err!=nil{
+		log.Printf("Unable to fetch or create user: %s ",err.Error())
         return nil, http.StatusInternalServerError, errors.New("Internal Server Error")
 	}
 
 	expirationTime := time.Now().Add(time.Hour * 24)
 
-	jwtString, jwtErr := h.TokenService.CreateToken(registeredUser, expirationTime)
+	jwtString, err := h.TokenService.CreateToken(registeredUser, expirationTime)
 
-	if jwtErr != nil {
-		log.Printf("Unable to create token for user: %s ",jwtErr.Error())
+	if err != nil {
+		log.Printf("Unable to create token for user: %s ",err.Error())
         return nil, http.StatusInternalServerError, errors.New("Internal Server Error")
 	}
 
@@ -183,16 +183,16 @@ func (h *AppHandler) getSpotifyPlaylist(w http.ResponseWriter, r *http.Request) 
 	claims := r.Context().Value(claimKey).(services.Claims)
 	user := h.UserService.FetchUser(claims.SpotifyId)
 
-	userOauthToken, userOauthTokenErr := createSpotifyUserToken(user)
-	if userOauthTokenErr!=nil {
-		log.Printf("Unable to get token: %s ",userOauthTokenErr.Error())
+	userOauthToken, err := createSpotifyUserToken(user)
+	if err!=nil {
+		log.Printf("Unable to get token: %s ",err.Error())
 		return nil, http.StatusInternalServerError, errors.New("Internal Server Error")
 	}
 
-	userPlaylist, userPlaylistErr:= h.SpotifyService.GetUserPlaylists(userOauthToken)
+	userPlaylist, err:= h.SpotifyService.GetUserPlaylists(userOauthToken)
 
-	if userPlaylistErr!=nil {
-		log.Printf("Unable to get user Playlists: %s ",userPlaylistErr.Error())
+	if err!=nil {
+		log.Printf("Unable to get user Playlists: %s ",err.Error())
 		return nil, http.StatusInternalServerError, errors.New("Internal Server Error")
 	}
 
@@ -204,9 +204,9 @@ func (h *AppHandler) getUserProfile(w http.ResponseWriter, r *http.Request) (int
 	claims := r.Context().Value(claimKey).(services.Claims)
 	user := h.UserService.FetchUser(claims.SpotifyId)
 
-	userOauthToken, userOauthTokenErr := createSpotifyUserToken(user)
-	if userOauthTokenErr!=nil {
-		log.Printf("Unable to get token: %s ",userOauthTokenErr.Error())
+	userOauthToken, err := createSpotifyUserToken(user)
+	if err!=nil {
+		log.Printf("Unable to get token: %s ",err.Error())
 		return nil, http.StatusInternalServerError, errors.New("Internal Server Error")
 	}
 
@@ -220,17 +220,17 @@ func (h *AppHandler) getUserProfile(w http.ResponseWriter, r *http.Request) (int
 	}
 
 	client:= h.SpotifyService.GetSpotifyAuth().NewClient(userOauthToken)
-	userSpotifyProfile, userErr := client.CurrentUser()
+	userSpotifyProfile, err := client.CurrentUser()
 
-	if userErr!=nil {
-		log.Printf("Spotify User Not Found: %s ",userErr.Error())
+	if err!=nil {
+		log.Printf("Spotify User Not Found: %s ",err.Error())
 		return nil, http.StatusInternalServerError, errors.New("Internal Server Error")
 	}
 
-	updatedUser, updateUserErr := h.UserService.UpdateUser(userSpotifyProfile, userOauthToken)
+	updatedUser, err := h.UserService.UpdateUser(userSpotifyProfile, userOauthToken)
 	
-	if updateUserErr!=nil {
-		log.Printf("Err Updating User: %s ",updateUserErr.Error())
+	if err!=nil {
+		log.Printf("Err Updating User: %s ",err.Error())
 		return nil, http.StatusInternalServerError, errors.New("Internal Server Error")
 	}
 
@@ -243,11 +243,11 @@ func (h *AppHandler) getUserProfile(w http.ResponseWriter, r *http.Request) (int
 }
 
 func createSpotifyUserToken(user *models.User) (*oauth2.Token, error){
-	tokenExpTime, timeParseErr:= strconv.ParseInt(user.SpotifyTokenExpiry, 10, 64)
+	tokenExpTime, err:= strconv.ParseInt(user.SpotifyTokenExpiry, 10, 64)
 
-	if timeParseErr != nil {
+	if err != nil {
 		log.Printf("Error parsing time to oauth2token type")
-		return nil, timeParseErr
+		return nil, err
 	}
 	
 	return &oauth2.Token{
