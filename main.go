@@ -15,7 +15,7 @@ import (
 )
 
 func main() {	
-	config := &config.Config{}
+	config := &config.AppConfig{}
 	configs, err:= config.ReadConfig()
 	db := config.ConnectToDB()
 
@@ -28,10 +28,12 @@ func main() {
 	spotifyService := &services.SpotifyService{Config: configs}
 	tokenService := &services.TokenService{Config: configs}
 	userService := &services.UserService{DB: db, Config: configs}
+	youtubeService := &services.YoutubeService{Config: configs}
 	appHandler:= routes.AppHandler{
 		UserService: userService,
 		TokenService: tokenService, 
 		SpotifyService: spotifyService,
+		YoutubeService: youtubeService,
 		Config: configs,
 	}
 
@@ -40,7 +42,3 @@ func main() {
 
 	log.Println(http.ListenAndServe(":2580", handlers.CombinedLoggingHandler(os.Stdout, router)))
 }
-
-
-
-

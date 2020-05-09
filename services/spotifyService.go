@@ -70,9 +70,9 @@ func (s *SpotifyService) GetUserPlaylists(userOauthToken *oauth2.Token)([]spotif
 
 	userPlaylist := []spotify.SimplePlaylist{}
 
-	initialPlaylist, initialPlaylistErr := client.CurrentUsersPlaylistsOpt(options)
-	if initialPlaylistErr != nil{
-		return nil, initialPlaylistErr
+	initialPlaylist, err := client.CurrentUsersPlaylistsOpt(options)
+	if err != nil{
+		return nil, err
 	}
 
 	for _, playlist := range initialPlaylist.Playlists{
@@ -89,11 +89,11 @@ func (s *SpotifyService) GetUserPlaylists(userOauthToken *oauth2.Token)([]spotif
 		page++
 		nextOffset := (limit*page)-limit
 		options.Offset = &nextOffset
-		nextPlaylists, nextPlaylistsErr := client.CurrentUsersPlaylistsOpt(options)
+		nextPlaylists, err := client.CurrentUsersPlaylistsOpt(options)
 
-		if nextPlaylistsErr != nil{
-			log.Printf("Unable to get users playlist: %s ",nextPlaylistsErr.Error())
-			return nil, nextPlaylistsErr
+		if err != nil{
+			log.Printf("Unable to get users playlist: %s ",err.Error())
+			return nil, err
 		}
 
 		for _, playlist := range nextPlaylists.Playlists{

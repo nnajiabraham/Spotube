@@ -21,6 +21,7 @@ type AppHandler struct{
 	UserService *services.UserService
 	TokenService *services.TokenService
 	SpotifyService *services.SpotifyService
+	YoutubeService *services.YoutubeService
 	Config *config.Configs
 }
 
@@ -107,7 +108,9 @@ func (h *AppHandler) RegisterRoutes(router *mux.Router) {
 	router.Use(contentJSONMiddleware)
 	router.HandleFunc("/", h.homeHandler)
 	router.HandleFunc("/spotify-login", h.spotifyLogin)
-	router.HandleFunc("/spotify-callback", responseHandler(h.spotifyCallback))
+	router.HandleFunc("/youtube-login", h.youtubeLogin)
+	router.HandleFunc("/google-callback", h.youtubeLogin)
+	router.HandleFunc("/spotify-callback", h.spotifyCallback)
 
 	protectedRoutes := router.NewRoute().Subrouter()
 	protectedRoutes.Use(h.verifyJWT)
@@ -126,32 +129,74 @@ func (h *AppHandler) homeHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "No place like home")
 }
 
+func (h *AppHandler) youtubeLogin(w http.ResponseWriter, r *http.Request) {
+	url:= h.YoutubeService.GetYoutubeAuthLoginURL()
+	log.Printf("URL IS %s", url)
+	
+	fmt.Printf("Login Redirect URL %s\n", url)
+	http.Redirect(w, r, url, http.StatusMovedPermanently)
+}
+
+func (h *AppHandler) googleCallback(w http.ResponseWriter, r *http.Request) {
+
+	log.Println("FREAKING CALLBACK HIT")
+	service, err := h.YoutubeService.GetYoutubeService(r)
+	if err != nil {
+		log.Printf("Youtube/Google login callback: %s ",err.Error())
+		http.Redirect(w, r, "/user", http.StatusMovedPermanently)
+		return
+	}
+
+	log.Println("FREAKING SERVICE HIT")
+
+
+	resp, err := service.Playlists.List("snippet").Do()
+	if err != nil {
+		log.Printf("Unable to retrieve Youtube Playlist: %s ",err.Error())
+		http.Redirect(w, r, "/user", http.StatusMovedPermanently)
+		return
+	}
+	log.Println("FREAKING PLAYLIST HIT")
+
+
+	fmt.Fprintf(w, "No place like home")
+	err = json.NewEncoder(w).Encode(resp)
+	if err != nil {
+		log.Printf("could not encode response to output: %v", err)
+	}
+
+}
+
+
 func (h *AppHandler) spotifyLogin(w http.ResponseWriter, r *http.Request) {
 
 	url:= h.SpotifyService.GetSpotifyAuthLoginURL()
 	
 	fmt.Printf("Login Redirect URL %s\n", url)
-	http.Redirect(w, r, url, 301)
+	http.Redirect(w, r, url, http.StatusMovedPermanently)
 }
 
-func (h *AppHandler) spotifyCallback(w http.ResponseWriter, r *http.Request) (interface{}, int, error){
+func (h *AppHandler) spotifyCallback(w http.ResponseWriter, r *http.Request){
 
 	client, err:= h.SpotifyService.GetSpotifyClientToken(r)
 	if err != nil {
 		log.Printf("Spotify login callback: %s ",err.Error())
-		return nil, http.StatusUnauthorized, errors.New("Unauthorized")
+		http.Redirect(w, r, "/user", http.StatusMovedPermanently)
+		return
 	}
 
 	user, err := client.SpotifyClient.CurrentUser()
 	if err!=nil {
 		log.Printf("Spotify User Not Found: %s ",err.Error())
-        return nil, http.StatusNotFound, errors.New("Spotify User Not Found")
+		 http.Redirect(w, r, "/user", http.StatusMovedPermanently)
+		 return
 	}
 
 	registeredUser, err:=h.UserService.FetchOrCreateUser(user, client.UserToken)
 	if err!=nil{
 		log.Printf("Unable to fetch or create user: %s ",err.Error())
-        return nil, http.StatusInternalServerError, errors.New("Internal Server Error")
+		 http.Redirect(w, r, "/user", http.StatusMovedPermanently)
+		 return
 	}
 
 	expirationTime := time.Now().Add(time.Hour * 24)
@@ -160,10 +205,9 @@ func (h *AppHandler) spotifyCallback(w http.ResponseWriter, r *http.Request) (in
 
 	if err != nil {
 		log.Printf("Unable to create token for user: %s ",err.Error())
-        return nil, http.StatusInternalServerError, errors.New("Internal Server Error")
+		 http.Redirect(w, r, "/user", http.StatusMovedPermanently)
+		 return
 	}
-
-	// w.Header().Add("Auth", jwtString)
 
 	http.SetCookie(w, &http.Cookie{
 		Name:    "token",
@@ -171,12 +215,7 @@ func (h *AppHandler) spotifyCallback(w http.ResponseWriter, r *http.Request) (in
 		Expires: expirationTime,
 	})
 
-    return models.User{
-		UserID: registeredUser.UserID,
-		SpotifyID: registeredUser.SpotifyID, 
-		Username: registeredUser.Username,
-		Email: registeredUser.Email,
-	}, http.StatusOK, nil
+    http.Redirect(w, r, "/user", http.StatusMovedPermanently)
 }
 
 func (h *AppHandler) getSpotifyPlaylist(w http.ResponseWriter, r *http.Request) (interface{}, int, error) {
