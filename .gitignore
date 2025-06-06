@@ -1,3 +1,6 @@
 tmp
 .env
 client_secret.json
+ytmusic_get_playlistItem_response_sample.json
+ytmusic_get_user_playlist_response_sample.json
+.DS_Store
