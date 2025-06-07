@@ -35,9 +35,9 @@ Eliminate the manual effort of recreating or updating playlists across Spotify a
 • **Backend**: Go 1.24+, PocketBase framework
   – Libraries: `github.com/zmb3/spotify`, `google.golang.org/api/youtube/v3`, `github.com/samber/lo` (utility), `github.com/rs/zerolog` (logging)
 • **Database**: Embedded SQLite (managed by PocketBase)
-• **Frontend**: React 19 + TypeScript, Vite, Tailwind CSS, TanStack Router, TanStack Query, Zod
+• **Frontend**: React 19 + TypeScript, Vite (with TanStack Router plugin for file-based routing), Tailwind CSS, TanStack Router, TanStack Query, Zod
 • **Testing**: Vitest (unit/integration tests), Playwright (E2E tests), MSW (API mocking)
-• **Build Tooling**: Go modules, Vite (with TypeScript checking), Docker (multi-stage build)
+• **Build Tooling**: Go modules, Vite (with TypeScript checking), Docker (multi-stage build), **Air (live-reload for Go dev)**
 • **Deployment**: Any container runtime (tested on Unraid).  All configuration via environment variables.
 
 ## 5. Resources & References
@@ -118,8 +118,8 @@ The service is delivered as a **single statically-linked Go binary** that embeds
 | **RFC-008** | Sync Execution Job | Worker processes `sync_items`, updates target service, handles errors. UI: real-time sync status updates, error notifications. | • Queued item marked `done` and track appears on other platform.  • E2E test verifies full sync cycle. |
 | **RFC-009** | Conflict & Blacklist Handling | Schema for blacklisted tracks, skip logic, UI to manage blacklist. UI: track conflict resolution modal, blacklist management table. | • Blacklisted track skipped and counter increments.  • Playwright tests cover conflict resolution UI. |
 | **RFC-010** | Logging & Status Dashboard | Visualize job runs, per-mapping status, log tail. UI: real-time status cards, log filtering, sync history charts. | • UI shows last N runs with success indicator.  • Playwright tests verify dashboard interactions. |
-| **RFC-011** | Docker & Release Pipeline | Multi-stage Dockerfile, GitHub Actions to build/push image, TypeScript type checking in CI. | • `docker run` starts server, exposes PB dashboard at `/_/`.  • `tsc --noEmit` passes in CI. |
-| **RFC-012** | Comprehensive E2E Testing Suite | Complete Playwright test suite covering all user flows: setup wizard → OAuth → mappings → sync execution. MSW setup for API mocking. | • Full user journey works end-to-end.  • All Playwright tests pass with 90%+ coverage. |
+| **RFC-011** | Docker & Release Pipeline | Multi-stage Dockerfile | • `docker run` starts server, exposes PB dashboard at `/_/`.  • `tsc --noEmit` passes. |
+| **RFC-012** | Comprehensive E2E Testing Suite | Complete Playwright test suite covering all user flows: setup wizard → OAuth → mappings → sync execution. MSW setup for API mocking. | • Full user journey works end-to-end.  • All Playwright tests pass with sufficient coverage. |
 | **RFC-013** | Documentation & README | Author detailed README, update env descriptions, add architecture diagram, testing strategy docs. | • `markdownlint` passes.  • README includes testing commands and contribution guidelines. |
 
 *(Additional RFCs may be added as scope evolves.)*
