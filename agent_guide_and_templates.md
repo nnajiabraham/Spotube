@@ -76,7 +76,7 @@ Keep the PRD concise and focused on the current scope. It should be treated as a
 All significant features, changes, or architectural decisions should first be defined in an RFC document, typically stored in a dedicated `docs/rfcs/` directory within the project. Each RFC serves as the specification and plan for a unit of work.
 
 1.  **Define the Work:** Create an RFC using the standard template (see below). Clearly articulate the goals and technical approach.
-2.  **Implement Incrementally:** Implement the RFC by following its **Technical Design** and completing the items in its **Checklist** one by one. Make sure to check of each checklist items when finished before proceeding to the next during  RFC implementation. Also make sure to update the Implementation Notes / Summary section after each item in the checklist is checked of so we maintain that to be as acurrate as possible
+2.  **Implement Incrementally:** Implement the RFC by following its **Technical Design** and completing the items in its **Checklist** one by one. Make sure to check of each checklist items when finished before proceeding to the next during  RFC implementation. Also make sure to update the Implementation Notes / Summary section after each item in the checklist is checked of so we maintain that to be as acurrate as possible. **CRITICAL:** The Implementation Notes / Summary section serves as context for other implementer agents working on dependent RFCs - include detailed information about what was changed, specific file paths, configuration updates, and any important implementation decisions that future agents will need to understand.
 3.  **Track Progress:** As each checklist item is completed, **edit the RFC file** to mark the item as done (`[X]`). This provides visibility into the progress.
 4.  **Commit Changes:** Use Git for version control, following the commit message guidelines (see below). Link commits back to the RFC being worked on.
 
@@ -158,6 +158,7 @@ Use this template for all new RFCs to ensure consistency and clarity.
 *   *Add any extra context, links to documentation, or potential challenges.*
 *   *Example: Password complexity rules will be handled in a separate RFC.*
 *   *After completion, this section can be used to summarize the key changes made.*
+*   ***CRITICAL:** This section serves as context for other implementer agents working on dependent RFCs. Update this section after each checklist item with detailed information including: specific file paths that were modified, configuration changes made, database schema updates, environment variables added, and any important implementation decisions that future agents will need to understand.*
 ```
 
 ## Version Control & Commit Messages
@@ -252,6 +253,7 @@ Here is a blank template structure for reference when creating a new RFC:
 
 *   *Add any relevant notes, links, or potential issues during implementation.*
 *   *After completion, summarize the key changes and outcomes here.*
+*   ***CRITICAL:** Update this section after each checklist item with detailed information for future agents: specific file paths modified, configuration changes, database schema updates, environment variables, and implementation decisions.*
 ```
 
 ---

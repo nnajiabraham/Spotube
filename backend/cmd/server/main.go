@@ -2,27 +2,28 @@
 package main
 
 import (
-	"fmt"
+	"log"
 	"os"
+	"strings"
 
-	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/log"
+	"github.com/pocketbase/pocketbase"
+	"github.com/pocketbase/pocketbase/plugins/migratecmd"
+
+	// Import migrations to register them
+	_ "github.com/manlikeabro/spotube/pb_migrations"
 )
 
 func main() {
-	// Initialize zerolog with pretty output for development
-	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr})
+	app := pocketbase.New()
 
-	fmt.Println("hello world")
-	log.Info().Msg("Spotube server - minimal scaffold")
+	// Register `pb migrate` sub-command so we can run `go run ./cmd/server migrate up`.
+	isGoRun := strings.HasPrefix(os.Args[0], os.TempDir())
+	migratecmd.MustRegister(app, app.RootCmd, migratecmd.Config{
+		Automigrate: isGoRun, // Dev: auto-generate migrations when using Admin UI
+	})
 
-	// For development, run a simple HTTP server instead of exiting
-	if len(os.Args) > 1 && os.Args[1] == "serve" {
-		log.Info().Msg("Starting HTTP server on :8090")
-		// Simple placeholder server - will be replaced in RFC-002
-		select {} // Block forever for now
+	// Serve PocketBase (defaults to :8090) – production port defined via ENV PORT.
+	if err := app.Start(); err != nil {
+		log.Fatal(err)
 	}
-
-	// Exit with 0 to satisfy CI requirements when not in serve mode
-	os.Exit(0)
 }

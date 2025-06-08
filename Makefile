@@ -1,9 +1,14 @@
-.PHONY: dev test lint build-image clean help
+.PHONY: dev backend-dev test lint build-image clean migrate-up help
+
+# Variables
+PB_DEV_PORT ?= 8090
 
 # Default target
 help:
 	@echo "Available targets:"
 	@echo "  dev          - Start development servers (backend + frontend)"
+	@echo "  backend-dev  - Start backend with Air (live reload)"
+	@echo "  migrate-up   - Run database migrations manually"
 	@echo "  test         - Run all tests (backend + frontend)"
 	@echo "  lint         - Run all linters (backend + frontend)"
 	@echo "  build-image  - Build Docker image"
@@ -17,6 +22,16 @@ dev:
 	@echo "Backend (Go) on :8090 and frontend (Vite) on :5173 started."
 	@echo "Press Ctrl+C to stop both servers."
 	@wait
+
+# Run backend with Air (live reload) - PB auto-migrates on each restart
+backend-dev:
+	@echo "Starting backend with Air on port $(PB_DEV_PORT)..."
+	@cd backend && PORT=$(PB_DEV_PORT) go run github.com/air-verse/air@latest
+
+# Run migrations manually (e.g. CI)
+migrate-up:
+	@echo "Running database migrations..."
+	@cd backend && go run ./cmd/server migrate up
 
 # Test: run backend and frontend tests
 test:
