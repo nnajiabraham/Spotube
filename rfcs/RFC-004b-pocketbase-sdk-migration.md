@@ -1,6 +1,6 @@
 # RFC-004b: PocketBase JS SDK Migration
 
-**Status:** Draft  
+**Status:** Done  
 **Branch:** `rfc/004b-pocketbase-sdk-migration`  
 **Related Issues:** _n/a_  
 **Depends On:** RFC-004 (Spotify OAuth Integration)
@@ -151,14 +151,14 @@ These can be addressed in future RFCs:
 
 ## 5. Checklist
 
-- [ ] **M1** Install PocketBase JS SDK dependency
-- [ ] **M2** Create PocketBase client instance with TypeScript types
-- [ ] **M3** Update `api.getSetupStatus()` to use PocketBase SDK
-- [ ] **M4** Update `api.getSpotifyPlaylists()` to use PocketBase SDK
-- [ ] **M5** Verify all existing unit tests pass with MSW mocks
-- [ ] **M6** Test real app with Playwright MCP tool
-- [ ] **M7** Update any error handling to work with PocketBase error format
-- [ ] **M8** Document migration in Implementation Notes with examples
+- [X] **M1** Install PocketBase JS SDK dependency
+- [X] **M2** Create PocketBase client instance with TypeScript types
+- [X] **M3** Update `api.getSetupStatus()` to use PocketBase SDK
+- [X] **M4** Update `api.getSpotifyPlaylists()` to use PocketBase SDK
+- [X] **M5** Verify all existing unit tests pass with MSW mocks
+- [X] **M6** Test real app with Playwright MCP tool (Skipped)
+- [X] **M7** Update any error handling to work with PocketBase error format
+- [X] **M8** Document migration in Implementation Notes with examples
 
 ## 6. Definition of Done
 
@@ -174,6 +174,37 @@ These can be addressed in future RFCs:
 * Maintains existing API interface to minimize component changes
 * Future RFCs can leverage more PocketBase features (collections API, realtime, etc.)
 * MSW mocks remain unchanged since we're keeping the same API structure
+
+**M1 COMPLETED** - Installed PocketBase JS SDK dependency:
+* Executed `npm install pocketbase --save` within the `frontend` directory.
+* `package.json` and `package-lock.json` were updated with the new dependency (`pocketbase: ^0.21.3`).
+
+**M2 COMPLETED** - Created PocketBase client instance:
+* Created `frontend/src/lib/pocketbase.ts`.
+* Added PocketBase client initialization pointing to `VITE_API_URL`.
+* Defined and exported TypeScript interfaces for `SetupStatus`, `SpotifyPlaylist`, and `PlaylistsResponse` to be used across the application.
+
+**M3 & M4 COMPLETED** - Updated API methods to use PocketBase SDK:
+* Refactored `frontend/src/lib/api.ts` to use the new PocketBase client instance (`pb`).
+* Replaced `fetch()` calls in `getSetupStatus` and `getSpotifyPlaylists` with `pb.send()`.
+* The existing `ApiError` class is preserved for consistent error handling in the UI components.
+* Updated `catch` blocks to handle errors of `unknown` type and cast them to access `status` and `message` properties, making the code more type-safe and compliant with linter rules.
+* Removed the now-unused `handleResponse` helper function and `API_BASE_URL` constant.
+
+**M5 COMPLETED** - Verified existing unit tests pass:
+* Executed `npm run test:run` in the `frontend` directory.
+* All 10 existing unit tests in 2 test suites (`setup-schema.test.ts` and `SpotifyConnectionCard.test.tsx`) passed successfully.
+* This confirms that the migration to the PocketBase SDK in `api.ts` did not break the components that rely on it, as the MSW mocks correctly intercepted the API calls.
+
+**M6 COMPLETED** - E2E testing was skipped as per the user's request due to failures in the test suite that are outside the scope of this RFC. The existing E2E test suite will be addressed in a future update.
+
+**M7 COMPLETED** - Error handling updated for PocketBase SDK:
+* The `catch` blocks within the `api.ts` methods were updated to handle `unknown` error types thrown by the PocketBase SDK.
+* Errors are cast to a generic error shape (`{ status?: number, message?: string }`) and then re-thrown as the application's custom `ApiError`. This ensures that UI components continue to work with the existing error handling logic while being compatible with the errors from the new SDK.
+
+**M8 COMPLETED** - Migration documented with implementation notes:
+* The "Implementation Notes / Summary" section of this RFC has been updated sequentially after each step (M1-M7).
+* The notes provide a detailed log of all changes, including commands run, files created/modified, and key decisions made during the migration. This document now serves as a comprehensive record of the implementation.
 
 ## Resources & References
 
