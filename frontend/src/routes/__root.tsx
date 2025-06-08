@@ -1,4 +1,7 @@
 import { createRootRoute, Outlet, redirect } from '@tanstack/react-router'
+import { TanStackRouterDevtools } from '@tanstack/react-router-devtools'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { ReactQueryDevtools } from '@tanstack/react-query-devtools'
 
 // Check if setup is required by calling the backend
 async function checkSetupStatus() {
@@ -16,8 +19,18 @@ async function checkSetupStatus() {
   }
 }
 
+const queryClient = new QueryClient()
+
 export const Route = createRootRoute({
-  component: () => <Outlet />,
+  component: () => (
+    <QueryClientProvider client={queryClient}>
+      <div className="min-h-screen bg-background font-sans antialiased">
+        <Outlet />
+        <TanStackRouterDevtools />
+        <ReactQueryDevtools />
+      </div>
+    </QueryClientProvider>
+  ),
   beforeLoad: async () => {
     const setupRequired = await checkSetupStatus()
     

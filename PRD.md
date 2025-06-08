@@ -35,13 +35,14 @@ Eliminate the manual effort of recreating or updating playlists across Spotify a
 • **Backend**: Go 1.24+, PocketBase framework
   – Libraries: `github.com/zmb3/spotify`, `google.golang.org/api/youtube/v3`, `github.com/samber/lo` (utility), `github.com/rs/zerolog` (logging)
 • **Database**: Embedded SQLite (managed by PocketBase)
-• **Frontend**: React 19 + TypeScript, Vite (with TanStack Router plugin for file-based routing), Tailwind CSS, TanStack Router, TanStack Query, Zod
-• **Testing**: Vitest (unit/integration tests), Playwright (E2E tests), MSW (API mocking)
+• **Frontend**: React 19 + TypeScript, Vite (with TanStack Router plugin for file-based routing), Tailwind CSS, TanStack Router, TanStack Query, Zod, **[PocketBase JS SDK](https://github.com/pocketbase/js-sdk)** (for API communication)
+• **Testing**: Vitest (unit/integration tests with MSW for API mocking), Playwright (E2E tests), MSW (API mocking for isolated frontend tests)
+• **Validation Tools**: **[Playwright MCP](https://github.com/microsoft/playwright-mcp)** for real application user flow validation
 • **Build Tooling**: Go modules, Vite (with TypeScript checking), Docker (multi-stage build), **Air (live-reload for Go dev)**
 • **Deployment**: Any container runtime (tested on Unraid).  All configuration via environment variables.
 
 ## 5. Resources & References
-• PocketBase docs – [Framework](https://pocketbase.io/docs/) | [Go Overview](https://pocketbase.io/docs/go-overview) | [Migrations](https://pocketbase.io/docs/go-migrations) | [Routing](https://pocketbase.io/docs/go-routing) | [Database](https://pocketbase.io/docs/go-database) | [Collections](https://pocketbase.io/docs/go-collections/) | [Records](https://pocketbase.io/docs/go-records/) | [Jobs Scheduling](https://pocketbase.io/docs/go-jobs-scheduling/) | [REST API](https://pocketbase.io/docs/api-records/)
+• **PocketBase** – [Framework](https://pocketbase.io/docs/) | [Go Overview](https://pocketbase.io/docs/go-overview) | [Migrations](https://pocketbase.io/docs/go-migrations) | [Routing](https://pocketbase.io/docs/go-routing) | [Database](https://pocketbase.io/docs/go-database) | [Collections](https://pocketbase.io/docs/go-collections/) | [Records](https://pocketbase.io/docs/go-records/) | [Jobs Scheduling](https://pocketbase.io/docs/go-jobs-scheduling/) | [REST API](https://pocketbase.io/docs/api-records/) | **[JS SDK](https://github.com/pocketbase/js-sdk)**
 • Spotify Web API – [Auth Code Flow](https://developer.spotify.com/documentation/web-api/tutorials/code-flow) | [Playlists Concepts](https://developer.spotify.com/documentation/web-api/concepts/playlists) | [Get Playlist](https://developer.spotify.com/documentation/web-api/reference/get-playlist) | [Get Playlist Tracks](https://developer.spotify.com/documentation/web-api/reference/get-playlists-tracks)
 • YouTube Data API v3 – [Registering an application](https://developers.google.com/youtube/registering_an_application) | [Playlists List](https://developers.google.com/youtube/v3/docs/playlists/list) | [Playlists Insert](https://developers.google.com/youtube/v3/docs/playlists/insert) | [PlaylistItems](https://developers.google.com/youtube/v3/docs/playlistItems) | [PlaylistItems List](https://developers.google.com/youtube/v3/docs/playlistItems/list)
 • Go SDKs – [zmb3/spotify](https://github.com/zmb3/spotify) | [google-api-go-client](https://github.com/googleapis/google-api-go-client)
@@ -102,8 +103,13 @@ The service is delivered as a **single statically-linked Go binary** that embeds
 • **Portability:** Runs on x86_64 & ARM64; no external dependencies beyond the binary & SQLite file.
 • **Observability:** Zerolog structured logs, optional Sentry integration stubbed for future RFC.
 • **Accessibility:** Frontend adheres to WCAG 2.1 AA via Tailwind defaults and focus management utilities.
-• **Testing Strategy:** Unit tests via Vitest, E2E tests via Playwright, API mocking via MSW for isolated frontend testing.
-• **Agent Tooling:** Implementer agents have access to [Playwright MCP](https://github.com/microsoft/playwright-mcp) for validating UI implementations during RFC development.
+• **Testing Strategy:** 
+  - Unit tests via Vitest with MSW for API mocking (ensuring test isolation)
+  - E2E tests via Playwright
+  - **ALL tests must pass before marking RFC complete** to prevent regression
+  - Real app validation using Playwright MCP tool for user-facing features
+  - Frontend tests use MSW exclusively for API mocking to ensure isolation from backend
+• **Agent Tooling:** Implementer agents have access to [Playwright MCP](https://github.com/microsoft/playwright-mcp) for validating UI implementations during RFC development. **Validation sequence: Run all unit tests → Run all E2E tests → Validate real app with Playwright MCP.**
 
 ## 10. Planned RFC Roadmap
 | RFC | Title | Purpose (Key Deliverables) | Highlight Test Cases |
@@ -126,7 +132,7 @@ The service is delivered as a **single statically-linked Go binary** that embeds
 
 ## 11. Resources & References  
 (Previously Section 5 – renumbered for clarity.)
-• PocketBase docs – [Framework](https://pocketbase.io/docs/) | [Go Overview](https://pocketbase.io/docs/go-overview) | [Migrations](https://pocketbase.io/docs/go-migrations) | [Routing](https://pocketbase.io/docs/go-routing) | [Database](https://pocketbase.io/docs/go-database) | [Collections](https://pocketbase.io/docs/go-collections/) | [Records](https://pocketbase.io/docs/go-records/) | [Jobs Scheduling](https://pocketbase.io/docs/go-jobs-scheduling/) | [REST API](https://pocketbase.io/docs/api-records/)  
+• **PocketBase** – [Framework](https://pocketbase.io/docs/) | [Go Overview](https://pocketbase.io/docs/go-overview) | [Migrations](https://pocketbase.io/docs/go-migrations) | [Routing](https://pocketbase.io/docs/go-routing) | [Database](https://pocketbase.io/docs/go-database) | [Collections](https://pocketbase.io/docs/go-collections/) | [Records](https://pocketbase.io/docs/go-records/) | [Jobs Scheduling](https://pocketbase.io/docs/go-jobs-scheduling/) | [REST API](https://pocketbase.io/docs/api-records/) | **[JS SDK](https://github.com/pocketbase/js-sdk)**
 • Spotify Web API – [Auth Code Flow](https://developer.spotify.com/documentation/web-api/tutorials/code-flow) | [Playlists Concepts](https://developer.spotify.com/documentation/web-api/concepts/playlists) | [Get Playlist](https://developer.spotify.com/documentation/web-api/reference/get-playlist) | [Get Playlist Tracks](https://developer.spotify.com/documentation/web-api/reference/get-playlists-tracks)  
 • YouTube Data API v3 – [Registering an application](https://developers.google.com/youtube/registering_an_application) | [Playlists List](https://developers.google.com/youtube/v3/docs/playlists/list) | [Playlists Insert](https://developers.google.com/youtube/v3/docs/playlists/insert) | [PlaylistItems](https://developers.google.com/youtube/v3/docs/playlistItems) | [PlaylistItems List](https://developers.google.com/youtube/v3/docs/playlistItems/list)  
 • Go SDKs – [zmb3/spotify](https://github.com/zmb3/spotify) | [google-api-go-client](https://github.com/googleapis/google-api-go-client)  

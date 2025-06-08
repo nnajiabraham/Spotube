@@ -1,4 +1,4 @@
-.PHONY: dev backend-dev test lint build-image clean migrate-up help
+.PHONY: dev backend-dev frontend-dev test test-backend test-frontend test-e2e lint build-image clean migrate-up help
 
 # Variables
 PB_DEV_PORT ?= 8090
@@ -6,20 +6,24 @@ PB_DEV_PORT ?= 8090
 # Default target
 help:
 	@echo "Available targets:"
-	@echo "  dev          - Start development servers (backend + frontend)"
-	@echo "  backend-dev  - Start backend with Air (live reload)"
-	@echo "  migrate-up   - Run database migrations manually"
-	@echo "  test         - Run all tests (backend + frontend)"
-	@echo "  lint         - Run all linters (backend + frontend)"
-	@echo "  build-image  - Build Docker image"
-	@echo "  clean        - Clean build artifacts"
+	@echo "  dev             - Start development servers (backend + frontend)"
+	@echo "  backend-dev     - Start backend with Air (live reload)"
+	@echo "  frontend-dev    - Start frontend Vite server only"
+	@echo "  migrate-up      - Run database migrations manually"
+	@echo "  test            - Run all tests (backend + frontend)"
+	@echo "  test-backend    - Run backend tests only"
+	@echo "  test-frontend   - Run frontend unit tests only"
+	@echo "  test-e2e        - Run frontend E2E tests (requires backend running)"
+	@echo "  lint            - Run all linters (backend + frontend)"
+	@echo "  build-image     - Build Docker image"
+	@echo "  clean           - Clean build artifacts"
 
 # Development: run both backend and frontend concurrently
 dev:
 	@echo "Starting development servers..."
-	@cd backend && go run cmd/server/main.go serve &
+	@cd backend && PORT=$(PB_DEV_PORT) go run github.com/air-verse/air@latest &
 	@cd frontend && npm run dev &
-	@echo "Backend (Go) on :8090 and frontend (Vite) on :5173 started."
+	@echo "Backend (Go with Air) on :$(PB_DEV_PORT) and frontend (Vite) on :5173 started."
 	@echo "Press Ctrl+C to stop both servers."
 	@wait
 
@@ -28,17 +32,35 @@ backend-dev:
 	@echo "Starting backend with Air on port $(PB_DEV_PORT)..."
 	@cd backend && PORT=$(PB_DEV_PORT) go run github.com/air-verse/air@latest
 
+# Run frontend dev server only
+frontend-dev:
+	@echo "Starting frontend dev server on port 5173..."
+	@cd frontend && npm run dev
+
 # Run migrations manually (e.g. CI)
 migrate-up:
 	@echo "Running database migrations..."
 	@cd backend && go run ./cmd/server migrate up
 
 # Test: run backend and frontend tests
-test:
+test: test-backend test-frontend
+	@echo "All tests completed"
+
+# Run backend tests only
+test-backend:
 	@echo "Running backend tests..."
 	@cd backend && go test ./...
-	@echo "Running frontend tests..."
-	@cd frontend && (npm run test:run || echo "No test files found - expected for scaffold stage")
+
+# Run frontend unit tests only
+test-frontend:
+	@echo "Running frontend unit tests..."
+	@cd frontend && npm run test:run
+
+# Run frontend E2E tests (requires backend running)
+test-e2e:
+	@echo "Running frontend E2E tests..."
+	@echo "Note: Backend should be running on port 8090"
+	@cd frontend && npm run test:e2e
 
 # Lint: run backend and frontend linters
 lint:
@@ -58,3 +80,8 @@ clean:
 	@cd backend && go clean
 	@cd frontend && rm -rf dist node_modules/.vite
 	@echo "Clean complete." 
+
+kill-dev:
+	@echo "Killing development servers..."
+	@npx kill-port 8090 5173 5174 5175 5176
+	@echo "Development servers killed."

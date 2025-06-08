@@ -8,3 +8,5 @@ sample/
 backend/pb_data/
 backend/tmp/
 backend/server
+frontend/test-results
+frontend/playwright-report

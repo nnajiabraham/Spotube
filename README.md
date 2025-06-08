@@ -83,25 +83,51 @@ The backend uses **PocketBase** as the foundation, providing:
 
 ### Development Status
 
-The project foundation is complete through **RFC-003**. Current implementation includes:
+✅ **Completed RFCs:**
+- RFC-001: Repository initialization with Go backend and React frontend
+- RFC-002: PocketBase integration with migrations framework
+- RFC-003: Environment setup wizard for OAuth credentials
+- RFC-004: Spotify OAuth integration with PKCE flow
 
-- ✅ **RFC-001**: Go backend scaffold with zerolog structured logging
-- ✅ **RFC-001**: React 19 + Vite frontend with Tailwind CSS  
-- ✅ **RFC-001**: ESLint, Prettier, Vitest configuration
-- ✅ **RFC-001**: golangci-lint for Go code quality
-- ✅ **RFC-001**: Multi-stage Docker build
-- ✅ **RFC-001**: Makefile for development workflow
-- ✅ **RFC-002**: PocketBase integration with embedded SQLite
-- ✅ **RFC-002**: Database migrations framework
-- ✅ **RFC-002**: Admin UI and development tooling (Air live reload)
-- ✅ **RFC-002**: Settings collection for OAuth credentials
-- ✅ **RFC-003**: Environment setup wizard with React Hook Form + Zod validation
-- ✅ **RFC-003**: TanStack Router integration with route guards
-- ✅ **RFC-003**: Comprehensive test coverage (Vitest + Go tests)
+**Current Features:**
+- Monorepo structure with separate backend/frontend workspaces
+- PocketBase embedded with Admin UI (port 8090)
+- Go-based migrations system for database schema evolution  
+- Environment setup wizard for first-time configuration
+- Settings collection for storing OAuth credentials
+- Spotify OAuth2 authentication with PKCE security
+- Spotify playlists API proxy endpoint
+- Frontend dashboard with connection status
+- MSW-powered testing infrastructure
 
-**Next Steps:**
-- RFC-004: Spotify OAuth integration
-- RFC-005+: YouTube OAuth and sync functionality
+## Spotify OAuth Setup
+
+To use Spotify integration, you'll need to:
+
+1. **Create a Spotify App:**
+   - Go to [Spotify Developer Dashboard](https://developer.spotify.com/dashboard)
+   - Click "Create App"
+   - Fill in app details
+   - Add redirect URIs (see below)
+
+2. **Configure Redirect URIs:**
+   Add these redirect URIs in your Spotify app settings:
+   - Development: `http://localhost:8090/api/auth/spotify/callback`
+   - Production: `https://your-domain.com/api/auth/spotify/callback`
+
+3. **Set Credentials:**
+   Either through the setup wizard (http://localhost:8090/setup) or environment variables:
+   ```bash
+   export SPOTIFY_CLIENT_ID="your-client-id"
+   export SPOTIFY_CLIENT_SECRET="your-client-secret"
+   export PUBLIC_URL="http://localhost:8090"  # or your production URL
+   ```
+
+4. **Connect Your Account:**
+   - Navigate to the dashboard
+   - Click "Connect Spotify"
+   - Authorize the app
+   - You'll be redirected back with your playlists accessible
 
 ## Tech Stack
 

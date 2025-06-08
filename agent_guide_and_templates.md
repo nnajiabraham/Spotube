@@ -99,6 +99,31 @@ When implementing an RFC, follow this **strict sequential process** for each che
 
 **DO NOT** move to the next checklist item until the current item is both checked off AND the Implementation Notes section has been updated with comprehensive details. This ensures that future agents working on dependent RFCs have complete context about what was implemented and how.
 
+### Test Validation Requirements
+
+Before marking any RFC or checklist item as complete, you must:
+
+1. **Run ALL Tests** to ensure no regression:
+   - Backend: Run `go test ./...` and ensure ALL tests pass (not just new ones)
+   - Frontend: Run `npm test` for unit tests and `npm run test:e2e` for E2E tests
+   - Document any test failures and fixes in the Implementation Notes
+
+2. **Follow the Validation Sequence**:
+   - First: Run all unit tests
+   - Second: Run all E2E tests  
+   - Third: For user-facing features, validate the real application using Playwright MCP tool
+
+3. **Use Playwright MCP for Real App Validation**:
+   - Start the development servers (backend and frontend)
+   - Use the Playwright MCP tool to interact with the application as a real user would
+   - Verify all user flows work as expected
+   - Document any issues found during real app validation
+
+4. **Frontend Test Isolation**:
+   - Always use MSW (Mock Service Worker) for API mocking in frontend tests
+   - Tests should never depend on real backend connections
+   - This ensures tests are fast, reliable, and can run in isolation
+
 ## Standard RFC Template
 
 Use this template for all new RFCs to ensure consistency and clarity.
