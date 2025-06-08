@@ -101,6 +101,121 @@ export const handlers = [
       next: offset + limit < mockPlaylists.length ? `${API_BASE_URL}/api/spotify/playlists?limit=${limit}&offset=${offset + limit}` : '',
     });
   }),
+
+  // Mappings handlers
+  http.get('*/api/collections/mappings/records', ({ request }) => {
+    const authHeader = request.headers.get('authorization')
+    
+    if (!authHeader) {
+      return new HttpResponse(null, { status: 401 })
+    }
+
+    return HttpResponse.json({
+      page: 1,
+      perPage: 30,
+      totalItems: 2,
+      totalPages: 1,
+      items: [
+        {
+          id: 'mapping1',
+          spotify_playlist_id: 'spotify123',
+          youtube_playlist_id: 'youtube456',
+          spotify_playlist_name: 'My Spotify Playlist',
+          youtube_playlist_name: 'My YouTube Playlist',
+          sync_name: true,
+          sync_tracks: true,
+          interval_minutes: 60,
+          created: '2024-01-01T00:00:00Z',
+          updated: '2024-01-01T00:00:00Z',
+        },
+        {
+          id: 'mapping2',
+          spotify_playlist_id: 'spotify789',
+          youtube_playlist_id: 'youtube012',
+          spotify_playlist_name: 'Another Playlist',
+          youtube_playlist_name: 'Another YT Playlist',
+          sync_name: false,
+          sync_tracks: true,
+          interval_minutes: 120,
+          created: '2024-01-02T00:00:00Z',
+          updated: '2024-01-02T00:00:00Z',
+        },
+      ],
+    })
+  }),
+
+  http.get('*/api/collections/mappings/records/:id', ({ params, request }) => {
+    const authHeader = request.headers.get('authorization')
+    
+    if (!authHeader) {
+      return new HttpResponse(null, { status: 401 })
+    }
+
+    const { id } = params
+    if (id === 'mapping1') {
+      return HttpResponse.json({
+        id: 'mapping1',
+        spotify_playlist_id: 'spotify123',
+        youtube_playlist_id: 'youtube456',
+        spotify_playlist_name: 'My Spotify Playlist',
+        youtube_playlist_name: 'My YouTube Playlist',
+        sync_name: true,
+        sync_tracks: true,
+        interval_minutes: 60,
+        created: '2024-01-01T00:00:00Z',
+        updated: '2024-01-01T00:00:00Z',
+      })
+    }
+
+    return new HttpResponse(null, { status: 404 })
+  }),
+
+  http.post('*/api/collections/mappings/records', async ({ request }) => {
+    const authHeader = request.headers.get('authorization')
+    
+    if (!authHeader) {
+      return new HttpResponse(null, { status: 401 })
+    }
+
+    const body = await request.json() as Record<string, unknown>
+    return HttpResponse.json({
+      id: 'newmapping',
+      ...body,
+      created: new Date().toISOString(),
+      updated: new Date().toISOString(),
+    })
+  }),
+
+  http.patch('*/api/collections/mappings/records/:id', async ({ params, request }) => {
+    const authHeader = request.headers.get('authorization')
+    
+    if (!authHeader) {
+      return new HttpResponse(null, { status: 401 })
+    }
+
+    const { id } = params
+    const body = await request.json() as Record<string, unknown>
+    
+    return HttpResponse.json({
+      id,
+      spotify_playlist_id: 'spotify123',
+      youtube_playlist_id: 'youtube456',
+      spotify_playlist_name: 'My Spotify Playlist',
+      youtube_playlist_name: 'My YouTube Playlist',
+      ...body,
+      updated: new Date().toISOString(),
+    })
+  }),
+
+  http.delete('*/api/collections/mappings/records/:id', ({ request }) => {
+    const authHeader = request.headers.get('authorization')
+    
+    if (!authHeader) {
+      return new HttpResponse(null, { status: 401 })
+    }
+
+    return new HttpResponse(null, { status: 204 })
+  }),
 ];
 
 // Handler for simulating unauthorized state - can be used to override the default

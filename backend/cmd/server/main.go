@@ -11,6 +11,7 @@ import (
 
 	// Import migrations to register them
 	"github.com/manlikeabro/spotube/internal/pbext/googleauth"
+	"github.com/manlikeabro/spotube/internal/pbext/mappings"
 	"github.com/manlikeabro/spotube/internal/pbext/setupwizard"
 	"github.com/manlikeabro/spotube/internal/pbext/spotifyauth"
 	_ "github.com/manlikeabro/spotube/migrations"
@@ -28,6 +29,9 @@ func main() {
 
 	// Register Google auth routes
 	googleauth.Register(app)
+
+	// Register mappings hooks
+	mappings.RegisterHooks(app)
 
 	// Register `pb migrate` sub-command so we can run `go run ./cmd/server migrate up`.
 	isGoRun := strings.HasPrefix(os.Args[0], os.TempDir())

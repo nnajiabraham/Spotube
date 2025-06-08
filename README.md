@@ -89,6 +89,7 @@ The backend uses **PocketBase** as the foundation, providing:
 - RFC-003: Environment setup wizard for OAuth credentials
 - RFC-004: Spotify OAuth integration with PKCE flow
 - RFC-005: YouTube OAuth integration with PKCE flow
+- RFC-006: Playlist mapping collections & UI
 
 **Current Features:**
 - Monorepo structure with separate backend/frontend workspaces
@@ -101,8 +102,11 @@ The backend uses **PocketBase** as the foundation, providing:
 - Spotify playlists API proxy endpoint
 - YouTube playlists API proxy endpoint
 - Frontend dashboard with connection status for both services
+- Playlist mappings management (CRUD operations)
+- Mapping creation wizard with 4-step flow
+- Configurable sync options (name, tracks, interval)
 - MSW-powered testing infrastructure
-- Full test coverage for OAuth flows
+- Full test coverage for OAuth flows and mappings UI
 
 ## Spotify OAuth Setup
 
@@ -176,6 +180,46 @@ To use YouTube integration, you'll need to:
    - You'll be redirected back with your YouTube playlists accessible
 
 **Note:** Google requires HTTPS for production OAuth redirects (except for localhost). Make sure your production deployment uses HTTPS.
+
+## Playlist Mappings
+
+After connecting both your Spotify and YouTube accounts, you can create playlist mappings to keep them synchronized:
+
+### Creating a Mapping
+
+1. **Navigate to Mappings:**
+   - From the dashboard, click "View Mappings"
+   - Or navigate directly to `/mappings`
+
+2. **Create New Mapping:**
+   - Click "Add mapping" to start the creation wizard
+   - **Step 1:** Select a Spotify playlist to sync
+   - **Step 2:** Select a YouTube playlist to sync with
+   - **Step 3:** Configure sync options:
+     - **Sync Name:** Keep playlist titles synchronized between platforms
+     - **Sync Tracks:** Keep track lists synchronized (add/remove songs)
+     - **Sync Interval:** How often to check for changes (5-720 minutes)
+   - **Step 4:** Review and save your mapping
+
+### Managing Mappings
+
+- **View All Mappings:** The mappings list shows all your configured sync pairs with their current settings
+- **Edit Mapping:** Click the edit icon to modify sync options and interval (playlist selection cannot be changed)
+- **Delete Mapping:** Click the trash icon to remove a mapping (requires confirmation)
+
+### Sync Behavior
+
+- **Bi-directional:** Changes on either platform will be synced to the other
+- **Scheduled:** Syncs run automatically at the configured interval
+- **Duplicate Prevention:** You cannot create multiple mappings for the same playlist pair
+- **Validation:** Minimum sync interval is 5 minutes to respect API rate limits
+
+### Technical Details
+
+- Mappings are stored in the `mappings` collection with a unique constraint on playlist pairs
+- Cached playlist names are displayed for better UX (refreshed during sync)
+- All operations require authentication
+- Sync execution is handled by scheduled jobs (coming in future RFCs)
 
 ## Tech Stack
 

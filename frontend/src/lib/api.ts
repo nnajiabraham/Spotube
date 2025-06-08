@@ -5,6 +5,8 @@ import type {
   SetupStatus,
   PlaylistsResponse,
   YouTubePlaylistsResponse,
+  Mapping,
+  MappingsResponse,
 } from './pocketbase';
 
 export class ApiError extends Error {
@@ -60,11 +62,55 @@ export const api = {
       });
       return response as YouTubePlaylistsResponse;
     } catch (error: unknown) {
-      if (error instanceof Error) {
-        const apiError = error as ApiError;
-        throw new ApiError(apiError.status || 500, apiError.message || 'Request failed');
-      }
-      throw new ApiError(500, 'An unknown error occurred');
+      const err = error as { status?: number, message?: string };
+      throw new ApiError(err.status ?? 500, err.message ?? 'Request failed');
+    }
+  },
+
+  // Mappings API
+  getMappings: async (params?: { page?: number; perPage?: number }): Promise<MappingsResponse> => {
+    try {
+      return await pb.collection('mappings').getList(params?.page || 1, params?.perPage || 30);
+    } catch (error: unknown) {
+      const err = error as { status?: number, message?: string };
+      throw new ApiError(err.status ?? 500, err.message ?? 'Request failed');
+    }
+  },
+
+  getMapping: async (id: string): Promise<Mapping> => {
+    try {
+      return await pb.collection('mappings').getOne(id);
+    } catch (error: unknown) {
+      const err = error as { status?: number, message?: string };
+      throw new ApiError(err.status ?? 500, err.message ?? 'Request failed');
+    }
+  },
+
+  createMapping: async (data: Partial<Mapping>): Promise<Mapping> => {
+    try {
+      return await pb.collection('mappings').create(data);
+    } catch (error: unknown) {
+      const err = error as { status?: number, message?: string };
+      throw new ApiError(err.status ?? 500, err.message ?? 'Request failed');
+    }
+  },
+
+  updateMapping: async (id: string, data: Partial<Mapping>): Promise<Mapping> => {
+    try {
+      return await pb.collection('mappings').update(id, data);
+    } catch (error: unknown) {
+      const err = error as { status?: number, message?: string };
+      throw new ApiError(err.status ?? 500, err.message ?? 'Request failed');
+    }
+  },
+
+  deleteMapping: async (id: string): Promise<boolean> => {
+    try {
+      await pb.collection('mappings').delete(id);
+      return true;
+    } catch (error: unknown) {
+      const err = error as { status?: number, message?: string };
+      throw new ApiError(err.status ?? 500, err.message ?? 'Request failed');
     }
   },
 }; 

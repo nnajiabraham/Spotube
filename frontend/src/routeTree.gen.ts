@@ -21,6 +21,15 @@ const DashboardLazyImport = createFileRoute('/dashboard')()
 const SetupIndexLazyImport = createFileRoute('/setup/')()
 const SetupSuccessLazyImport = createFileRoute('/setup/success')()
 const SettingsYoutubeLazyImport = createFileRoute('/settings/youtube')()
+const AuthenticatedMappingsIndexLazyImport = createFileRoute(
+  '/_authenticated/mappings/',
+)()
+const AuthenticatedMappingsNewLazyImport = createFileRoute(
+  '/_authenticated/mappings/new',
+)()
+const AuthenticatedMappingsMappingIdEditLazyImport = createFileRoute(
+  '/_authenticated/mappings/$mappingId/edit',
+)()
 
 // Create/Update Routes
 
@@ -55,6 +64,35 @@ const SettingsYoutubeLazyRoute = SettingsYoutubeLazyImport.update({
 } as any).lazy(() =>
   import('./routes/settings/youtube.lazy').then((d) => d.Route),
 )
+
+const AuthenticatedMappingsIndexLazyRoute =
+  AuthenticatedMappingsIndexLazyImport.update({
+    id: '/_authenticated/mappings/',
+    path: '/mappings/',
+    getParentRoute: () => rootRoute,
+  } as any).lazy(() =>
+    import('./routes/_authenticated/mappings/index.lazy').then((d) => d.Route),
+  )
+
+const AuthenticatedMappingsNewLazyRoute =
+  AuthenticatedMappingsNewLazyImport.update({
+    id: '/_authenticated/mappings/new',
+    path: '/mappings/new',
+    getParentRoute: () => rootRoute,
+  } as any).lazy(() =>
+    import('./routes/_authenticated/mappings/new.lazy').then((d) => d.Route),
+  )
+
+const AuthenticatedMappingsMappingIdEditLazyRoute =
+  AuthenticatedMappingsMappingIdEditLazyImport.update({
+    id: '/_authenticated/mappings/$mappingId/edit',
+    path: '/mappings/$mappingId/edit',
+    getParentRoute: () => rootRoute,
+  } as any).lazy(() =>
+    import('./routes/_authenticated/mappings/$mappingId/edit.lazy').then(
+      (d) => d.Route,
+    ),
+  )
 
 // Populate the FileRoutesByPath interface
 
@@ -95,6 +133,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SetupIndexLazyImport
       parentRoute: typeof SetupLazyImport
     }
+    '/_authenticated/mappings/new': {
+      id: '/_authenticated/mappings/new'
+      path: '/mappings/new'
+      fullPath: '/mappings/new'
+      preLoaderRoute: typeof AuthenticatedMappingsNewLazyImport
+      parentRoute: typeof rootRoute
+    }
+    '/_authenticated/mappings/': {
+      id: '/_authenticated/mappings/'
+      path: '/mappings'
+      fullPath: '/mappings'
+      preLoaderRoute: typeof AuthenticatedMappingsIndexLazyImport
+      parentRoute: typeof rootRoute
+    }
+    '/_authenticated/mappings/$mappingId/edit': {
+      id: '/_authenticated/mappings/$mappingId/edit'
+      path: '/mappings/$mappingId/edit'
+      fullPath: '/mappings/$mappingId/edit'
+      preLoaderRoute: typeof AuthenticatedMappingsMappingIdEditLazyImport
+      parentRoute: typeof rootRoute
+    }
   }
 }
 
@@ -120,6 +179,9 @@ export interface FileRoutesByFullPath {
   '/settings/youtube': typeof SettingsYoutubeLazyRoute
   '/setup/success': typeof SetupSuccessLazyRoute
   '/setup/': typeof SetupIndexLazyRoute
+  '/mappings/new': typeof AuthenticatedMappingsNewLazyRoute
+  '/mappings': typeof AuthenticatedMappingsIndexLazyRoute
+  '/mappings/$mappingId/edit': typeof AuthenticatedMappingsMappingIdEditLazyRoute
 }
 
 export interface FileRoutesByTo {
@@ -127,6 +189,9 @@ export interface FileRoutesByTo {
   '/settings/youtube': typeof SettingsYoutubeLazyRoute
   '/setup/success': typeof SetupSuccessLazyRoute
   '/setup': typeof SetupIndexLazyRoute
+  '/mappings/new': typeof AuthenticatedMappingsNewLazyRoute
+  '/mappings': typeof AuthenticatedMappingsIndexLazyRoute
+  '/mappings/$mappingId/edit': typeof AuthenticatedMappingsMappingIdEditLazyRoute
 }
 
 export interface FileRoutesById {
@@ -136,6 +201,9 @@ export interface FileRoutesById {
   '/settings/youtube': typeof SettingsYoutubeLazyRoute
   '/setup/success': typeof SetupSuccessLazyRoute
   '/setup/': typeof SetupIndexLazyRoute
+  '/_authenticated/mappings/new': typeof AuthenticatedMappingsNewLazyRoute
+  '/_authenticated/mappings/': typeof AuthenticatedMappingsIndexLazyRoute
+  '/_authenticated/mappings/$mappingId/edit': typeof AuthenticatedMappingsMappingIdEditLazyRoute
 }
 
 export interface FileRouteTypes {
@@ -146,8 +214,18 @@ export interface FileRouteTypes {
     | '/settings/youtube'
     | '/setup/success'
     | '/setup/'
+    | '/mappings/new'
+    | '/mappings'
+    | '/mappings/$mappingId/edit'
   fileRoutesByTo: FileRoutesByTo
-  to: '/dashboard' | '/settings/youtube' | '/setup/success' | '/setup'
+  to:
+    | '/dashboard'
+    | '/settings/youtube'
+    | '/setup/success'
+    | '/setup'
+    | '/mappings/new'
+    | '/mappings'
+    | '/mappings/$mappingId/edit'
   id:
     | '__root__'
     | '/dashboard'
@@ -155,6 +233,9 @@ export interface FileRouteTypes {
     | '/settings/youtube'
     | '/setup/success'
     | '/setup/'
+    | '/_authenticated/mappings/new'
+    | '/_authenticated/mappings/'
+    | '/_authenticated/mappings/$mappingId/edit'
   fileRoutesById: FileRoutesById
 }
 
@@ -162,12 +243,19 @@ export interface RootRouteChildren {
   DashboardLazyRoute: typeof DashboardLazyRoute
   SetupLazyRoute: typeof SetupLazyRouteWithChildren
   SettingsYoutubeLazyRoute: typeof SettingsYoutubeLazyRoute
+  AuthenticatedMappingsNewLazyRoute: typeof AuthenticatedMappingsNewLazyRoute
+  AuthenticatedMappingsIndexLazyRoute: typeof AuthenticatedMappingsIndexLazyRoute
+  AuthenticatedMappingsMappingIdEditLazyRoute: typeof AuthenticatedMappingsMappingIdEditLazyRoute
 }
 
 const rootRouteChildren: RootRouteChildren = {
   DashboardLazyRoute: DashboardLazyRoute,
   SetupLazyRoute: SetupLazyRouteWithChildren,
   SettingsYoutubeLazyRoute: SettingsYoutubeLazyRoute,
+  AuthenticatedMappingsNewLazyRoute: AuthenticatedMappingsNewLazyRoute,
+  AuthenticatedMappingsIndexLazyRoute: AuthenticatedMappingsIndexLazyRoute,
+  AuthenticatedMappingsMappingIdEditLazyRoute:
+    AuthenticatedMappingsMappingIdEditLazyRoute,
 }
 
 export const routeTree = rootRoute
@@ -182,7 +270,10 @@ export const routeTree = rootRoute
       "children": [
         "/dashboard",
         "/setup",
-        "/settings/youtube"
+        "/settings/youtube",
+        "/_authenticated/mappings/new",
+        "/_authenticated/mappings/",
+        "/_authenticated/mappings/$mappingId/edit"
       ]
     },
     "/dashboard": {
@@ -205,6 +296,15 @@ export const routeTree = rootRoute
     "/setup/": {
       "filePath": "setup/index.lazy.tsx",
       "parent": "/setup"
+    },
+    "/_authenticated/mappings/new": {
+      "filePath": "_authenticated/mappings/new.lazy.tsx"
+    },
+    "/_authenticated/mappings/": {
+      "filePath": "_authenticated/mappings/index.lazy.tsx"
+    },
+    "/_authenticated/mappings/$mappingId/edit": {
+      "filePath": "_authenticated/mappings/$mappingId/edit.lazy.tsx"
     }
   }
 }

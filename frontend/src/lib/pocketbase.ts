@@ -46,4 +46,25 @@ export interface YouTubePlaylist {
 
 export interface YouTubePlaylistsResponse {
   items: YouTubePlaylist[];
+}
+
+export interface Mapping {
+  id: string;
+  spotify_playlist_id: string;
+  youtube_playlist_id: string;
+  spotify_playlist_name: string;
+  youtube_playlist_name: string;
+  sync_name: boolean;
+  sync_tracks: boolean;
+  interval_minutes: number;
+  created: string;
+  updated: string;
+}
+
+export interface MappingsResponse {
+  page: number;
+  perPage: number;
+  totalItems: number;
+  totalPages: number;
+  items: Mapping[];
 } 
