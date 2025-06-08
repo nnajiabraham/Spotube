@@ -1,0 +1,42 @@
+run:
+  timeout: 5m
+  go: '1.24'
+
+linters:
+  enable:
+    - goimports
+    - govet
+    - staticcheck
+    - unused
+    - revive
+    - errcheck
+    - gosimple
+    - ineffassign
+    - typecheck
+    - misspell
+    - unparam
+    - unconvert
+    - gocritic
+    - gocyclo
+    - gofmt
+    - gofumpt
+
+linters-settings:
+  gocyclo:
+    min-complexity: 15
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - style
+      - performance
+  revive:
+    min-confidence: 0.8
+
+issues:
+  exclude-use-default: false
+  max-same-issues: 0
+  max-issues-per-linter: 0
+
+output:
+  formats:
+    - format: colored-line-number 
