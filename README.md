@@ -39,6 +39,24 @@ A lightweight self-hosted application that keeps your YouTube Music and Spotify 
    make migrate-up
    ```
 
+4. **First-run setup:**
+   
+   When you first visit http://localhost:5173, you'll be guided through the **Environment Setup Wizard** to configure your OAuth credentials:
+   
+   - **Spotify OAuth**: Create an app at https://developer.spotify.com/dashboard and get your Client ID and Client Secret
+   - **Google OAuth**: Set up a project at https://console.cloud.google.com/ and create OAuth 2.0 credentials
+   
+   The wizard will save these credentials securely in the database. You can also provide them via environment variables:
+   
+   ```bash
+   export SPOTIFY_ID="your-spotify-client-id"
+   export SPOTIFY_SECRET="your-spotify-client-secret"
+   export GOOGLE_CLIENT_ID="your-google-client-id"
+   export GOOGLE_CLIENT_SECRET="your-google-client-secret"
+   ```
+   
+   **Note**: If environment variables are set, the setup wizard will be skipped automatically.
+
 ### PocketBase Development Flow
 
 The backend uses **PocketBase** as the foundation, providing:
@@ -65,7 +83,7 @@ The backend uses **PocketBase** as the foundation, providing:
 
 ### Development Status
 
-The project foundation is complete through **RFC-002**. Current implementation includes:
+The project foundation is complete through **RFC-003**. Current implementation includes:
 
 - ✅ **RFC-001**: Go backend scaffold with zerolog structured logging
 - ✅ **RFC-001**: React 19 + Vite frontend with Tailwind CSS  
@@ -77,9 +95,11 @@ The project foundation is complete through **RFC-002**. Current implementation i
 - ✅ **RFC-002**: Database migrations framework
 - ✅ **RFC-002**: Admin UI and development tooling (Air live reload)
 - ✅ **RFC-002**: Settings collection for OAuth credentials
+- ✅ **RFC-003**: Environment setup wizard with React Hook Form + Zod validation
+- ✅ **RFC-003**: TanStack Router integration with route guards
+- ✅ **RFC-003**: Comprehensive test coverage (Vitest + Go tests)
 
 **Next Steps:**
-- RFC-003: Environment setup wizard (frontend + backend)
 - RFC-004: Spotify OAuth integration
 - RFC-005+: YouTube OAuth and sync functionality
 

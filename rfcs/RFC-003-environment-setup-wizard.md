@@ -1,6 +1,6 @@
 # RFC-003: Environment Setup Wizard (Frontend + Backend)
 
-**Status:** Draft  
+**Status:** Done  
 **Branch:** `rfc/003-setup-wizard`  
 **Related Issues:** _n/a_  
 **Depends On:** RFC-002 (PocketBase foundation)
@@ -134,13 +134,13 @@ export default defineConfig({
   * `zod@latest` – validation (already in stack)
 
 ## 5. Checklist
-- [ ] **W1** Implement `setupwizard` routes & hooks; register in `pbapp`.
-- [ ] **W2** Deny list/view access to `settings` via collection rules or hooks.
-- [ ] **W3** Migration: ensure a singleton `settings` record exists (id `settings`).
-- [ ] **W4** Implement frontend route guard & wizard pages with validation.
-- [ ] **W5** Add Vitest unit tests for Zod schema and Playwright E2E with MSW for mocking api calls.
-- [ ] **W6** Add Go tests for status & post routes.
-- [ ] **W7** Update README with first-run instructions.
+- [X] **W1** Implement `setupwizard` routes & hooks; register in `pbapp`.
+- [X] **W2** Deny list/view access to `settings` via collection rules or hooks.
+- [X] **W3** Migration: ensure a singleton `settings` record exists (id `settings`).
+- [X] **W4** Implement frontend route guard & wizard pages with validation.
+- [X] **W5** Add Vitest unit tests for Zod schema and Playwright E2E with MSW for mocking api calls.
+- [X] **W6** Add Go tests for status & post routes.
+- [X] **W7** Update README with first-run instructions.
 
 ## 6. Definition of Done
 * Fresh clone → `make dev` opens browser, wizard prompts for keys, saving succeeds, redirect happens, subsequent reload skips wizard.
@@ -151,6 +151,100 @@ export default defineConfig({
 * We considered using the generic PocketBase REST API (`/api/collections/settings/records/settings`), but a dedicated route keeps secrets out of generic listing endpoints and allows stricter auth.
 * Future RFC-004 (Spotify OAuth) requires these secrets; wizard must complete first.
 * Migration ensures there is always exactly one `settings` record, simplifying DAO operations.
+
+**W1 Implementation Details (Completed):**
+- Created `backend/internal/pbext/setupwizard/routes.go` - implements GET `/api/setup/status` and POST `/api/setup` endpoints
+  - `isSetupRequired()` function checks both environment variables and database for existing credentials
+  - `statusHandler()` returns `{required: boolean}` indicating if setup is needed
+  - `postHandler()` validates and saves all four credentials (spotify_id, spotify_secret, google_client_id, google_client_secret)
+  - Supports `UPDATE_ALLOWED=true` environment variable for credential rotation
+  - Returns HTTP 409 if setup already completed and updates not allowed
+- Created `backend/internal/pbext/setupwizard/hooks.go` - prevents direct API access to settings collection
+  - Blocks listing, viewing, creating, updating, and deleting settings records via generic PocketBase API
+  - Forces all settings operations to go through the dedicated setup wizard endpoints
+- Updated `backend/cmd/server/main.go` - registered setupwizard package with PocketBase app
+  - Added import for setupwizard package
+  - Called `setupwizard.Register(app)` to register routes
+  - Called `setupwizard.RegisterHooks(app)` to register access denial hooks
+- Backend successfully builds and compiles with new setupwizard implementation
+
+**W2 Implementation Details (Completed):**
+- Access denial was already implemented in `backend/internal/pbext/setupwizard/hooks.go` during W1
+- `RegisterHooks()` function blocks all direct API access to settings collection:
+  - `OnRecordsListRequest("settings")` - prevents listing settings records
+  - `OnRecordViewRequest("settings")` - prevents viewing individual settings records  
+  - `OnRecordBeforeCreateRequest("settings")` - prevents creating settings via API
+  - `OnRecordBeforeUpdateRequest("settings")` - prevents updating settings via API
+  - `OnRecordBeforeDeleteRequest("settings")` - prevents deleting settings via API
+- All operations return HTTP 403 Forbidden with descriptive error messages
+- This ensures settings can only be managed through the dedicated setup wizard endpoints
+
+**W3 Implementation Details (Completed):**
+- Created `backend/pb_migrations/1660000001_create_settings_singleton.go` - ensures singleton settings record exists
+- Migration checks if settings record with id "settings" already exists before creating
+- If record doesn't exist, creates new record with id "settings" and empty credential fields
+- Record will be populated by setup wizard when user provides credentials
+- Migration includes proper rollback functionality to delete the singleton record
+- Backend successfully builds and compiles with new migration
+
+**W4 Implementation Details (Completed):**
+- Installed required dependencies: `@tanstack/router-plugin`, `react-hook-form`, `@hookform/resolvers`
+- Updated `frontend/vite.config.ts` - added TanStack Router plugin and API proxy to localhost:8090
+- Created `frontend/src/routes/__root.tsx` - root route with setup status check and redirect logic
+- Created `frontend/src/routes/setup.lazy.tsx` - setup layout route component
+- Created `frontend/src/routes/setup/index.lazy.tsx` - main setup wizard form with:
+  - React Hook Form integration for form state management
+  - Zod schema validation for all four credential fields (spotify_id, spotify_secret, google_client_id, google_client_secret)
+  - Responsive UI with Tailwind CSS styling
+  - Error handling and loading states
+  - Form submission to POST /api/setup endpoint
+- Created `frontend/src/routes/setup/success.lazy.tsx` - success confirmation page with auto-redirect
+- Created `frontend/src/routes/dashboard.lazy.tsx` - basic dashboard placeholder
+- Updated `frontend/src/main.tsx` - integrated TanStack Router with RouterProvider
+- TanStack Router plugin automatically generated `frontend/src/routeTree.gen.ts` with proper type safety
+- Frontend successfully builds and compiles with complete setup wizard flow
+
+**W5 Implementation Details (Completed):**
+- Installed testing dependencies: `msw` for API mocking, `@playwright/test` for E2E testing
+- Created `frontend/src/test/setup-schema.test.ts` - comprehensive Vitest unit tests for Zod schema:
+  - Tests valid credential validation
+  - Tests individual field validation (empty spotify_id, spotify_secret, google_client_id, google_client_secret)
+  - Tests missing fields validation
+  - Tests all-empty fields validation
+  - All 7 unit tests pass successfully
+- Created `frontend/e2e/setup-wizard.spec.ts` - Playwright E2E test with MSW API mocking:
+  - Tests setup wizard display when setup is required
+  - Tests form validation for required fields
+  - Tests successful credential submission flow
+  - Tests API error handling
+  - Tests redirect behavior when setup is not required
+  - Tests loading state during form submission
+  - Uses MSW to mock GET /api/setup/status and POST /api/setup endpoints
+- Updated `frontend/vitest.config.ts` to exclude e2e directory from Vitest test runs
+- All Vitest unit tests pass successfully (7/7)
+
+**W6 Implementation Details (Completed):**
+- Created `backend/internal/pbext/setupwizard/routes_test.go` - comprehensive Go unit tests:
+  - `TestSetupRequestValidation` - tests validation logic for all credential fields
+  - `TestEnvironmentVariableChecking` - tests environment variable detection logic
+  - `TestUpdateAllowedFlag` - tests UPDATE_ALLOWED environment variable behavior
+- Tests cover validation scenarios including:
+  - Valid credential requests
+  - Missing individual fields (spotify_id, spotify_secret, google_client_id, google_client_secret)
+  - All fields empty
+  - Environment variable presence/absence detection
+  - UPDATE_ALLOWED flag behavior with various values
+- All Go tests pass successfully
+- Tests use testify/assert for clean assertions and proper test structure
+
+**W7 Implementation Details (Completed):**
+- Updated `README.md` with comprehensive first-run setup instructions
+- Added section 4 "First-run setup" with detailed wizard flow explanation
+- Documented OAuth credential requirements for Spotify and Google
+- Included environment variable alternative with specific variable names
+- Updated Development Status section to reflect RFC-003 completion
+- Added TanStack Router and test coverage implementation notes
+- Documented automatic wizard skip behavior when environment variables are present
 
 ## Resources & References
 * PocketBase DAO example – https://pocketbase.io/docs/go-records/

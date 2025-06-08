@@ -10,11 +10,16 @@ import (
 	"github.com/pocketbase/pocketbase/plugins/migratecmd"
 
 	// Import migrations to register them
+	"github.com/manlikeabro/spotube/internal/pbext/setupwizard"
 	_ "github.com/manlikeabro/spotube/pb_migrations"
 )
 
 func main() {
 	app := pocketbase.New()
+
+	// Register setup wizard routes and hooks
+	setupwizard.Register(app)
+	setupwizard.RegisterHooks(app)
 
 	// Register `pb migrate` sub-command so we can run `go run ./cmd/server migrate up`.
 	isGoRun := strings.HasPrefix(os.Args[0], os.TempDir())

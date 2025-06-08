@@ -7,3 +7,4 @@ ytmusic_get_user_playlist_response_sample.json
 sample/
 backend/pb_data/
 backend/tmp/
+backend/server

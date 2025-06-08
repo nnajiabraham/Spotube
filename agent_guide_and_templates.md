@@ -80,6 +80,25 @@ All significant features, changes, or architectural decisions should first be de
 3.  **Track Progress:** As each checklist item is completed, **edit the RFC file** to mark the item as done (`[X]`). This provides visibility into the progress.
 4.  **Commit Changes:** Use Git for version control, following the commit message guidelines (see below). Link commits back to the RFC being worked on.
 
+### Sequential RFC Implementation Workflow
+
+When implementing an RFC, follow this **strict sequential process** for each checklist item:
+
+1. **Implement** the specific checklist item by making the necessary code/configuration changes
+2. **Test** that the implementation works as expected 
+3. **Check off** the item in the RFC file by changing `[ ]` to `[X]`
+4. **Update Implementation Notes/Summary** section with detailed information about what was changed, including:
+   - Specific file paths that were modified or created
+   - Configuration changes made (environment variables, config files, etc.)
+   - Database schema updates or migrations run
+   - Key implementation decisions and any deviations from the original plan
+   - Dependencies installed or updated
+   - Commands executed
+   - Any issues encountered and how they were resolved
+5. **Only then proceed** to the next checklist item
+
+**DO NOT** move to the next checklist item until the current item is both checked off AND the Implementation Notes section has been updated with comprehensive details. This ensures that future agents working on dependent RFCs have complete context about what was implemented and how.
+
 ## Standard RFC Template
 
 Use this template for all new RFCs to ensure consistency and clarity.
