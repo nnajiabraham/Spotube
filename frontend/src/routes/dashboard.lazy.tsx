@@ -1,5 +1,6 @@
 import { createLazyFileRoute, useSearch } from '@tanstack/react-router'
 import { SpotifyConnectionCard } from '../components/SpotifyConnectionCard'
+import { YoutubeConnectionCard } from '../components/YoutubeConnectionCard'
 import { useEffect } from 'react'
 
 function Dashboard() {
@@ -15,6 +16,15 @@ function Dashboard() {
       } else if (spotifyStatus === 'error') {
         const message = (search as { message?: string }).message || 'Connection failed';
         console.error('Spotify connection error:', message);
+      }
+    }
+    if (search && typeof search === 'object' && 'youtube' in search) {
+      const youtubeStatus = (search as { youtube?: string }).youtube;
+      if (youtubeStatus === 'connected') {
+        console.log('YouTube connected successfully!');
+      } else if (youtubeStatus === 'error') {
+        const message = (search as { message?: string }).message || 'Connection failed';
+        console.error('YouTube connection error:', message);
       }
     }
   }, [search]);
@@ -33,6 +43,7 @@ function Dashboard() {
         
         <div className="mt-10 grid grid-cols-1 gap-8 sm:grid-cols-2 lg:grid-cols-3">
           <SpotifyConnectionCard />
+          <YoutubeConnectionCard />
         </div>
       </div>
     </div>

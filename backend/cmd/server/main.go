@@ -10,6 +10,7 @@ import (
 	"github.com/pocketbase/pocketbase/plugins/migratecmd"
 
 	// Import migrations to register them
+	"github.com/manlikeabro/spotube/internal/pbext/googleauth"
 	"github.com/manlikeabro/spotube/internal/pbext/setupwizard"
 	"github.com/manlikeabro/spotube/internal/pbext/spotifyauth"
 	_ "github.com/manlikeabro/spotube/migrations"
@@ -24,6 +25,9 @@ func main() {
 
 	// Register Spotify auth routes
 	spotifyauth.Register(app)
+
+	// Register Google auth routes
+	googleauth.Register(app)
 
 	// Register `pb migrate` sub-command so we can run `go run ./cmd/server migrate up`.
 	isGoRun := strings.HasPrefix(os.Args[0], os.TempDir())

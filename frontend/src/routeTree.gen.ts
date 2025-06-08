@@ -20,6 +20,7 @@ const SetupLazyImport = createFileRoute('/setup')()
 const DashboardLazyImport = createFileRoute('/dashboard')()
 const SetupIndexLazyImport = createFileRoute('/setup/')()
 const SetupSuccessLazyImport = createFileRoute('/setup/success')()
+const SettingsYoutubeLazyImport = createFileRoute('/settings/youtube')()
 
 // Create/Update Routes
 
@@ -47,6 +48,14 @@ const SetupSuccessLazyRoute = SetupSuccessLazyImport.update({
   getParentRoute: () => SetupLazyRoute,
 } as any).lazy(() => import('./routes/setup/success.lazy').then((d) => d.Route))
 
+const SettingsYoutubeLazyRoute = SettingsYoutubeLazyImport.update({
+  id: '/settings/youtube',
+  path: '/settings/youtube',
+  getParentRoute: () => rootRoute,
+} as any).lazy(() =>
+  import('./routes/settings/youtube.lazy').then((d) => d.Route),
+)
+
 // Populate the FileRoutesByPath interface
 
 declare module '@tanstack/react-router' {
@@ -63,6 +72,13 @@ declare module '@tanstack/react-router' {
       path: '/setup'
       fullPath: '/setup'
       preLoaderRoute: typeof SetupLazyImport
+      parentRoute: typeof rootRoute
+    }
+    '/settings/youtube': {
+      id: '/settings/youtube'
+      path: '/settings/youtube'
+      fullPath: '/settings/youtube'
+      preLoaderRoute: typeof SettingsYoutubeLazyImport
       parentRoute: typeof rootRoute
     }
     '/setup/success': {
@@ -101,12 +117,14 @@ const SetupLazyRouteWithChildren = SetupLazyRoute._addFileChildren(
 export interface FileRoutesByFullPath {
   '/dashboard': typeof DashboardLazyRoute
   '/setup': typeof SetupLazyRouteWithChildren
+  '/settings/youtube': typeof SettingsYoutubeLazyRoute
   '/setup/success': typeof SetupSuccessLazyRoute
   '/setup/': typeof SetupIndexLazyRoute
 }
 
 export interface FileRoutesByTo {
   '/dashboard': typeof DashboardLazyRoute
+  '/settings/youtube': typeof SettingsYoutubeLazyRoute
   '/setup/success': typeof SetupSuccessLazyRoute
   '/setup': typeof SetupIndexLazyRoute
 }
@@ -115,27 +133,41 @@ export interface FileRoutesById {
   __root__: typeof rootRoute
   '/dashboard': typeof DashboardLazyRoute
   '/setup': typeof SetupLazyRouteWithChildren
+  '/settings/youtube': typeof SettingsYoutubeLazyRoute
   '/setup/success': typeof SetupSuccessLazyRoute
   '/setup/': typeof SetupIndexLazyRoute
 }
 
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/dashboard' | '/setup' | '/setup/success' | '/setup/'
+  fullPaths:
+    | '/dashboard'
+    | '/setup'
+    | '/settings/youtube'
+    | '/setup/success'
+    | '/setup/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/dashboard' | '/setup/success' | '/setup'
-  id: '__root__' | '/dashboard' | '/setup' | '/setup/success' | '/setup/'
+  to: '/dashboard' | '/settings/youtube' | '/setup/success' | '/setup'
+  id:
+    | '__root__'
+    | '/dashboard'
+    | '/setup'
+    | '/settings/youtube'
+    | '/setup/success'
+    | '/setup/'
   fileRoutesById: FileRoutesById
 }
 
 export interface RootRouteChildren {
   DashboardLazyRoute: typeof DashboardLazyRoute
   SetupLazyRoute: typeof SetupLazyRouteWithChildren
+  SettingsYoutubeLazyRoute: typeof SettingsYoutubeLazyRoute
 }
 
 const rootRouteChildren: RootRouteChildren = {
   DashboardLazyRoute: DashboardLazyRoute,
   SetupLazyRoute: SetupLazyRouteWithChildren,
+  SettingsYoutubeLazyRoute: SettingsYoutubeLazyRoute,
 }
 
 export const routeTree = rootRoute
@@ -149,7 +181,8 @@ export const routeTree = rootRoute
       "filePath": "__root.tsx",
       "children": [
         "/dashboard",
-        "/setup"
+        "/setup",
+        "/settings/youtube"
       ]
     },
     "/dashboard": {
@@ -161,6 +194,9 @@ export const routeTree = rootRoute
         "/setup/success",
         "/setup/"
       ]
+    },
+    "/settings/youtube": {
+      "filePath": "settings/youtube.lazy.tsx"
     },
     "/setup/success": {
       "filePath": "setup/success.lazy.tsx",

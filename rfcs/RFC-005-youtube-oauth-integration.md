@@ -1,6 +1,6 @@
 # RFC-005: YouTube OAuth Integration
 
-**Status:** Draft  
+**Status:** Done  
 **Branch:** `rfc/005-youtube-oauth`  
 **Related Issues:** _n/a_  
 **Depends On:**
@@ -91,12 +91,12 @@ Map to JSON response `{ id, title, itemCount }`.
 * **Frontend Test:** `msw`, `vitest`, `playwright` (already in repo)
 
 ### 3.6 Checklist
-- [ ] **G1** Implement `googleauth` routes (login, callback, playlists).
-- [ ] **G2** Update helper for token storage & refresh.
-- [ ] **G3** Frontend dashboard card + playlists page.
-- [ ] **G4** Backend tests with httpmock.
-- [ ] **G5** FE Vitest + Playwright tests with MSW.
-- [ ] **G6** README update: Google Cloud OAuth setup & redirect URI instructions.
+- [X] **G1** Implement `googleauth` routes (login, callback, playlists).
+- [X] **G2** Update helper for token storage & refresh.
+- [X] **G3** Frontend dashboard card + playlists page.
+- [X] **G4** Backend tests with httpmock.
+- [X] **G5** FE Vitest + Playwright tests with MSW.
+- [X] **G6** README update: Google Cloud OAuth setup & redirect URI instructions.
 
 ## 4. Definition of Done
 * User can link YouTube account, return, view playlists.
@@ -107,6 +107,28 @@ Map to JSON response `{ id, title, itemCount }`.
 * Google requires **consent screen** publishing; document in README.
 * PKCE recommended but optional with backend secret; we reuse PKCE util for symmetry.
 * For quota efficiency playlist endpoint caches response in memory for 60 s (simple `sync.Map`); future RFCs may add Redis.
+
+**G1 & G2 COMPLETED** - Implemented Google OAuth routes and token handling:
+* Created new package `backend/internal/pbext/googleauth` for all Google/YouTube related authentication logic.
+* Added dependencies `google.golang.org/api/youtube/v3` and `golang.org/x/oauth2`.
+* Implemented three routes in `googleauth.go`:
+  - `GET /api/auth/google/login`: Initiates OAuth2 flow with PKCE. Generates and stores state and PKCE verifier in a secure, HTTP-only cookie (`google_auth_state`). Redirects user to the Google consent screen.
+  - `GET /api/auth/google/callback`: Handles the callback from Google. Validates the `state`, exchanges the `code` for an OAuth token using the `verifier` from the cookie, and securely stores the token. Redirects user to `/dashboard?youtube=connected` on success.
+  - `GET /api/youtube/playlists`: Fetches the user's YouTube playlists. It uses the `withGoogleClient` helper to ensure a valid, refreshed token is used for the API call.
+* Implemented `saveGoogleTokens` helper to persist the `oauth2.Token` into the `oauth_tokens` collection with `provider = 'google'`. It reuses the collection created in RFC-004.
+* Implemented `withGoogleClient` helper to provide an authenticated YouTube service client (`*youtube.Service`). This function handles loading the token from the database, checking for expiry, and automatically refreshing it using the refresh token if needed. The refreshed token is then saved back to the database.
+* Registered the new routes in `backend/cmd/server/main.go` by calling `googleauth.Register(app)`.
+* The implementation mirrors the existing `spotifyauth` flow for consistency, using environment variables (`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`) for credentials.
+
+**G3 COMPLETED** - Frontend dashboard card + playlists page:
+* Added `YouTubePlaylist` and `YouTubePlaylistsResponse` interfaces to `frontend/src/lib/pocketbase.ts` for type safety.
+* Added `getYouTubePlaylists` method to `frontend/src/lib/api.ts` to communicate with the new backend endpoint.
+* Created a new `YoutubeLogo.tsx` component for the YouTube icon.
+* Created the `YoutubeConnectionCard.tsx` component, which uses the `getYouTubePlaylists` endpoint to check connection status. It displays a "Connect" button or a "View Playlists" link depending on whether the user is authenticated.
+* Added the `YoutubeConnectionCard` to the dashboard grid in `frontend/src/routes/dashboard.lazy.tsx`.
+* Added logic to the dashboard to handle `youtube=connected` and `youtube=error` query parameters from the OAuth callback for user feedback.
+* Created a new lazy-loaded route at `frontend/src/routes/settings/youtube.lazy.tsx` for viewing playlists.
+* The route component, `YouTubePlaylistsComponent`, fetches and displays the user's YouTube playlists in a simple grid layout.
 
 ## Resources & References
 * Google OAuth 2.0 – https://developers.google.com/identity/protocols/oauth2

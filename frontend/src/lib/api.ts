@@ -1,7 +1,11 @@
 // API client for making requests to the backend
 
 import { pb } from './pocketbase';
-import type { PlaylistsResponse, SetupStatus } from './pocketbase';
+import type {
+  SetupStatus,
+  PlaylistsResponse,
+  YouTubePlaylistsResponse,
+} from './pocketbase';
 
 export class ApiError extends Error {
   status: number;
@@ -40,8 +44,27 @@ export const api = {
       });
       return response as PlaylistsResponse;
     } catch (error: unknown) {
-      const err = error as { status?: number, message?: string };
-      throw new ApiError(err.status ?? 500, err.message ?? 'Request failed');
+      if (error instanceof Error) {
+        const apiError = error as ApiError;
+        throw new ApiError(apiError.status || 500, apiError.message || 'Request failed');
+      }
+      throw new ApiError(500, 'An unknown error occurred');
+    }
+  },
+
+  // YouTube API
+  getYouTubePlaylists: async (): Promise<YouTubePlaylistsResponse> => {
+    try {
+      const response = await pb.send('/api/youtube/playlists', {
+        method: 'GET',
+      });
+      return response as YouTubePlaylistsResponse;
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        const apiError = error as ApiError;
+        throw new ApiError(apiError.status || 500, apiError.message || 'Request failed');
+      }
+      throw new ApiError(500, 'An unknown error occurred');
     }
   },
 }; 

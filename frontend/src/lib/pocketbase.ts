@@ -35,4 +35,15 @@ export interface PlaylistsResponse {
   limit: number;
   offset: number;
   next: string;
+}
+
+export interface YouTubePlaylist {
+  id: string;
+  title: string;
+  itemCount: number;
+  description: string;
+}
+
+export interface YouTubePlaylistsResponse {
+  items: YouTubePlaylist[];
 } 

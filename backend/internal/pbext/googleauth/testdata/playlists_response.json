@@ -1,0 +1,28 @@
+{
+  "kind": "youtube#playlistListResponse",
+  "etag": "some_etag",
+  "nextPageToken": "",
+  "prevPageToken": "",
+  "pageInfo": {
+    "totalResults": 1,
+    "resultsPerPage": 50
+  },
+  "items": [
+    {
+      "kind": "youtube#playlist",
+      "etag": "another_etag",
+      "id": "PLxxxxxxxxxxxxxxxxxxxx",
+      "snippet": {
+        "publishedAt": "2023-01-01T00:00:00Z",
+        "channelId": "UCxxxxxxxxxxxxxxxxxxxx",
+        "title": "Test Playlist",
+        "description": "A test playlist.",
+        "thumbnails": {},
+        "channelTitle": "Test Channel"
+      },
+      "contentDetails": {
+        "itemCount": 42
+      }
+    }
+  ]
+} 

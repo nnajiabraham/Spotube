@@ -88,6 +88,7 @@ The backend uses **PocketBase** as the foundation, providing:
 - RFC-002: PocketBase integration with migrations framework
 - RFC-003: Environment setup wizard for OAuth credentials
 - RFC-004: Spotify OAuth integration with PKCE flow
+- RFC-005: YouTube OAuth integration with PKCE flow
 
 **Current Features:**
 - Monorepo structure with separate backend/frontend workspaces
@@ -96,9 +97,12 @@ The backend uses **PocketBase** as the foundation, providing:
 - Environment setup wizard for first-time configuration
 - Settings collection for storing OAuth credentials
 - Spotify OAuth2 authentication with PKCE security
+- YouTube OAuth2 authentication with PKCE security
 - Spotify playlists API proxy endpoint
-- Frontend dashboard with connection status
+- YouTube playlists API proxy endpoint
+- Frontend dashboard with connection status for both services
 - MSW-powered testing infrastructure
+- Full test coverage for OAuth flows
 
 ## Spotify OAuth Setup
 
@@ -128,6 +132,50 @@ To use Spotify integration, you'll need to:
    - Click "Connect Spotify"
    - Authorize the app
    - You'll be redirected back with your playlists accessible
+
+## YouTube/Google OAuth Setup
+
+To use YouTube integration, you'll need to:
+
+1. **Create a Google Cloud Project:**
+   - Go to [Google Cloud Console](https://console.cloud.google.com/)
+   - Create a new project or select an existing one
+   - Enable the YouTube Data API v3
+
+2. **Configure OAuth Consent Screen:**
+   - In the Google Cloud Console, go to "APIs & Services" > "OAuth consent screen"
+   - Choose "External" user type (unless using Google Workspace)
+   - Fill in required fields:
+     - App name: Spotube (or your preferred name)
+     - User support email: Your email
+     - Developer contact information: Your email
+   - Add scopes: `https://www.googleapis.com/auth/youtube.readonly`
+   - Add test users if in development/testing phase
+
+3. **Create OAuth 2.0 Credentials:**
+   - Go to "APIs & Services" > "Credentials"
+   - Click "Create Credentials" > "OAuth client ID"
+   - Choose "Web application"
+   - Add authorized redirect URIs:
+     - Development: `http://localhost:8090/api/auth/google/callback`
+     - Production: `https://your-domain.com/api/auth/google/callback`
+   - Copy the Client ID and Client Secret
+
+4. **Set Credentials:**
+   Either through the setup wizard (http://localhost:8090/setup) or environment variables:
+   ```bash
+   export GOOGLE_CLIENT_ID="your-client-id"
+   export GOOGLE_CLIENT_SECRET="your-client-secret"
+   export PUBLIC_URL="http://localhost:8090"  # or your production URL
+   ```
+
+5. **Connect Your Account:**
+   - Navigate to the dashboard
+   - Click "Connect YouTube"
+   - Authorize the app with your Google account
+   - You'll be redirected back with your YouTube playlists accessible
+
+**Note:** Google requires HTTPS for production OAuth redirects (except for localhost). Make sure your production deployment uses HTTPS.
 
 ## Tech Stack
 
