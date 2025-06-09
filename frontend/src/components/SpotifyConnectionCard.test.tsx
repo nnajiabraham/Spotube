@@ -2,12 +2,11 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import { SpotifyConnectionCard } from './SpotifyConnectionCard';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { server } from '../test/mocks/node';
 import { http, HttpResponse } from 'msw';
 
 // Mock the router Link component
 vi.mock('@tanstack/react-router', () => ({
-  Link: ({ to, children, className }: any) => (
+  Link: ({ to, children, className }: { to: string; children: React.ReactNode; className?: string }) => (
     <a href={to} className={className}>{children}</a>
   ),
 }));
@@ -27,6 +26,8 @@ const renderWithProviders = (ui: React.ReactElement) => {
 };
 
 describe('SpotifyConnectionCard', () => {
+  const server = globalThis.mswServer;
+
   it('shows loading state initially', () => {
     renderWithProviders(<SpotifyConnectionCard />);
     
@@ -35,7 +36,7 @@ describe('SpotifyConnectionCard', () => {
 
   it('shows connected state when authenticated', async () => {
     // Override the default handler to return authenticated response
-    server.use(
+    server?.use(
       http.get('http://localhost:8090/api/spotify/playlists', () => {
         return HttpResponse.json({
           items: [{
@@ -67,7 +68,7 @@ describe('SpotifyConnectionCard', () => {
 
   it('shows connect button when not authenticated', async () => {
     // Override with unauthorized handler
-    server.use(
+    server?.use(
       http.get('http://localhost:8090/api/spotify/playlists', () => {
         return HttpResponse.json(
           { error: 'Not authenticated with Spotify' },

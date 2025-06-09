@@ -1,73 +1,72 @@
-import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
+import { describe, it, expect, vi } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { Route } from './index.lazy'
-import { server } from '../../../test/mocks/node'
+import { Route } from '../../../../routes/_authenticated/mappings/index.lazy'
 import { http, HttpResponse } from 'msw'
+
+// Mock TanStack Router - partial mock to preserve createLazyFileRoute
+vi.mock('@tanstack/react-router', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@tanstack/react-router')>()
+  return {
+    ...actual,
+    Link: ({ to, children, className }: { to: string; children: React.ReactNode; className?: string }) => (
+      <a href={to} className={className}>{children}</a>
+    ),
+    useNavigate: () => vi.fn(),
+  }
+})
 
 // Extract the component from the Route
 const MappingsList = Route.options.component as React.ComponentType
 
-// Mock PocketBase to include auth token
-vi.mock('../../../lib/pocketbase', () => ({
+// Mock PocketBase to include auth token and make actual fetch calls
+vi.mock('../../../../lib/pocketbase', () => ({
   pb: {
     authStore: {
-      token: 'mock-auth-token',
+      token: 'test-token'
     },
     collection: vi.fn(() => ({
       getList: vi.fn().mockImplementation(async () => {
-        // This should be handled by MSW
+        // Make the actual fetch call that will be intercepted by MSW
         const response = await fetch('/api/collections/mappings/records', {
           headers: {
-            'Authorization': 'Bearer mock-auth-token',
-          },
+            'Authorization': 'Bearer test-token'
+          }
         });
         if (!response.ok) {
-          throw new Error('Something went wrong.');
+          throw new Error('Failed to fetch');
         }
         return response.json();
-      }),
-      getOne: vi.fn(),
-      create: vi.fn(),
-      update: vi.fn(),
-      delete: vi.fn(),
-    })),
-    send: vi.fn(),
-  },
+      })
+    }))
+  }
 }))
 
-// Mock the router hooks
-vi.mock('@tanstack/react-router', async () => {
-  const actual = await vi.importActual('@tanstack/react-router')
-  return {
-    ...actual,
-    Link: ({ children, to, className }: { children: React.ReactNode; to: string; className?: string }) => (
-      <a href={to} className={className}>{children}</a>
-    ),
-  }
-})
-
-// Set up MSW
-beforeAll(() => server.listen())
-afterEach(() => server.resetHandlers())
-afterAll(() => server.close())
-
-function renderWithProviders(component: React.ReactElement) {
+const createWrapper = () => {
   const queryClient = new QueryClient({
     defaultOptions: {
-      queries: { retry: false },
-      mutations: { retry: false },
+      queries: {
+        retry: false,
+      },
     },
   })
 
-  return render(
-    <QueryClientProvider client={queryClient}>
-      {component}
-    </QueryClientProvider>
-  )
+  return function Wrapper({ children }: { children: React.ReactNode }) {
+    return (
+      <QueryClientProvider client={queryClient}>
+        {children}
+      </QueryClientProvider>
+    )
+  }
+}
+
+const renderWithProviders = (component: React.ReactElement) => {
+  return render(component, { wrapper: createWrapper() })
 }
 
 describe('MappingsList', () => {
+  const server = globalThis.mswServer
+
   it('renders loading state initially', async () => {
     renderWithProviders(<MappingsList />)
     
@@ -77,7 +76,7 @@ describe('MappingsList', () => {
   })
 
   it('renders empty state when no mappings exist', async () => {
-    server.use(
+    server?.use(
       http.get('*/api/collections/mappings/records', () => {
         return HttpResponse.json({
           page: 1,
@@ -117,7 +116,7 @@ describe('MappingsList', () => {
   })
 
   it('shows error message on API failure', async () => {
-    server.use(
+    server?.use(
       http.get('*/api/collections/mappings/records', () => {
         return new HttpResponse(null, { status: 500 })
       })

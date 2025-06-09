@@ -185,7 +185,7 @@ Components: Shadcn/ui `Select`, `Switch`, `Input`, `Button`, `Alert`, and `DataT
   - Fixed type imports to use `import type` syntax
 
 **M5 COMPLETED** - FE Vitest + Playwright tests with MSW:
-* Created `frontend/src/routes/_authenticated/mappings/index.test.tsx` with comprehensive unit tests for MappingsList component:
+* Created `frontend/src/__tests__/routes/_authenticated/mappings/index.test.tsx` with comprehensive unit tests for MappingsList component:
   - Tests loading state displays spinner
   - Tests empty state when no mappings exist
   - Tests mappings table renders with correct data
@@ -207,6 +207,7 @@ Components: Shadcn/ui `Select`, `Switch`, `Input`, `Button`, `Alert`, and `DataT
 * Installed `@testing-library/user-event` as dev dependency
 * All 6 unit tests pass successfully
 * Fixed linter errors by removing unused imports and variables
+* Note: Test file moved to `__tests__` directory to prevent TanStack Router from treating it as a route file
 
 **M6 COMPLETED** - README update (mapping feature docs):
 * Added comprehensive "Playlist Mappings" section to main README.md covering:
@@ -230,6 +231,27 @@ Components: Shadcn/ui `Select`, `Switch`, `Input`, `Button`, `Alert`, and `DataT
 - Documentation added to README with clear user instructions
 - All tests pass: Backend (3 packages), Frontend (19 tests across 4 files)
 - TypeScript compilation clean with no errors
+
+**POST-IMPLEMENTATION FIXES**:
+- **MSW Loading Issue Resolution**:
+  - Moved test files from routes directory to prevent TanStack Router from treating them as route files
+  - Relocated `src/routes/_authenticated/mappings/index.test.tsx` to `src/__tests__/routes/_authenticated/mappings/index.test.tsx`
+  - Removed MSW setup from main.tsx to prevent loading in development mode
+  - Created App.tsx to handle router setup separately from main entry point
+  - Configured TanStack Router to ignore test files with `routeFileIgnorePattern`
+  
+- **Test Configuration Fixes**:
+  - Implemented partial mock of TanStack Router to preserve `createLazyFileRoute` while mocking `Link` and `useNavigate`
+  - Fixed "useRouter must be used inside a RouterProvider" errors in tests
+  - Updated all import paths after test file relocation
+  - Configured global MSW server instance for test usage
+  - Fixed PocketBase mock to properly make fetch calls that get intercepted by MSW
+  
+- **Final Test Results**:
+  - All 19 frontend tests passing across 4 test files
+  - No TypeScript or linter errors
+  - Frontend development server runs without MSW interference
+  - Clean separation between test code and application code
 
 ## Resources & References
 * PocketBase collection rules – https://pocketbase.io/docs/collections/#rules-filters

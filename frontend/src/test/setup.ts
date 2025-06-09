@@ -1,13 +1,32 @@
-import '@testing-library/jest-dom';
-import { afterAll, afterEach, beforeAll } from 'vitest';
-import { server } from './mocks/node';
+import '@testing-library/jest-dom'
+import { cleanup } from '@testing-library/react'
+import { afterEach, beforeAll, afterAll } from 'vitest'
 
-// Establish API mocking before all tests
-beforeAll(() => server.listen());
+// Cleanup after each test
+afterEach(() => {
+  cleanup()
+})
 
-// Reset any request handlers that we may add during the tests,
-// so they don't affect other tests
-afterEach(() => server.resetHandlers());
+// Declare global type for MSW server
+declare global {
+  // eslint-disable-next-line no-var
+  var mswServer: import('msw/node').SetupServerApi | undefined
+}
 
-// Clean up after the tests are finished
-afterAll(() => server.close()); 
+// Only set up MSW in test environment
+if (import.meta.env.MODE === 'test') {
+  // Dynamic import to avoid Vite processing in dev mode
+  ;(async () => {
+    const { setupServer } = await import('msw/node')
+    const { handlers } = await import('./mocks/handlers')
+    
+    const server = setupServer(...handlers)
+    
+    // Make server available globally for tests
+    globalThis.mswServer = server
+    
+    beforeAll(() => server.listen({ onUnhandledRequest: 'error' }))
+    afterEach(() => server.resetHandlers())
+    afterAll(() => server.close())
+  })()
+} 
