@@ -24,7 +24,7 @@ const queryClient = new QueryClient()
 export const Route = createRootRoute({
   component: () => (
     <QueryClientProvider client={queryClient}>
-      <div className="min-h-screen bg-background font-sans antialiased">
+      <div className="min-h-screen bg-gray-50 font-sans antialiased">
         <Outlet />
         <TanStackRouterDevtools />
         <ReactQueryDevtools />
