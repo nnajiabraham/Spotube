@@ -274,4 +274,72 @@ No environment variables are currently needed for the analysis job. All timing i
 
 ## Contributing
 
-This project follows an RFC-driven development workflow. See `rfcs/` directory for planned features and implementation details. 
+This project follows an RFC-driven development workflow. See `rfcs/` directory for planned features and implementation details.
+
+## Testing
+
+### Shared Test Helpers
+
+The project includes a comprehensive testing infrastructure with shared helpers to ensure consistent and maintainable tests across all packages.
+
+#### Available Test Helpers
+
+**Backend Helpers (`backend/internal/testhelpers/`):**
+
+- **`testhelpers.SetupTestApp(t)`** - Creates a PocketBase test instance with all standard collections
+- **`testhelpers.SetupOAuthTokens(t, testApp)`** - Creates fake OAuth tokens for Spotify and Google
+- **`testhelpers.CreateTestMapping(testApp, properties)`** - Helper to easily create mapping records with defaults
+- **`testhelpers.SetupAPIHttpMocks(t)`** - Configures HTTP mocks for Spotify and YouTube APIs
+- **`testhelpers.SetupIdenticalPlaylistMocks(t)`** - Special mocks for testing no-change scenarios
+
+#### Usage Example
+
+```go
+func TestYourFeature(t *testing.T) {
+    // Setup test environment
+    testApp := testhelpers.SetupTestApp(t)
+    defer testApp.Cleanup()
+    
+    // Add OAuth tokens for API testing
+    testhelpers.SetupOAuthTokens(t, testApp)
+    
+    // Mock HTTP calls
+    testhelpers.SetupAPIHttpMocks(t)
+    defer httpmock.DeactivateAndReset()
+    
+    // Create test data
+    mapping := testhelpers.CreateTestMapping(testApp, map[string]interface{}{
+        "spotify_playlist_id": "test_playlist",
+        "sync_tracks": true,
+    })
+    
+    // Test your function
+    err := yourFunction(testApp, mapping)
+    assert.NoError(t, err)
+}
+```
+
+#### Key Testing Principles
+
+- **Test Real Implementation:** All unit tests call actual implementation functions with PocketBase integration
+- **No Mocked Logic:** Tests validate real behavior, not simulated logic
+- **Consistent Setup:** Shared helpers ensure all tests use the same database schema and OAuth patterns
+- **Proper Isolation:** Each test runs with a clean database and HTTP mock environment
+- **PocketBase Integration:** Tests use real PocketBase operations, not isolated database mocking
+
+#### Running Tests
+
+```bash
+# Backend tests
+make test-backend
+# or
+cd backend && go test ./...
+
+# Frontend tests  
+make test-frontend
+# or
+cd frontend && npm test
+
+# All tests
+make test
+``` 

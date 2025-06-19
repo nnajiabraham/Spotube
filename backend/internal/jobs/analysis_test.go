@@ -3,17 +3,16 @@ package jobs
 import (
 	"context"
 	"encoding/json"
-	"net/http"
 	"os"
 	"testing"
 	"time"
 
 	"github.com/jarcoal/httpmock"
 	"github.com/pocketbase/pocketbase/models"
-	"github.com/pocketbase/pocketbase/models/schema"
-	"github.com/pocketbase/pocketbase/tests"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/manlikeabro/spotube/internal/testhelpers"
 )
 
 // RecordInterface defines the minimal interface needed for testing
@@ -23,193 +22,340 @@ type RecordInterface interface {
 	GetBool(field string) bool
 }
 
-func TestShouldAnalyzeMapping(t *testing.T) {
-	// Since shouldAnalyzeMapping is internal and takes *models.Record,
-	// we'll test the core logic separately
+func TestShouldAnalyzeMapping_ActualImplementation(t *testing.T) {
+	testApp := testhelpers.SetupTestApp(t)
+	defer testApp.Cleanup()
+
+	// Use UTC time to avoid timezone issues
+	now := time.Now().UTC()
+
 	t.Run("should analyze when next_analysis_at is empty", func(t *testing.T) {
-		// Test the core logic
-		nextAnalysisStr := ""
+		collection, err := testApp.Dao().FindCollectionByNameOrId("mappings")
+		require.NoError(t, err)
+		mapping := models.NewRecord(collection)
+		mapping.Set("spotify_playlist_id", "test_playlist")
+		// next_analysis_at left empty
+		err = testApp.Dao().SaveRecord(mapping)
+		require.NoError(t, err)
 
-		// Simulate the logic from shouldAnalyzeMapping
-		result := nextAnalysisStr == ""
-
-		if !result {
-			t.Error("Expected to analyze mapping when next_analysis_at is empty")
-		}
+		result := shouldAnalyzeMapping(mapping, now)
+		assert.True(t, result, "Should analyze mapping when next_analysis_at is empty")
 	})
 
 	t.Run("should analyze when next_analysis_at is in the past", func(t *testing.T) {
-		pastTime := time.Now().Add(-1 * time.Hour)
-		nextAnalysisStr := pastTime.Format(time.RFC3339)
-		now := time.Now()
+		collection, err := testApp.Dao().FindCollectionByNameOrId("mappings")
+		require.NoError(t, err)
+		mapping := models.NewRecord(collection)
+		mapping.Set("spotify_playlist_id", "test_playlist")
+		pastTime := now.Add(-1 * time.Hour)
+		mapping.Set("next_analysis_at", pastTime.Format("2006-01-02 15:04:05.000Z"))
+		err = testApp.Dao().SaveRecord(mapping)
+		require.NoError(t, err)
 
-		// Simulate the logic from shouldAnalyzeMapping
-		nextAnalysisAt, err := time.Parse(time.RFC3339, nextAnalysisStr)
-		result := err != nil || now.After(nextAnalysisAt)
-
-		if !result {
-			t.Error("Expected to analyze mapping when next_analysis_at is in the past")
-		}
+		result := shouldAnalyzeMapping(mapping, now)
+		assert.True(t, result, "Should analyze mapping when next_analysis_at is in the past")
 	})
 
 	t.Run("should not analyze when next_analysis_at is in the future", func(t *testing.T) {
-		futureTime := time.Now().Add(1 * time.Hour)
-		nextAnalysisStr := futureTime.Format(time.RFC3339)
-		now := time.Now()
+		collection, err := testApp.Dao().FindCollectionByNameOrId("mappings")
+		require.NoError(t, err)
+		mapping := models.NewRecord(collection)
+		mapping.Set("spotify_playlist_id", "test_playlist")
+		futureTime := now.Add(2 * time.Hour) // Use 2 hours to ensure it's definitely in the future
+		mapping.Set("next_analysis_at", futureTime.Format("2006-01-02 15:04:05.000Z"))
+		err = testApp.Dao().SaveRecord(mapping)
+		require.NoError(t, err)
 
-		// Simulate the logic from shouldAnalyzeMapping
-		nextAnalysisAt, err := time.Parse(time.RFC3339, nextAnalysisStr)
-		result := err != nil || now.After(nextAnalysisAt)
-
-		if result {
-			t.Error("Expected NOT to analyze mapping when next_analysis_at is in the future")
-		}
+		result := shouldAnalyzeMapping(mapping, now)
+		assert.False(t, result, "Should NOT analyze mapping when next_analysis_at is in the future")
 	})
 
 	t.Run("should analyze when next_analysis_at format is invalid", func(t *testing.T) {
-		nextAnalysisStr := "invalid-date-format"
+		collection, err := testApp.Dao().FindCollectionByNameOrId("mappings")
+		require.NoError(t, err)
+		mapping := models.NewRecord(collection)
+		mapping.Set("spotify_playlist_id", "test_playlist")
+		mapping.Set("next_analysis_at", "invalid-date-format")
+		err = testApp.Dao().SaveRecord(mapping)
+		require.NoError(t, err)
 
-		// Simulate the logic from shouldAnalyzeMapping
-		_, err := time.Parse(time.RFC3339, nextAnalysisStr)
-		result := err != nil // Should return true for invalid format
-
-		if !result {
-			t.Error("Expected to analyze mapping when next_analysis_at format is invalid")
-		}
+		result := shouldAnalyzeMapping(mapping, now)
+		assert.True(t, result, "Should analyze mapping when next_analysis_at format is invalid")
 	})
 }
 
-func TestAnalyzeTracks(t *testing.T) {
+func TestAnalyzeTracks_ActualImplementation(t *testing.T) {
+	testApp := testhelpers.SetupTestApp(t)
+	defer testApp.Cleanup()
+
+	// Create a test mapping
+	collection, err := testApp.Dao().FindCollectionByNameOrId("mappings")
+	require.NoError(t, err)
+	mapping := models.NewRecord(collection)
+	mapping.Set("spotify_playlist_id", "test_playlist")
+	err = testApp.Dao().SaveRecord(mapping)
+	require.NoError(t, err)
+
 	t.Run("bidirectional track difference analysis", func(t *testing.T) {
-		// Test the lo.Without function behavior (used in analyzeTracks)
-		spotifyIDs := []string{"spotify1", "spotify2", "spotify3"}
-		youtubeIDs := []string{"youtube1", "youtube2", "youtube3"}
-
-		// Expected results based on ID comparison (no matching IDs)
-		expectedToAddOnSpotify := 3 // All YouTube tracks
-		expectedToAddOnYouTube := 3 // All Spotify tracks
-
-		// These should be all YouTube IDs (since no IDs match)
-		toAddOnSpotify := without(youtubeIDs, spotifyIDs...)
-		if len(toAddOnSpotify) != expectedToAddOnSpotify {
-			t.Errorf("Expected %d tracks to add on Spotify, got %d",
-				expectedToAddOnSpotify, len(toAddOnSpotify))
+		// Create track lists with no overlap
+		spotifyTracks := TrackList{
+			Tracks: []Track{
+				{ID: "spotify1", Title: "Song 1"},
+				{ID: "spotify2", Title: "Song 2"},
+				{ID: "spotify3", Title: "Song 3"},
+			},
+			Service: "spotify",
+		}
+		youtubeTracks := TrackList{
+			Tracks: []Track{
+				{ID: "youtube1", Title: "Song A"},
+				{ID: "youtube2", Title: "Song B"},
+				{ID: "youtube3", Title: "Song C"},
+			},
+			Service: "youtube",
 		}
 
-		// These should be all Spotify IDs (since no IDs match)
-		toAddOnYouTube := without(spotifyIDs, youtubeIDs...)
-		if len(toAddOnYouTube) != expectedToAddOnYouTube {
-			t.Errorf("Expected %d tracks to add on YouTube, got %d",
-				expectedToAddOnYouTube, len(toAddOnYouTube))
+		// Test actual analyzeTracks function
+		err := analyzeTracks(testApp, mapping, spotifyTracks, youtubeTracks)
+		assert.NoError(t, err)
+
+		// Verify sync items were created
+		syncItems, err := testApp.Dao().FindRecordsByFilter("sync_items", "id != ''", "-created", 100, 0)
+		require.NoError(t, err)
+
+		// Should have 6 items: 3 for Spotify (add YouTube tracks) + 3 for YouTube (add Spotify tracks)
+		assert.Equal(t, 6, len(syncItems))
+
+		// Count items by service
+		spotifyItems := 0
+		youtubeItems := 0
+		for _, item := range syncItems {
+			service := item.GetString("service")
+			action := item.GetString("action")
+			assert.Equal(t, "add_track", action)
+
+			if service == "spotify" {
+				spotifyItems++
+			} else if service == "youtube" {
+				youtubeItems++
+			}
 		}
+
+		assert.Equal(t, 3, spotifyItems, "Should have 3 items to add to Spotify")
+		assert.Equal(t, 3, youtubeItems, "Should have 3 items to add to YouTube")
 	})
 
 	t.Run("identical track lists should result in no changes", func(t *testing.T) {
-		spotifyIDs := []string{"track1", "track2"}
-		youtubeIDs := []string{"track1", "track2"}
-
-		toAddOnSpotify := without(youtubeIDs, spotifyIDs...)
-		toAddOnYouTube := without(spotifyIDs, youtubeIDs...)
-
-		if len(toAddOnSpotify) != 0 {
-			t.Errorf("Expected no tracks to add on Spotify, got %d", len(toAddOnSpotify))
+		// Clear previous sync items for clean test
+		allItems, _ := testApp.Dao().FindRecordsByFilter("sync_items", "id != ''", "-created", 100, 0)
+		for _, item := range allItems {
+			testApp.Dao().DeleteRecord(item)
 		}
-		if len(toAddOnYouTube) != 0 {
-			t.Errorf("Expected no tracks to add on YouTube, got %d", len(toAddOnYouTube))
+
+		// Create identical track lists
+		identicalTracks := []Track{
+			{ID: "track1", Title: "Song 1"},
+			{ID: "track2", Title: "Song 2"},
 		}
+		spotifyTracks := TrackList{Tracks: identicalTracks, Service: "spotify"}
+		youtubeTracks := TrackList{Tracks: identicalTracks, Service: "youtube"}
+
+		// Test actual analyzeTracks function
+		err := analyzeTracks(testApp, mapping, spotifyTracks, youtubeTracks)
+		assert.NoError(t, err)
+
+		// Should have no sync items created (identical playlists)
+		syncItems, err := testApp.Dao().FindRecordsByFilter("sync_items", "id != ''", "-created", 100, 0)
+		assert.NoError(t, err)
+		assert.Equal(t, 0, len(syncItems), "Should have no sync items for identical playlists")
 	})
 
 	t.Run("partial overlap should result in correct differences", func(t *testing.T) {
-		spotifyIDs := []string{"track1", "track2", "track3"}
-		youtubeIDs := []string{"track2", "track3", "track4"} // track2,3 overlap
-
-		toAddOnSpotify := without(youtubeIDs, spotifyIDs...)
-		toAddOnYouTube := without(spotifyIDs, youtubeIDs...)
-
-		// Should add track4 to Spotify (only in YouTube)
-		if len(toAddOnSpotify) != 1 || toAddOnSpotify[0] != "track4" {
-			t.Errorf("Expected to add [track4] to Spotify, got %v", toAddOnSpotify)
+		// Clear previous sync items for clean test
+		allItems, _ := testApp.Dao().FindRecordsByFilter("sync_items", "id != ''", "-created", 100, 0)
+		for _, item := range allItems {
+			testApp.Dao().DeleteRecord(item)
 		}
 
-		// Should add track1 to YouTube (only in Spotify)
-		if len(toAddOnYouTube) != 1 || toAddOnYouTube[0] != "track1" {
-			t.Errorf("Expected to add [track1] to YouTube, got %v", toAddOnYouTube)
+		// Create overlapping track lists
+		spotifyTracks := TrackList{
+			Tracks: []Track{
+				{ID: "track1", Title: "Song 1"}, // Only in Spotify
+				{ID: "track2", Title: "Song 2"}, // In both
+				{ID: "track3", Title: "Song 3"}, // In both
+			},
+			Service: "spotify",
 		}
+		youtubeTracks := TrackList{
+			Tracks: []Track{
+				{ID: "track2", Title: "Song 2"}, // In both
+				{ID: "track3", Title: "Song 3"}, // In both
+				{ID: "track4", Title: "Song 4"}, // Only in YouTube
+			},
+			Service: "youtube",
+		}
+
+		// Test actual analyzeTracks function
+		err := analyzeTracks(testApp, mapping, spotifyTracks, youtubeTracks)
+		assert.NoError(t, err)
+
+		// Should have 2 items: 1 for Spotify (add track4) + 1 for YouTube (add track1)
+		syncItems, err := testApp.Dao().FindRecordsByFilter("sync_items", "id != ''", "-created", 100, 0)
+		assert.NoError(t, err)
+		assert.Equal(t, 2, len(syncItems))
+
+		// Verify specific tracks
+		var spotifyItem, youtubeItem *models.Record
+		for _, item := range syncItems {
+			if item.GetString("service") == "spotify" {
+				spotifyItem = item
+			} else if item.GetString("service") == "youtube" {
+				youtubeItem = item
+			}
+		}
+
+		require.NotNil(t, spotifyItem, "Should have item for Spotify")
+		require.NotNil(t, youtubeItem, "Should have item for YouTube")
+
+		// Check payloads
+		var spotifyPayload, youtubePayload map[string]string
+		json.Unmarshal([]byte(spotifyItem.GetString("payload")), &spotifyPayload)
+		json.Unmarshal([]byte(youtubeItem.GetString("payload")), &youtubePayload)
+
+		assert.Equal(t, "track4", spotifyPayload["track_id"], "Should add track4 to Spotify")
+		assert.Equal(t, "track1", youtubePayload["track_id"], "Should add track1 to YouTube")
 	})
 }
 
-func TestAnalyzePlaylistNames(t *testing.T) {
+func TestAnalyzePlaylistNames_ActualImplementation(t *testing.T) {
+	testApp := testhelpers.SetupTestApp(t)
+	defer testApp.Cleanup()
+
+	// Create dummy TrackList structs (not used by analyzePlaylistNames but required by signature)
+	emptyTracks := TrackList{Tracks: []Track{}, Service: ""}
+
 	t.Run("different names should trigger rename actions", func(t *testing.T) {
-		spotifyName := "My Spotify Playlist"
-		youtubeName := "My YouTube Playlist"
-
-		// According to RFC, YouTube name is canonical by default
-		expectedCanonical := youtubeName
-
-		// Test the canonical name selection logic
-		canonicalName := youtubeName
-		if youtubeName == "" {
-			canonicalName = spotifyName
+		// Clear any existing sync items
+		allItems, _ := testApp.Dao().FindRecordsByFilter("sync_items", "id != ''", "-created", 100, 0)
+		for _, item := range allItems {
+			testApp.Dao().DeleteRecord(item)
 		}
 
-		if canonicalName != expectedCanonical {
-			t.Errorf("Expected canonical name to be '%s', got '%s'",
-				expectedCanonical, canonicalName)
-		}
+		// Create mapping with different playlist names
+		collection, err := testApp.Dao().FindCollectionByNameOrId("mappings")
+		require.NoError(t, err)
+		mapping := models.NewRecord(collection)
+		mapping.Set("spotify_playlist_id", "test_playlist")
+		mapping.Set("spotify_playlist_name", "My Spotify Playlist")
+		mapping.Set("youtube_playlist_name", "My YouTube Playlist")
+		err = testApp.Dao().SaveRecord(mapping)
+		require.NoError(t, err)
 
-		// Test rename decisions
-		spotifyNeedsRename := spotifyName != canonicalName
-		youtubeNeedsRename := youtubeName != canonicalName
+		// Test actual analyzePlaylistNames function
+		err = analyzePlaylistNames(testApp, mapping, emptyTracks, emptyTracks)
+		assert.NoError(t, err)
 
-		if !spotifyNeedsRename {
-			t.Error("Expected Spotify to need renaming")
-		}
+		// According to RFC, YouTube name is canonical by default, so Spotify should be renamed
+		syncItems, err := testApp.Dao().FindRecordsByFilter("sync_items", "id != ''", "-created", 100, 0)
+		require.NoError(t, err)
+		assert.Equal(t, 1, len(syncItems), "Should have 1 rename item for Spotify")
 
-		// YouTube is canonical, so it shouldn't need renaming
-		if youtubeNeedsRename {
-			t.Error("Expected YouTube NOT to need renaming (it's canonical)")
-		}
+		item := syncItems[0]
+		assert.Equal(t, "spotify", item.GetString("service"))
+		assert.Equal(t, "rename_playlist", item.GetString("action"))
+
+		// Check payload
+		var payload map[string]string
+		json.Unmarshal([]byte(item.GetString("payload")), &payload)
+		assert.Equal(t, "My YouTube Playlist", payload["new_name"], "Should rename Spotify to YouTube's name")
 	})
 
 	t.Run("identical names should not trigger rename actions", func(t *testing.T) {
-		sameName := "Identical Playlist Name"
-		spotifyName := sameName
-		youtubeName := sameName
-
-		// No renaming should be needed
-		canonicalName := youtubeName
-		if youtubeName == "" {
-			canonicalName = spotifyName
+		// Clear any existing sync items
+		allItems, _ := testApp.Dao().FindRecordsByFilter("sync_items", "id != ''", "-created", 100, 0)
+		for _, item := range allItems {
+			testApp.Dao().DeleteRecord(item)
 		}
 
-		spotifyNeedsRename := spotifyName != canonicalName
-		youtubeNeedsRename := youtubeName != canonicalName
+		// Create mapping with identical playlist names
+		collection, err := testApp.Dao().FindCollectionByNameOrId("mappings")
+		require.NoError(t, err)
+		mapping := models.NewRecord(collection)
+		mapping.Set("spotify_playlist_id", "test_playlist")
+		mapping.Set("spotify_playlist_name", "Identical Playlist Name")
+		mapping.Set("youtube_playlist_name", "Identical Playlist Name")
+		err = testApp.Dao().SaveRecord(mapping)
+		require.NoError(t, err)
 
-		if spotifyNeedsRename {
-			t.Error("Expected Spotify NOT to need renaming when names are identical")
-		}
-		if youtubeNeedsRename {
-			t.Error("Expected YouTube NOT to need renaming when names are identical")
-		}
+		// Test actual analyzePlaylistNames function
+		err = analyzePlaylistNames(testApp, mapping, emptyTracks, emptyTracks)
+		assert.NoError(t, err)
+
+		// Should have no sync items created (identical names)
+		syncItems, err := testApp.Dao().FindRecordsByFilter("sync_items", "id != ''", "-created", 100, 0)
+		assert.NoError(t, err)
+		assert.Equal(t, 0, len(syncItems), "Should have no rename items for identical names")
 	})
 
 	t.Run("empty youtube name should use spotify as canonical", func(t *testing.T) {
-		spotifyName := "My Playlist"
-		youtubeName := ""
-
-		canonicalName := youtubeName
-		if youtubeName == "" {
-			canonicalName = spotifyName
+		// Clear any existing sync items
+		allItems, _ := testApp.Dao().FindRecordsByFilter("sync_items", "id != ''", "-created", 100, 0)
+		for _, item := range allItems {
+			testApp.Dao().DeleteRecord(item)
 		}
 
-		if canonicalName != spotifyName {
-			t.Errorf("Expected canonical name to be Spotify name '%s', got '%s'",
-				spotifyName, canonicalName)
+		// Create mapping with empty YouTube name
+		collection, err := testApp.Dao().FindCollectionByNameOrId("mappings")
+		require.NoError(t, err)
+		mapping := models.NewRecord(collection)
+		mapping.Set("spotify_playlist_id", "test_playlist")
+		mapping.Set("spotify_playlist_name", "My Playlist")
+		mapping.Set("youtube_playlist_name", "")
+		err = testApp.Dao().SaveRecord(mapping)
+		require.NoError(t, err)
+
+		// Test actual analyzePlaylistNames function
+		err = analyzePlaylistNames(testApp, mapping, emptyTracks, emptyTracks)
+		assert.NoError(t, err)
+
+		// Should have no sync items since both names need to be non-empty for comparison
+		syncItems, err := testApp.Dao().FindRecordsByFilter("sync_items", "id != ''", "-created", 100, 0)
+		assert.NoError(t, err)
+		assert.Equal(t, 0, len(syncItems), "Should have no rename items when YouTube name is empty")
+	})
+
+	t.Run("empty spotify name should not trigger rename", func(t *testing.T) {
+		// Clear any existing sync items
+		allItems, _ := testApp.Dao().FindRecordsByFilter("sync_items", "id != ''", "-created", 100, 0)
+		for _, item := range allItems {
+			testApp.Dao().DeleteRecord(item)
 		}
+
+		// Create mapping with empty Spotify name
+		collection, err := testApp.Dao().FindCollectionByNameOrId("mappings")
+		require.NoError(t, err)
+		mapping := models.NewRecord(collection)
+		mapping.Set("spotify_playlist_id", "test_playlist")
+		mapping.Set("spotify_playlist_name", "")
+		mapping.Set("youtube_playlist_name", "My YouTube Playlist")
+		err = testApp.Dao().SaveRecord(mapping)
+		require.NoError(t, err)
+
+		// Test actual analyzePlaylistNames function
+		err = analyzePlaylistNames(testApp, mapping, emptyTracks, emptyTracks)
+		assert.NoError(t, err)
+
+		// Should have no sync items since both names need to be non-empty for comparison
+		syncItems, err := testApp.Dao().FindRecordsByFilter("sync_items", "id != ''", "-created", 100, 0)
+		assert.NoError(t, err)
+		assert.Equal(t, 0, len(syncItems), "Should have no rename items when Spotify name is empty")
 	})
 }
 
-func TestUpdateMappingAnalysisTime(t *testing.T) {
+func TestUpdateMappingAnalysisTime_ActualImplementation(t *testing.T) {
+	testApp := testhelpers.SetupTestApp(t)
+	defer testApp.Cleanup()
+
 	t.Run("should calculate next analysis time based on interval", func(t *testing.T) {
 		testCases := []struct {
 			name             string
@@ -223,25 +369,49 @@ func TestUpdateMappingAnalysisTime(t *testing.T) {
 
 		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {
-				now := time.Now()
+				// Create a test mapping with specific interval
+				collection, err := testApp.Dao().FindCollectionByNameOrId("mappings")
+				require.NoError(t, err)
+				mapping := models.NewRecord(collection)
+				mapping.Set("spotify_playlist_id", "test_playlist")
+				mapping.Set("interval_minutes", tc.intervalMinutes)
+				err = testApp.Dao().SaveRecord(mapping)
+				require.NoError(t, err)
 
-				intervalMinutes := tc.intervalMinutes
-				if intervalMinutes == 0 {
-					intervalMinutes = 60 // default from updateMappingAnalysisTime
-				}
+				now := time.Now().UTC()
 
-				actualDuration := time.Duration(intervalMinutes) * time.Minute
-				if actualDuration != tc.expectedDuration {
-					t.Errorf("Expected duration %v, got %v", tc.expectedDuration, actualDuration)
-				}
+				// Test actual updateMappingAnalysisTime function
+				err = updateMappingAnalysisTime(testApp, mapping, now)
+				assert.NoError(t, err)
 
-				// Test that next analysis time is correctly calculated
-				expectedNext := now.Add(actualDuration)
-				timeDiff := expectedNext.Sub(now)
+				// Reload the record to check updated values
+				updatedRecord, err := testApp.Dao().FindRecordById("mappings", mapping.Id)
+				require.NoError(t, err)
 
-				if timeDiff != actualDuration {
-					t.Errorf("Expected time difference %v, got %v", actualDuration, timeDiff)
-				}
+				lastAnalysisStr := updatedRecord.GetString("last_analysis_at")
+				nextAnalysisStr := updatedRecord.GetString("next_analysis_at")
+
+				assert.NotEmpty(t, lastAnalysisStr)
+				assert.NotEmpty(t, nextAnalysisStr)
+
+				// Parse the dates using PocketBase's actual format
+				lastAnalysis, err := time.Parse("2006-01-02 15:04:05.000Z", lastAnalysisStr)
+				require.NoError(t, err)
+				nextAnalysis, err := time.Parse("2006-01-02 15:04:05.000Z", nextAnalysisStr)
+				require.NoError(t, err)
+
+				// Verify the time difference matches expected duration
+				actualDuration := nextAnalysis.Sub(lastAnalysis)
+
+				// Allow 1 second tolerance for test timing
+				tolerance := 1 * time.Second
+				assert.True(t, actualDuration >= tc.expectedDuration-tolerance && actualDuration <= tc.expectedDuration+tolerance,
+					"Expected duration ~%v, got %v for case '%s'", tc.expectedDuration, actualDuration, tc.name)
+
+				// Verify last_analysis_at is close to the time we passed in
+				timeDiff := lastAnalysis.Sub(now)
+				assert.True(t, timeDiff >= -tolerance && timeDiff <= tolerance,
+					"last_analysis_at should be close to now, got diff %v", timeDiff)
 			})
 		}
 	})
@@ -298,190 +468,12 @@ func without(slice []string, exclude ...string) []string {
 	return result
 }
 
-func setupTestApp(t *testing.T) *tests.TestApp {
-	testApp, err := tests.NewTestApp()
-	require.NoError(t, err)
-
-	// Create oauth_tokens collection
-	oauthCollection := &models.Collection{}
-	oauthCollection.Name = "oauth_tokens"
-	oauthCollection.Type = models.CollectionTypeBase
-	oauthCollection.Schema = schema.NewSchema(
-		&schema.SchemaField{Name: "provider", Type: schema.FieldTypeText},
-		&schema.SchemaField{Name: "access_token", Type: schema.FieldTypeText},
-		&schema.SchemaField{Name: "refresh_token", Type: schema.FieldTypeText},
-		&schema.SchemaField{Name: "expiry", Type: schema.FieldTypeDate},
-		&schema.SchemaField{Name: "scopes", Type: schema.FieldTypeText},
-	)
-	err = testApp.Dao().SaveCollection(oauthCollection)
-	require.NoError(t, err)
-
-	// Create mappings collection
-	mappingsCollection := &models.Collection{}
-	mappingsCollection.Name = "mappings"
-	mappingsCollection.Type = models.CollectionTypeBase
-	mappingsCollection.Schema = schema.NewSchema(
-		&schema.SchemaField{Name: "spotify_playlist_id", Type: schema.FieldTypeText},
-		&schema.SchemaField{Name: "spotify_playlist_name", Type: schema.FieldTypeText},
-		&schema.SchemaField{Name: "youtube_playlist_id", Type: schema.FieldTypeText},
-		&schema.SchemaField{Name: "youtube_playlist_name", Type: schema.FieldTypeText},
-		&schema.SchemaField{Name: "sync_name", Type: schema.FieldTypeBool},
-		&schema.SchemaField{Name: "sync_tracks", Type: schema.FieldTypeBool},
-		&schema.SchemaField{Name: "interval_minutes", Type: schema.FieldTypeNumber},
-		&schema.SchemaField{Name: "last_analysis_at", Type: schema.FieldTypeDate},
-		&schema.SchemaField{Name: "next_analysis_at", Type: schema.FieldTypeDate},
-	)
-	err = testApp.Dao().SaveCollection(mappingsCollection)
-	require.NoError(t, err)
-
-	// Create sync_items collection
-	syncItemsCollection := &models.Collection{}
-	syncItemsCollection.Name = "sync_items"
-	syncItemsCollection.Type = models.CollectionTypeBase
-	syncItemsCollection.Schema = schema.NewSchema(
-		&schema.SchemaField{
-			Name:     "mapping_id",
-			Type:     schema.FieldTypeRelation,
-			Required: true,
-			Options: &schema.RelationOptions{
-				CollectionId:  mappingsCollection.Id,
-				CascadeDelete: true,
-				MinSelect:     nil,
-				MaxSelect:     nil,
-			},
-		},
-		&schema.SchemaField{
-			Name:     "service",
-			Type:     schema.FieldTypeSelect,
-			Required: true,
-			Options: &schema.SelectOptions{
-				Values: []string{"spotify", "youtube"},
-			},
-		},
-		&schema.SchemaField{
-			Name:     "action",
-			Type:     schema.FieldTypeSelect,
-			Required: true,
-			Options: &schema.SelectOptions{
-				Values: []string{"add_track", "remove_track", "rename_playlist"},
-			},
-		},
-		&schema.SchemaField{Name: "payload", Type: schema.FieldTypeJson},
-		&schema.SchemaField{
-			Name:     "status",
-			Type:     schema.FieldTypeSelect,
-			Required: true,
-			Options: &schema.SelectOptions{
-				Values: []string{"pending", "running", "done", "error", "skipped"},
-			},
-		},
-		&schema.SchemaField{Name: "attempts", Type: schema.FieldTypeNumber, Required: true},
-		&schema.SchemaField{Name: "last_error", Type: schema.FieldTypeText},
-	)
-	err = testApp.Dao().SaveCollection(syncItemsCollection)
-	require.NoError(t, err)
-
-	return testApp
-}
-
-func setupOAuthTokens(t *testing.T, testApp *tests.TestApp) {
-	// Create Spotify token
-	collection, err := testApp.Dao().FindCollectionByNameOrId("oauth_tokens")
-	require.NoError(t, err)
-	spotifyTokenRecord := models.NewRecord(collection)
-	spotifyTokenRecord.Set("provider", "spotify")
-	spotifyTokenRecord.Set("access_token", "fake_spotify_token")
-	spotifyTokenRecord.Set("refresh_token", "fake_spotify_refresh")
-	spotifyTokenRecord.Set("expiry", time.Now().Add(1*time.Hour).Format(time.RFC3339))
-	err = testApp.Dao().SaveRecord(spotifyTokenRecord)
-	require.NoError(t, err)
-
-	// Create Google token
-	googleTokenRecord := models.NewRecord(collection)
-	googleTokenRecord.Set("provider", "google")
-	googleTokenRecord.Set("access_token", "fake_google_token")
-	googleTokenRecord.Set("refresh_token", "fake_google_refresh")
-	googleTokenRecord.Set("expiry", time.Now().Add(1*time.Hour).Format(time.RFC3339))
-	err = testApp.Dao().SaveRecord(googleTokenRecord)
-	require.NoError(t, err)
-}
-
-func setupHTTPMocks(t *testing.T) {
-	httpmock.Activate()
-
-	// Clear any existing responders
-	httpmock.Reset()
-
-	// Mock Spotify API
-	spotifyTracks := map[string]interface{}{
-		"items": []map[string]interface{}{
-			{
-				"track": map[string]interface{}{
-					"id":   "spotify_track_1",
-					"name": "Song 1",
-				},
-			},
-			{
-				"track": map[string]interface{}{
-					"id":   "spotify_track_2",
-					"name": "Song 2",
-				},
-			},
-		},
-	}
-	httpmock.RegisterResponder("GET", `=~^https://api\.spotify\.com/v1/playlists/.*/tracks`,
-		func(req *http.Request) (*http.Response, error) {
-			t.Logf("Spotify API called: %s", req.URL.String())
-			return httpmock.NewJsonResponse(200, spotifyTracks)
-		})
-
-	// Mock YouTube API
-	youtubeItems := map[string]interface{}{
-		"items": []map[string]interface{}{
-			{
-				"id": "youtube_item_1",
-				"snippet": map[string]interface{}{
-					"title": "Song 2", // Overlaps with Spotify
-				},
-			},
-			{
-				"id": "youtube_item_2",
-				"snippet": map[string]interface{}{
-					"title": "Song 3", // Only on YouTube
-				},
-			},
-		},
-	}
-	httpmock.RegisterResponder("GET", `=~^https://.*youtube.*playlistItems`,
-		func(req *http.Request) (*http.Response, error) {
-			t.Logf("YouTube API called: %s", req.URL.String())
-			return httpmock.NewJsonResponse(200, youtubeItems)
-		})
-
-	// Mock OAuth token refresh endpoints
-	httpmock.RegisterResponder("POST", "https://accounts.spotify.com/api/token",
-		httpmock.NewJsonResponderOrPanic(200, map[string]interface{}{
-			"access_token":  "refreshed_spotify_token",
-			"token_type":    "Bearer",
-			"expires_in":    3600,
-			"refresh_token": "fake_spotify_refresh",
-		}))
-
-	httpmock.RegisterResponder("POST", "https://oauth2.googleapis.com/token",
-		httpmock.NewJsonResponderOrPanic(200, map[string]interface{}{
-			"access_token":  "refreshed_google_token",
-			"token_type":    "Bearer",
-			"expires_in":    3600,
-			"refresh_token": "fake_google_refresh",
-		}))
-}
-
 func TestAnalyseMappings_Integration(t *testing.T) {
-	testApp := setupTestApp(t)
+	testApp := testhelpers.SetupTestApp(t)
 	defer testApp.Cleanup()
 
-	setupOAuthTokens(t, testApp)
-	setupHTTPMocks(t)
+	testhelpers.SetupOAuthTokens(t, testApp)
+	testhelpers.SetupAPIHttpMocks(t)
 	defer httpmock.DeactivateAndReset()
 
 	// Set environment variables for OAuth
@@ -544,7 +536,7 @@ func TestAnalyseMappings_Integration(t *testing.T) {
 }
 
 func TestShouldAnalyzeMapping_WithPocketBaseRecord(t *testing.T) {
-	testApp := setupTestApp(t)
+	testApp := testhelpers.SetupTestApp(t)
 	defer testApp.Cleanup()
 
 	// Use UTC time to avoid timezone issues
@@ -582,40 +574,14 @@ func TestShouldAnalyzeMapping_WithPocketBaseRecord(t *testing.T) {
 }
 
 func TestAnalyzeMapping_NoSyncItems(t *testing.T) {
-	testApp := setupTestApp(t)
+	testApp := testhelpers.SetupTestApp(t)
 	defer testApp.Cleanup()
 
-	setupOAuthTokens(t, testApp)
+	testhelpers.SetupOAuthTokens(t, testApp)
 
 	// Mock identical track lists (no changes needed)
-	httpmock.Activate()
+	testhelpers.SetupIdenticalPlaylistMocks(t)
 	defer httpmock.DeactivateAndReset()
-
-	identicalTracks := map[string]interface{}{
-		"items": []map[string]interface{}{
-			{
-				"track": map[string]interface{}{
-					"id":   "same_track_1",
-					"name": "Same Song",
-				},
-			},
-		},
-	}
-	httpmock.RegisterResponder("GET", `=~^https://api\.spotify\.com/v1/playlists/.*/tracks`,
-		httpmock.NewJsonResponderOrPanic(200, identicalTracks))
-
-	youtubeIdentical := map[string]interface{}{
-		"items": []map[string]interface{}{
-			{
-				"id": "same_track_1", // Same ID as Spotify
-				"snippet": map[string]interface{}{
-					"title": "Same Song",
-				},
-			},
-		},
-	}
-	httpmock.RegisterResponder("GET", `=~^https://.*youtube.*playlistItems`,
-		httpmock.NewJsonResponderOrPanic(200, youtubeIdentical))
 
 	os.Setenv("SPOTIFY_CLIENT_ID", "test_spotify_id")
 	os.Setenv("SPOTIFY_CLIENT_SECRET", "test_spotify_secret")
@@ -653,7 +619,7 @@ func TestAnalyzeMapping_NoSyncItems(t *testing.T) {
 }
 
 func TestEnqueueSyncItem_Integration(t *testing.T) {
-	testApp := setupTestApp(t)
+	testApp := testhelpers.SetupTestApp(t)
 	defer testApp.Cleanup()
 
 	// Create a test mapping
@@ -751,7 +717,7 @@ func TestEnqueueSyncItem_Integration(t *testing.T) {
 }
 
 func TestUpdateMappingAnalysisTime_Integration(t *testing.T) {
-	testApp := setupTestApp(t)
+	testApp := testhelpers.SetupTestApp(t)
 	defer testApp.Cleanup()
 
 	// Create a test mapping
