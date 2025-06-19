@@ -255,6 +255,11 @@ func enqueueSyncItem(app daoProvider, mapping *models.Record, service, action st
 	record.Set("status", "pending")
 	record.Set("attempts", 0)
 
+	// Set executor fields with defaults
+	now := time.Now()
+	record.Set("next_attempt_at", now.Format("2006-01-02 15:04:05.000Z"))
+	record.Set("attempt_backoff_secs", 30)
+
 	// Convert payload to JSON
 	payloadJSON, err := json.Marshal(payload)
 	if err != nil {

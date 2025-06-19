@@ -1,4 +1,6 @@
-.PHONY: dev backend-dev frontend-dev test test-backend test-frontend test-e2e lint build-image clean migrate-up help
+# .PHONY tells Make that these targets are not actual files
+# This prevents conflicts if files with these names exist and ensures the commands always run
+.PHONY: dev backend-dev backend-workers frontend-dev test test-backend test-frontend test-e2e lint build-image clean migrate-up help
 
 # Variables
 PB_DEV_PORT ?= 8090
@@ -8,6 +10,7 @@ help:
 	@echo "Available targets:"
 	@echo "  dev             - Start development servers (backend + frontend)"
 	@echo "  backend-dev     - Start backend with Air (live reload)"
+	@echo "  backend-workers - Start backend with continuous analysis+executor workers (dev)"
 	@echo "  frontend-dev    - Start frontend Vite server only"
 	@echo "  migrate-up      - Run database migrations manually"
 	@echo "  test            - Run all tests (backend + frontend)"
@@ -31,6 +34,12 @@ dev:
 backend-dev:
 	@echo "Starting backend with Air on port $(PB_DEV_PORT)..."
 	@cd backend && PORT=$(PB_DEV_PORT) go run github.com/air-verse/air@latest
+
+# Run analysis+executor workers continuously (dev)
+backend-workers:
+	@echo "Starting backend workers with Air on port $(PB_DEV_PORT)..."
+	@echo "Analysis and executor jobs will run continuously."
+	@cd backend && PORT=$(PB_DEV_PORT) go run github.com/air-verse/air@latest -c .air.workers.toml
 
 # Run frontend dev server only
 frontend-dev:

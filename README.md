@@ -74,6 +74,7 @@ The backend uses **PocketBase** as the foundation, providing:
 
 - `make dev` - Start development servers (backend + frontend)
 - `make backend-dev` - Start backend with Air (live reload)
+- `make backend-workers` - Start backend with continuous analysis+executor workers (dev)
 - `make migrate-up` - Run database migrations manually
 - `make test` - Run all tests
 - `make lint` - Run all linters
@@ -91,6 +92,7 @@ The backend uses **PocketBase** as the foundation, providing:
 - RFC-005: YouTube OAuth integration with PKCE flow
 - RFC-006: Playlist mapping collections & UI
 - RFC-007: Sync analysis job (scheduled detection)
+- RFC-008: Sync execution job (worker processing queue)
 
 **Current Features:**
 - Monorepo structure with separate backend/frontend workspaces
@@ -106,9 +108,12 @@ The backend uses **PocketBase** as the foundation, providing:
 - Playlist mappings management (CRUD operations)
 - Mapping creation wizard with 4-step flow
 - Configurable sync options (name, tracks, interval)
-- Sync analysis job with scheduled detection and work queue generation
+- Two-phase sync system: analysis job (detection) + execution job (processing)
+- Worker pool with concurrent processing and rate limiting
+- Exponential backoff retry logic with error classification
+- YouTube quota tracking with daily limits
 - MSW-powered testing infrastructure
-- Full test coverage for OAuth flows, mappings UI, and sync analysis
+- Full test coverage for OAuth flows, mappings UI, sync analysis, and execution workers
 
 ## Spotify OAuth Setup
 
@@ -228,7 +233,17 @@ After connecting both your Spotify and YouTube accounts, you can create playlist
 Spotube uses a two-phase approach for playlist synchronization:
 
 1. **Analysis Phase (RFC-007):** A background job routinely inspects mappings and generates work items
-2. **Execution Phase (RFC-008):** A separate job processes work items with proper rate limiting
+2. **Execution Phase (RFC-008):** A separate job processes work items with proper rate limiting and quota management
+
+### Development Worker Mode
+
+For development, you can run the backend with continuous workers using:
+
+```bash
+make backend-workers
+```
+
+This starts the backend with both analysis and execution jobs running continuously, using Air for live reload when job code changes.
 
 ### Analysis Job Schedule
 
@@ -246,6 +261,23 @@ For each eligible mapping, the analysis job:
 4. **Work Queue:** Creates `sync_items` records for the execution phase
 5. **Timestamp Update:** Sets `last_analysis_at` and `next_analysis_at` for the mapping
 
+### Execution Job Schedule
+
+- **Frequency:** Runs every 5 seconds via cron scheduler (`*/5 * * * * *`)
+- **Batch Processing:** Processes up to 50 pending items per execution cycle
+- **Concurrent Workers:** Uses worker pool with maximum 5 concurrent operations
+- **Smart Queuing:** Only processes items where `next_attempt_at` has passed
+
+### Execution Process
+
+For each eligible sync item, the execution job:
+
+1. **Status Update:** Marks item as `running` and increments attempt counter
+2. **Action Dispatch:** Routes to appropriate handler based on `service:action` combination
+3. **Rate Limiting:** Respects Spotify rate limits (10 requests/second) and YouTube quota
+4. **Error Classification:** Handles rate limits, fatal errors, and temporary errors differently
+5. **Retry Logic:** Implements exponential backoff for retryable errors
+
 ### Generated Work Items
 
 The analysis creates work items in the `sync_items` collection:
@@ -253,16 +285,75 @@ The analysis creates work items in the `sync_items` collection:
 - **Track Additions:** `add_track` actions with target service and track ID
 - **Playlist Renames:** `rename_playlist` actions when titles drift
 - **Status Tracking:** Each item has status (`pending`, `running`, `done`, `error`, `skipped`)
+- **Retry Control:** Items include `next_attempt_at` and `attempt_backoff_secs` for scheduling
+- **Execution History:** Tracks `attempts` count and `last_error` for debugging
+
+### Error Handling & Retry Logic
+
+The execution job implements sophisticated error handling:
+
+**Rate Limit Errors:**
+- HTTP 429, "rate limit", "too many requests"
+- **Action:** Retry with exponential backoff
+- **Backoff Formula:** `min(2^attempts * 30, 3600)` seconds (30s to 1 hour cap)
+
+**Fatal Errors:**
+- HTTP 404, 403, 401, "invalid", "forbidden", "unauthorized"
+- **Action:** Mark as `error` status, no retry
+- **Use Case:** Deleted playlists, revoked permissions, invalid IDs
+
+**Temporary Errors:**
+- Network timeouts, 5xx server errors, other transient issues
+- **Action:** Retry with exponential backoff
+- **Backoff Formula:** Same as rate limits
+
+**YouTube Quota Management:**
+- **Daily Limit:** 10,000 quota units per day (resets at UTC midnight)
+- **Track Addition Cost:** 50 units per operation
+- **Playlist Rename Cost:** 1 unit per operation
+- **Quota Exhausted:** Items marked as `skipped` with `last_error="quota"`
+- **Automatic Reset:** Quota tracker resets usage at UTC midnight
+
+### Worker Pool Configuration
+
+The execution job uses configurable constants (currently hardcoded):
+
+- **`BATCH_SIZE = 50`** - Maximum items processed per execution cycle
+- **`MAX_CONCURRENCY = 5`** - Maximum concurrent worker threads
+- **`SPOTIFY_RATE_LIMIT = 10`** - Spotify API requests per second (conservative)
+- **`YOUTUBE_DAILY_QUOTA = 10000`** - YouTube quota units per day
+- **`YOUTUBE_ADD_TRACK_COST = 50`** - Quota cost for adding tracks
 
 ### Configuration
 
-No environment variables are currently needed for the analysis job. All timing is controlled via the mapping's `interval_minutes` field, configurable through the UI (5-720 minutes).
+Currently, no environment variables are needed for sync jobs. All configuration is either:
+- **Mapping-level:** `interval_minutes` configurable via UI (5-720 minutes)
+- **System-level:** Hardcoded constants in the executor implementation
+
+Future releases may expose worker configuration via environment variables.
 
 ### Monitoring
 
+**Analysis Job:**
 - Check PocketBase logs for analysis job activity
-- View the `sync_items` collection in the admin UI for pending work
 - Monitor mapping timestamps (`last_analysis_at`, `next_analysis_at`) for job health
+
+**Execution Job:**
+- Check PocketBase logs for executor job activity and worker pool operations
+- View the `sync_items` collection in admin UI for work queue status
+- Monitor item status distribution (`pending`, `running`, `done`, `error`, `skipped`)
+- Track retry attempts and error patterns via `last_error` fields
+- YouTube quota usage logged with daily reset notifications
+
+**Key Log Patterns:**
+```
+Starting sync executor job...
+Found X pending sync items to process
+Processing sync item: service=spotify, action=add_track
+YouTube quota consumed: used=150/10000 (cost=50)
+Retrying item abc123 in 60 seconds (attempt 2)
+Successfully processed sync item abc123
+```
 
 ## Tech Stack
 

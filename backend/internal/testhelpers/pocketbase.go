@@ -116,10 +116,25 @@ func CreateSyncItemsCollection(t *testing.T, testApp *tests.TestApp, mappingsCol
 		},
 		&schema.SchemaField{Name: "attempts", Type: schema.FieldTypeNumber, Required: true},
 		&schema.SchemaField{Name: "last_error", Type: schema.FieldTypeText},
+		&schema.SchemaField{Name: "next_attempt_at", Type: schema.FieldTypeDate, Required: true},
+		&schema.SchemaField{
+			Name:     "attempt_backoff_secs",
+			Type:     schema.FieldTypeNumber,
+			Required: true,
+			Options: &schema.NumberOptions{
+				Min: float64Ptr(30),
+				Max: float64Ptr(3600),
+			},
+		},
 	)
 	err := testApp.Dao().SaveCollection(syncItemsCollection)
 	require.NoError(t, err)
 	return syncItemsCollection
+}
+
+// Helper function for number field options
+func float64Ptr(v float64) *float64 {
+	return &v
 }
 
 // SetupOAuthTokens creates test OAuth tokens for both services

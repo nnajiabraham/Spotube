@@ -37,6 +37,9 @@ func main() {
 	// Register analysis job scheduler
 	jobs.RegisterAnalysis(app)
 
+	// Register executor job scheduler (RFC-008)
+	jobs.RegisterExecutor(app)
+
 	// Register `pb migrate` sub-command so we can run `go run ./cmd/server migrate up`.
 	isGoRun := strings.HasPrefix(os.Args[0], os.TempDir())
 	migratecmd.MustRegister(app, app.RootCmd, migratecmd.Config{
