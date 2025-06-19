@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/manlikeabro/spotube/internal/auth"
 	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/models"
 	"github.com/pocketbase/pocketbase/tools/cron"
@@ -292,13 +293,13 @@ func executeSpotifyAddTrack(app daoProvider, item *models.Record, payloadStr str
 	}
 
 	// Get authenticated Spotify client
-	client, err := getSpotifyClientForJob(app)
+	ctx := context.Background()
+	client, err := auth.GetSpotifyClientForJob(ctx, app)
 	if err != nil {
 		return fmt.Errorf("failed to get Spotify client: %w", err)
 	}
 
 	// Add track to playlist
-	ctx := context.Background()
 	_, err = client.AddTracksToPlaylist(ctx, spotify.ID(playlistID), spotify.ID(trackID))
 	if err != nil {
 		return fmt.Errorf("failed to add track to Spotify playlist: %w", err)
@@ -352,7 +353,7 @@ func executeYouTubeAddTrack(app daoProvider, item *models.Record, payloadStr str
 
 	// Get authenticated YouTube service
 	ctx := context.Background()
-	svc, err := getYouTubeServiceForJob(ctx, app)
+	svc, err := auth.GetYouTubeServiceForJob(ctx, app)
 	if err != nil {
 		return fmt.Errorf("failed to get YouTube service: %w", err)
 	}
@@ -410,13 +411,13 @@ func executeSpotifyRenamePlaylist(app daoProvider, item *models.Record, payloadS
 	}
 
 	// Get authenticated Spotify client
-	client, err := getSpotifyClientForJob(app)
+	ctx := context.Background()
+	client, err := auth.GetSpotifyClientForJob(ctx, app)
 	if err != nil {
 		return fmt.Errorf("failed to get Spotify client: %w", err)
 	}
 
 	// Rename playlist
-	ctx := context.Background()
 	err = client.ChangePlaylistName(ctx, spotify.ID(playlistID), newName)
 	if err != nil {
 		return fmt.Errorf("failed to rename Spotify playlist: %w", err)
@@ -470,7 +471,7 @@ func executeYouTubeRenamePlaylist(app daoProvider, item *models.Record, payloadS
 
 	// Get authenticated YouTube service
 	ctx := context.Background()
-	svc, err := getYouTubeServiceForJob(ctx, app)
+	svc, err := auth.GetYouTubeServiceForJob(ctx, app)
 	if err != nil {
 		return fmt.Errorf("failed to get YouTube service: %w", err)
 	}

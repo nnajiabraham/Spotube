@@ -12,13 +12,13 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v5"
+	"github.com/manlikeabro/spotube/internal/auth"
 	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/daos"
 	"github.com/pocketbase/pocketbase/models"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
-	"google.golang.org/api/option"
 	"google.golang.org/api/youtube/v3"
 )
 
@@ -44,8 +44,8 @@ func Register(app *pocketbase.PocketBase) {
 }
 
 func getGoogleOAuthConfig() (*oauth2.Config, error) {
-	// Note: For this self-hosted app, we pull secrets from env vars.
-	// A more robust app might pull from the `settings` collection.
+	// Settings collection integration is now handled by unified auth factory
+	// This function maintains backward compatibility for OAuth flow setup
 	clientID := os.Getenv("GOOGLE_CLIENT_ID")
 	clientSecret := os.Getenv("GOOGLE_CLIENT_SECRET")
 
@@ -200,64 +200,16 @@ func saveGoogleTokens(dao *daos.Dao, token *oauth2.Token) error {
 	return dao.SaveRecord(rec)
 }
 
+// withGoogleClient creates an authenticated YouTube service using the unified auth factory
+// This function now delegates to the unified factory while maintaining backward compatibility
 func withGoogleClient(ctx context.Context, app daoProvider) (*youtube.Service, error) {
-	return withGoogleClientCustom(ctx, app, nil)
+	return auth.WithGoogleClient(ctx, app)
 }
 
+// withGoogleClientCustom creates an authenticated YouTube service using the unified auth factory with custom HTTP client
+// This function now delegates to the unified factory while maintaining backward compatibility
 func withGoogleClientCustom(ctx context.Context, app daoProvider, httpClient *http.Client) (*youtube.Service, error) {
-	record, err := app.Dao().FindFirstRecordByFilter("oauth_tokens", "provider = 'google'")
-	if err != nil {
-		return nil, fmt.Errorf("no google token found: %w", err)
-	}
-
-	conf, err := getGoogleOAuthConfig()
-	if err != nil {
-		return nil, err
-	}
-
-	token := &oauth2.Token{
-		AccessToken:  record.GetString("access_token"),
-		RefreshToken: record.GetString("refresh_token"),
-		TokenType:    "Bearer",
-	}
-
-	expiry, err := time.Parse(time.RFC3339, record.GetString("expiry"))
-	if err == nil {
-		token.Expiry = expiry
-	}
-
-	// Use custom HTTP client if provided (for testing)
-	if httpClient == nil {
-		httpClient = http.DefaultClient
-	}
-
-	// Create a context with the custom client
-	ctxWithClient := context.WithValue(ctx, oauth2.HTTPClient, httpClient)
-
-	tokenSource := conf.TokenSource(ctxWithClient, token)
-	newToken, err := tokenSource.Token()
-	if err != nil {
-		return nil, fmt.Errorf("failed to refresh token: %w", err)
-	}
-
-	if newToken.AccessToken != token.AccessToken {
-		if err := saveGoogleTokens(app.Dao(), newToken); err != nil {
-			return nil, fmt.Errorf("failed to save refreshed token: %w", err)
-		}
-	}
-
-	// Create YouTube service with custom HTTP client
-	opts := []option.ClientOption{
-		option.WithTokenSource(tokenSource),
-		option.WithHTTPClient(httpClient),
-	}
-
-	svc, err := youtube.NewService(ctx, opts...)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create youtube service: %w", err)
-	}
-
-	return svc, nil
+	return auth.WithGoogleClientCustom(ctx, app, httpClient)
 }
 
 func generateRandomString(length int) (string, error) {

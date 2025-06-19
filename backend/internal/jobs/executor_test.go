@@ -66,7 +66,7 @@ func TestProcessSyncItem_Success(t *testing.T) {
 
 	// Check that the error message indicates the actual implementation was called
 	lastError := updatedItem.GetString("last_error")
-	assert.Contains(t, lastError, "no Spotify token found", "Error should indicate real implementation was called")
+	assert.Contains(t, lastError, "failed to load Spotify credentials", "Error should indicate real implementation was called")
 }
 
 func TestProcessSyncItem_StatusTransition(t *testing.T) {

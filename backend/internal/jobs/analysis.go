@@ -5,20 +5,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"net/http"
-	"os"
 	"time"
 
+	"github.com/manlikeabro/spotube/internal/auth"
 	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/daos"
 	"github.com/pocketbase/pocketbase/models"
 	"github.com/pocketbase/pocketbase/tools/cron"
 	"github.com/samber/lo"
 	"github.com/zmb3/spotify/v2"
-	"golang.org/x/oauth2"
-	"golang.org/x/oauth2/google"
-	"google.golang.org/api/option"
-	"google.golang.org/api/youtube/v3"
 )
 
 // daoProvider is an interface that matches the methods we need from pocketbase.PocketBase
@@ -304,9 +299,8 @@ func fetchSpotifyTracks(app daoProvider, playlistID string) (TrackList, error) {
 	// Create a dummy context
 	ctx := context.Background()
 
-	// Use the existing withSpotifyClient helper from spotifyauth package
-	// We need to create a dummy echo context, but we can work around this
-	client, err := getSpotifyClientForJob(app)
+	// Use the unified auth factory
+	client, err := auth.GetSpotifyClientForJob(ctx, app)
 	if err != nil {
 		return TrackList{Service: "spotify"}, fmt.Errorf("failed to get Spotify client: %w", err)
 	}
@@ -339,8 +333,8 @@ func fetchYouTubeTracks(app daoProvider, playlistID string) (TrackList, error) {
 	// Create context
 	ctx := context.Background()
 
-	// Use the existing withGoogleClient helper from googleauth package
-	svc, err := getYouTubeServiceForJob(ctx, app)
+	// Use the unified auth factory
+	svc, err := auth.GetYouTubeServiceForJob(ctx, app)
 	if err != nil {
 		return TrackList{Service: "youtube"}, fmt.Errorf("failed to get YouTube service: %w", err)
 	}
@@ -367,151 +361,4 @@ func fetchYouTubeTracks(app daoProvider, playlistID string) (TrackList, error) {
 		Tracks:  trackList,
 		Service: "youtube",
 	}, nil
-}
-
-// Helper function to get Spotify client for background job (without Echo context)
-func getSpotifyClientForJob(app daoProvider) (*spotify.Client, error) {
-	dao := app.Dao()
-
-	// Load token record from database
-	record, err := dao.FindFirstRecordByFilter("oauth_tokens", "provider = 'spotify'")
-	if err != nil {
-		return nil, fmt.Errorf("no Spotify token found")
-	}
-
-	// Parse token from record
-	token := &oauth2.Token{
-		AccessToken:  record.GetString("access_token"),
-		RefreshToken: record.GetString("refresh_token"),
-		TokenType:    "Bearer",
-	}
-
-	// Parse expiry time
-	expiryStr := record.GetString("expiry")
-	if expiryStr != "" {
-		expiry, err := time.Parse(time.RFC3339, expiryStr)
-		if err == nil {
-			token.Expiry = expiry
-		}
-	}
-
-	// Check if token is expired or will expire within 30 seconds
-	if token.Expiry.Before(time.Now().Add(30 * time.Second)) {
-		// Get OAuth2 config for token refresh
-		clientID := os.Getenv("SPOTIFY_CLIENT_ID")
-		clientSecret := os.Getenv("SPOTIFY_CLIENT_SECRET")
-
-		if clientID == "" || clientSecret == "" {
-			return nil, fmt.Errorf("Spotify client credentials not configured")
-		}
-
-		config := &oauth2.Config{
-			ClientID:     clientID,
-			ClientSecret: clientSecret,
-			Endpoint: oauth2.Endpoint{
-				AuthURL:  "https://accounts.spotify.com/authorize",
-				TokenURL: "https://accounts.spotify.com/api/token",
-			},
-		}
-
-		// Create token source that will auto-refresh
-		ctx := context.Background()
-		ts := config.TokenSource(ctx, token)
-		newToken, err := ts.Token()
-		if err != nil {
-			return nil, fmt.Errorf("failed to refresh token: %w", err)
-		}
-
-		// Save refreshed token if it changed
-		if newToken.AccessToken != token.AccessToken {
-			record.Set("access_token", newToken.AccessToken)
-			record.Set("refresh_token", newToken.RefreshToken)
-			record.Set("expiry", newToken.Expiry)
-
-			if err := dao.SaveRecord(record); err != nil {
-				return nil, fmt.Errorf("failed to save refreshed token: %w", err)
-			}
-		}
-
-		token = newToken
-	}
-
-	// Create authenticated Spotify client
-	httpClient := &http.Client{
-		Transport: &oauth2.Transport{
-			Source: oauth2.StaticTokenSource(token),
-			Base:   http.DefaultTransport,
-		},
-	}
-
-	client := spotify.New(httpClient)
-	return client, nil
-}
-
-// Helper function to get YouTube service for background job
-func getYouTubeServiceForJob(ctx context.Context, app daoProvider) (*youtube.Service, error) {
-	dao := app.Dao()
-
-	record, err := dao.FindFirstRecordByFilter("oauth_tokens", "provider = 'google'")
-	if err != nil {
-		return nil, fmt.Errorf("no google token found: %w", err)
-	}
-
-	// Get OAuth config
-	clientID := os.Getenv("GOOGLE_CLIENT_ID")
-	clientSecret := os.Getenv("GOOGLE_CLIENT_SECRET")
-
-	if clientID == "" || clientSecret == "" {
-		return nil, fmt.Errorf("Google client credentials not configured")
-	}
-
-	config := &oauth2.Config{
-		ClientID:     clientID,
-		ClientSecret: clientSecret,
-		Scopes:       []string{youtube.YoutubeReadonlyScope},
-		Endpoint:     google.Endpoint,
-	}
-
-	token := &oauth2.Token{
-		AccessToken:  record.GetString("access_token"),
-		RefreshToken: record.GetString("refresh_token"),
-		TokenType:    "Bearer",
-	}
-
-	expiry, err := time.Parse(time.RFC3339, record.GetString("expiry"))
-	if err == nil {
-		token.Expiry = expiry
-	}
-
-	// Create HTTP client that will use the default transport (which httpmock can intercept)
-	httpClient := &http.Client{
-		Transport: http.DefaultTransport,
-	}
-
-	// Create a context with the custom client for OAuth operations
-	ctxWithClient := context.WithValue(ctx, oauth2.HTTPClient, httpClient)
-
-	tokenSource := config.TokenSource(ctxWithClient, token)
-	newToken, err := tokenSource.Token()
-	if err != nil {
-		return nil, fmt.Errorf("failed to refresh token: %w", err)
-	}
-
-	if newToken.AccessToken != token.AccessToken {
-		record.Set("access_token", newToken.AccessToken)
-		record.Set("refresh_token", newToken.RefreshToken)
-		record.Set("expiry", newToken.Expiry)
-
-		if err := dao.SaveRecord(record); err != nil {
-			return nil, fmt.Errorf("failed to save refreshed token: %w", err)
-		}
-	}
-
-	// Create YouTube service with the default HTTP client (so httpmock can intercept)
-	svc, err := youtube.NewService(ctx, option.WithHTTPClient(httpClient))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create youtube service: %w", err)
-	}
-
-	return svc, nil
 }

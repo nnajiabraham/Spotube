@@ -188,6 +188,56 @@ To use YouTube integration, you'll need to:
 
 **Note:** Google requires HTTPS for production OAuth redirects (except for localhost). Make sure your production deployment uses HTTPS.
 
+## Unified OAuth Authentication System
+
+Spotube uses a unified OAuth authentication system (RFC-008b) that eliminates code duplication and provides consistent authentication across all components:
+
+### Credential Loading Priority
+
+The system loads OAuth credentials in this priority order:
+1. **Settings Collection** - Credentials stored in the database via the setup wizard
+2. **Environment Variables** - Fallback to env vars if database credentials are missing
+
+### Authentication Contexts
+
+The unified system supports two execution contexts:
+
+**Background Jobs Context:**
+- Used by sync analysis and execution jobs
+- Loads credentials from settings collection with environment fallback
+- Handles token refresh automatically during job execution
+
+**API Handler Context:**
+- Used by OAuth callback endpoints and playlist API proxies
+- Same credential loading as jobs but integrated with Echo HTTP context
+- Maintains session state for web-based OAuth flows
+
+### Settings Collection Integration
+
+OAuth credentials are stored securely in the `settings` collection:
+- `spotify_client_id` and `spotify_client_secret`
+- `google_client_id` and `google_client_secret`
+
+These can be configured through:
+- **Setup Wizard UI** at http://localhost:5173/setup
+- **Environment Variables** as fallback
+
+### Token Management
+
+- **Automatic Refresh:** Tokens are refreshed automatically when expired (30-second buffer)
+- **Database Persistence:** Refreshed tokens are saved to the `oauth_tokens` collection
+- **Thread Safety:** Token operations are thread-safe for concurrent job execution
+- **Error Handling:** Comprehensive error handling for token refresh failures
+
+### Backward Compatibility
+
+The unified system maintains full backward compatibility:
+- All existing OAuth endpoints continue to work unchanged
+- API signatures remain identical for external consumers
+- Frontend integration requires no changes
+
+This unified approach reduces maintenance burden and ensures consistent OAuth behavior across all Spotube components.
+
 ## Playlist Mappings
 
 After connecting both your Spotify and YouTube accounts, you can create playlist mappings to keep them synchronized:
