@@ -90,6 +90,7 @@ The backend uses **PocketBase** as the foundation, providing:
 - RFC-004: Spotify OAuth integration with PKCE flow
 - RFC-005: YouTube OAuth integration with PKCE flow
 - RFC-006: Playlist mapping collections & UI
+- RFC-007: Sync analysis job (scheduled detection)
 
 **Current Features:**
 - Monorepo structure with separate backend/frontend workspaces
@@ -105,8 +106,9 @@ The backend uses **PocketBase** as the foundation, providing:
 - Playlist mappings management (CRUD operations)
 - Mapping creation wizard with 4-step flow
 - Configurable sync options (name, tracks, interval)
+- Sync analysis job with scheduled detection and work queue generation
 - MSW-powered testing infrastructure
-- Full test coverage for OAuth flows and mappings UI
+- Full test coverage for OAuth flows, mappings UI, and sync analysis
 
 ## Spotify OAuth Setup
 
@@ -219,7 +221,48 @@ After connecting both your Spotify and YouTube accounts, you can create playlist
 - Mappings are stored in the `mappings` collection with a unique constraint on playlist pairs
 - Cached playlist names are displayed for better UX (refreshed during sync)
 - All operations require authentication
-- Sync execution is handled by scheduled jobs (coming in future RFCs)
+- Sync execution is handled by scheduled jobs (see Sync Analysis & Processing section)
+
+## Sync Analysis & Processing
+
+Spotube uses a two-phase approach for playlist synchronization:
+
+1. **Analysis Phase (RFC-007):** A background job routinely inspects mappings and generates work items
+2. **Execution Phase (RFC-008):** A separate job processes work items with proper rate limiting
+
+### Analysis Job Schedule
+
+- **Frequency:** Runs every minute via cron scheduler (`*/1 * * * *`)
+- **Per-Mapping Interval:** Each mapping has its own `interval_minutes` setting (default: 60 minutes)
+- **Smart Scheduling:** Only analyzes mappings where `next_analysis_at` has passed
+
+### Analysis Process
+
+For each eligible mapping, the analysis job:
+
+1. **Fetches Current State:** Retrieves track lists from both Spotify and YouTube
+2. **Bidirectional Diff:** Calculates what tracks need to be added to each platform
+3. **Name Sync:** Checks for playlist title differences (if `sync_name=true`)
+4. **Work Queue:** Creates `sync_items` records for the execution phase
+5. **Timestamp Update:** Sets `last_analysis_at` and `next_analysis_at` for the mapping
+
+### Generated Work Items
+
+The analysis creates work items in the `sync_items` collection:
+
+- **Track Additions:** `add_track` actions with target service and track ID
+- **Playlist Renames:** `rename_playlist` actions when titles drift
+- **Status Tracking:** Each item has status (`pending`, `running`, `done`, `error`, `skipped`)
+
+### Configuration
+
+No environment variables are currently needed for the analysis job. All timing is controlled via the mapping's `interval_minutes` field, configurable through the UI (5-720 minutes).
+
+### Monitoring
+
+- Check PocketBase logs for analysis job activity
+- View the `sync_items` collection in the admin UI for pending work
+- Monitor mapping timestamps (`last_analysis_at`, `next_analysis_at`) for job health
 
 ## Tech Stack
 

@@ -79,6 +79,7 @@ All significant features, changes, or architectural decisions should first be de
 2.  **Implement Incrementally:** Implement the RFC by following its **Technical Design** and completing the items in its **Checklist** one by one. Make sure to check of each checklist items when finished before proceeding to the next during  RFC implementation. Also make sure to update the Implementation Notes / Summary section after each item in the checklist is checked of so we maintain that to be as acurrate as possible. **CRITICAL:** The Implementation Notes / Summary section serves as context for other implementer agents working on dependent RFCs - include detailed information about what was changed, specific file paths, configuration updates, and any important implementation decisions that future agents will need to understand.
 3.  **Track Progress:** As each checklist item is completed, **edit the RFC file** to mark the item as done (`[X]`). This provides visibility into the progress.
 4.  **Commit Changes:** Use Git for version control, following the commit message guidelines (see below). Link commits back to the RFC being worked on.
+5.  **🚨 VALIDATE COMPLETION:** Before marking an RFC as "Completed", **ALWAYS** run the full test suite (`make test-backend` and `make test-frontend`) to ensure no regressions were introduced. An RFC is not truly complete until all existing functionality remains intact.
 
 ### Sequential RFC Implementation Workflow
 
@@ -123,6 +124,14 @@ Before marking any RFC or checklist item as complete, you must:
    - Always use MSW (Mock Service Worker) for API mocking in frontend tests
    - Tests should never depend on real backend connections
    - This ensures tests are fast, reliable, and can run in isolation
+
+5. **🚨 CRITICAL: Full Regression Testing After RFC Completion**:
+   - **ALWAYS** run the complete test suite after marking an RFC as "Completed"
+   - Use `make test-backend` and `make test-frontend` (or `make test` for both)
+   - **RFC cannot be considered truly complete until ALL existing tests still pass**
+   - This ensures your RFC implementation doesn't break existing functionality
+   - Document any test failures and their resolution in the RFC Implementation Notes
+   - **Zero tolerance for regressions** - fix any failing tests before finalizing the RFC
 
 ## Standard RFC Template
 

@@ -1,6 +1,6 @@
 # RFC-007: Sync Analysis Job (Scheduled Detection)
 
-**Status:** Draft  
+**Status:** Completed  
 **Branch:** `rfc/007-sync-analysis`  
 **Depends On:**
 * RFC-006 (playlist mappings collection)
@@ -15,7 +15,7 @@ Create a scheduled PocketBase job that routinely inspects each mapping, compares
 ## 2. Background & Context
 
 For every mapping we need to know:
-* **Additions** – tracks present in source but missing in target.
+* **Additions** – tracks that exist in one platform but are missing from the other platform, in both directions (Spotify to YouTube and YouTube to Spotify)
 * **Removals** – tracks no longer present.
 * **Renames** – playlist title drift if `sync_name=true`.
 
@@ -25,7 +25,7 @@ PocketBase offers a [Go Job Scheduler](https://pocketbase.io/docs/go-jobs-schedu
 
 ## 3. Technical Design
 
-### 3.1 New Collection: `sync_items`
+### 3.1 New Collection: `sync_items` (This is just a draft, might not be the best DB design for storing this kind of data, figure out a better way)
 Migration: `go run cmd/server migrate create "create_sync_items_collection"`
 | field | type | notes |
 |-------|------|-------|
@@ -88,12 +88,12 @@ Payload example now:
 * Time manipulation: inject `timeNow` function for deterministic tests.
 
 ### 3.6 Checklist
-- [ ] **A1** Migration for `sync_items` collection.
-- [ ] **A2** Add `last_analysis_at` & `next_analysis_at` fields to `mappings` collection.
-- [ ] **A3** Implement analysis job & scheduler registration.
-- [ ] **A4** Helper functions to fetch track lists + caching.
-- [ ] **A5** Backend tests for diff logic & record creation.
-- [ ] **A6** README: document analysis job cadence & env var to tune interval.
+- [X] **A1** Migration for `sync_items` collection.
+- [X] **A2** Add `last_analysis_at` & `next_analysis_at` fields to `mappings` collection.
+- [X] **A3** Implement analysis job & scheduler registration.
+- [X] **A4** Helper functions to fetch track lists + caching.
+- [X] **A5** Backend tests for diff logic & record creation.
+- [X] **A6** README: document analysis job cadence & env var to tune interval.
 
 ## 4. Definition of Done
 * Every minute scheduler runs; mappings with elapsed interval generate `sync_items`.
@@ -107,6 +107,96 @@ Payload example now:
 {"track_id":"3uFJaLSkF7z6Ds"}
 ```
 * RFC-008 will consume queue respecting rate limits and retries.
+
+**A1 COMPLETED** - Created sync_items collection migration:
+* Generated migration file `backend/migrations/1750298622_create_sync_items_collection.go` using PocketBase CLI
+* Implemented collection schema with all required fields:
+  - `mapping_id` (relation to mappings) - required, with cascade delete
+  - `service` (select: spotify, youtube) - required 
+  - `action` (select: add_track, remove_track, rename_playlist) - required
+  - `payload` (json) - optional, for arbitrary action data
+  - `status` (select: pending, running, done, error, skipped) - required
+  - `attempts` (number, min: 0) - required
+  - `last_error` (text) - optional
+* Added database indexes for optimal query performance:
+  - `idx_sync_items_mapping_id` - for filtering by mapping
+  - `idx_sync_items_status` - for filtering by processing status
+  - `idx_sync_items_service` - for filtering by target service
+* Collection rules set to `null` (only server hooks can access, as specified in RFC)
+* Migration successfully applied, creating sync_items table in SQLite database
+
+**A2 COMPLETED** - Added analysis timing fields to mappings collection:
+* Generated migration file `backend/migrations/1750298769_add_analysis_fields_to_mappings.go`
+* Added two new date fields to mappings collection:
+  - `last_analysis_at` (date) - tracks when the mapping was last analyzed
+  - `next_analysis_at` (date) - tracks when the mapping should be analyzed next
+* Both fields are optional (nullable) to handle new mappings that haven't been analyzed yet
+* Migration includes proper rollback logic to remove fields if needed
+* Migration successfully applied, extending mappings table schema
+
+**A3 COMPLETED** - Implemented analysis job & scheduler registration:
+* Created `backend/internal/jobs/analysis.go` module with complete analysis logic
+* Used PocketBase's `tools/cron` package for job scheduling (cron expression: `*/1 * * * *` - runs every minute)
+* Implemented core analysis functions:
+  - `RegisterAnalysis()` - registers and starts the cron job
+  - `AnalyseMappings()` - main analysis logic for all mappings
+  - `shouldAnalyzeMapping()` - timing-based mapping filter using next_analysis_at
+  - `analyzeMapping()` - per-mapping analysis logic
+  - `analyzeTracks()` - bidirectional track diff using samber/lo set operations
+  - `analyzePlaylistNames()` - playlist name sync analysis
+  - `enqueueSyncItem()` - creates sync_items records for work queue
+  - `updateMappingAnalysisTime()` - updates analysis timestamps
+* Added placeholder functions `fetchSpotifyTracks()` and `fetchYouTubeTracks()` (marked TODO for A4)
+* Registered analysis job in `backend/cmd/server/main.go` with `jobs.RegisterAnalysis(app)`
+* Added `github.com/samber/lo` dependency for set operations
+* Backend compiles successfully and job scheduler is ready for deployment
+
+**A4 COMPLETED** - Implemented helper functions to fetch track lists:
+* Replaced placeholder functions with real API implementations:
+  - `fetchSpotifyTracks()` - fetches playlist tracks using Spotify Web API
+  - `fetchYouTubeTracks()` - fetches playlist items using YouTube Data API v3
+* Created job-specific OAuth helpers (background job compatible):
+  - `getSpotifyClientForJob()` - gets authenticated Spotify client without Echo context
+  - `getYouTubeServiceForJob()` - gets authenticated YouTube service without Echo context
+* Both helpers include automatic token refresh logic with 30-second expiry buffer
+* Track data structure includes ID and title for diff comparison
+* Added proper imports: `github.com/zmb3/spotify/v2`, `google.golang.org/api/youtube/v3`
+* Error handling for authentication failures and API call failures
+* Logging for track fetch operations (shows count of tracks fetched per playlist)
+* Backend compiles successfully with real track fetching functionality
+
+**A5 COMPLETED** - Backend tests for diff logic & record creation:
+* ✅ **ALL TESTS PASS** - Created comprehensive integration test suite with 100% pass rate
+* Proper PocketBase integration testing following `googleauth_test.go` patterns:
+  - Uses `tests.NewTestApp()` for real PocketBase database operations
+  - Creates actual collections (`mappings`, `sync_items`, `oauth_tokens`) with proper schema
+  - Tests real functions from `analysis.go` with full database integration
+  - HTTP mocking with `httpmock` for Spotify/YouTube API calls
+* **Complete test coverage:**
+  - `TestAnalyseMappings_Integration` - Full end-to-end analysis workflow ✅
+  - `TestShouldAnalyzeMapping_WithPocketBaseRecord` - Timing logic with real records ✅  
+  - `TestAnalyzeMapping_NoSyncItems` - Edge case with identical playlists ✅
+  - `TestEnqueueSyncItem_Integration` - Sync items creation and retrieval ✅
+  - `TestUpdateMappingAnalysisTime_Integration` - Timestamp handling ✅
+  - Plus all logic unit tests (5 test functions, 15 subtests) ✅
+* **Real integration issues discovered and fixed:**
+  - PocketBase filter expression requirements (`id != ''` vs empty string)
+  - PocketBase date format handling (`2006-01-02 15:04:05.000Z` vs RFC3339)
+  - PocketBase relation fields stored as `[]string` arrays
+  - HTTP mocking configuration for background jobs
+  - Timezone handling in date comparisons (UTC vs local time)
+* **Validates core RFC-007 requirements:** ✅ Analysis job runs, creates sync items, updates timestamps
+* **Tests prove proper PocketBase integration:** Real database operations, not mocked/isolated logic
+
+**A6 COMPLETED** - README: document analysis job cadence & configuration:
+* Added comprehensive "Sync Analysis & Processing" section to README
+* Documented two-phase sync approach (Analysis RFC-007 → Execution RFC-008)
+* Explained analysis job schedule: every minute cron with per-mapping intervals
+* Detailed analysis process: fetch → diff → work queue → timestamp update
+* Documented work item structure and status tracking in `sync_items` collection
+* Clarified configuration: no env vars needed, timing controlled via `interval_minutes` UI setting
+* Added monitoring guidance: logs, admin UI, timestamp health checks
+* Updated existing references to point to new sync documentation section
 
 ## Resources & References
 * PocketBase Job Scheduler – https://pocketbase.io/docs/go-jobs-scheduling/
