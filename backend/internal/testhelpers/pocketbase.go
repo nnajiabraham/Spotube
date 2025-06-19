@@ -7,6 +7,7 @@ import (
 	"github.com/pocketbase/pocketbase/models"
 	"github.com/pocketbase/pocketbase/models/schema"
 	"github.com/pocketbase/pocketbase/tests"
+	"github.com/pocketbase/pocketbase/tools/types"
 	"github.com/stretchr/testify/require"
 )
 
@@ -24,6 +25,7 @@ func CreateStandardCollections(t *testing.T, testApp *tests.TestApp) {
 	CreateOAuthTokensCollection(t, testApp)
 	mappingsCollection := CreateMappingsCollection(t, testApp)
 	CreateSyncItemsCollection(t, testApp, mappingsCollection)
+	CreateSettingsCollection(t, testApp)
 }
 
 // CreateOAuthTokensCollection creates the oauth_tokens collection
@@ -49,9 +51,9 @@ func CreateMappingsCollection(t *testing.T, testApp *tests.TestApp) *models.Coll
 	mappingsCollection.Name = "mappings"
 	mappingsCollection.Type = models.CollectionTypeBase
 	mappingsCollection.Schema = schema.NewSchema(
-		&schema.SchemaField{Name: "spotify_playlist_id", Type: schema.FieldTypeText},
+		&schema.SchemaField{Name: "spotify_playlist_id", Type: schema.FieldTypeText, Required: true},
 		&schema.SchemaField{Name: "spotify_playlist_name", Type: schema.FieldTypeText},
-		&schema.SchemaField{Name: "youtube_playlist_id", Type: schema.FieldTypeText},
+		&schema.SchemaField{Name: "youtube_playlist_id", Type: schema.FieldTypeText, Required: true},
 		&schema.SchemaField{Name: "youtube_playlist_name", Type: schema.FieldTypeText},
 		&schema.SchemaField{Name: "sync_name", Type: schema.FieldTypeBool},
 		&schema.SchemaField{Name: "sync_tracks", Type: schema.FieldTypeBool},
@@ -59,6 +61,12 @@ func CreateMappingsCollection(t *testing.T, testApp *tests.TestApp) *models.Coll
 		&schema.SchemaField{Name: "last_analysis_at", Type: schema.FieldTypeDate},
 		&schema.SchemaField{Name: "next_analysis_at", Type: schema.FieldTypeDate},
 	)
+
+	// Add unique index on (spotify_playlist_id, youtube_playlist_id)
+	mappingsCollection.Indexes = types.JsonArray[string]{
+		`CREATE UNIQUE INDEX idx_mappings_playlist_pair ON mappings (spotify_playlist_id, youtube_playlist_id)`,
+	}
+
 	err := testApp.Dao().SaveCollection(mappingsCollection)
 	require.NoError(t, err)
 	return mappingsCollection
@@ -168,4 +176,20 @@ func CreateTestMapping(testApp *tests.TestApp, properties map[string]interface{}
 	}
 
 	return mappingRecord
+}
+
+// CreateSettingsCollection creates the settings collection for setup wizard
+func CreateSettingsCollection(t *testing.T, testApp *tests.TestApp) *models.Collection {
+	settingsCollection := &models.Collection{}
+	settingsCollection.Name = "settings"
+	settingsCollection.Type = models.CollectionTypeBase
+	settingsCollection.Schema = schema.NewSchema(
+		&schema.SchemaField{Name: "spotify_client_id", Type: schema.FieldTypeText},
+		&schema.SchemaField{Name: "spotify_client_secret", Type: schema.FieldTypeText},
+		&schema.SchemaField{Name: "google_client_id", Type: schema.FieldTypeText},
+		&schema.SchemaField{Name: "google_client_secret", Type: schema.FieldTypeText},
+	)
+	err := testApp.Dao().SaveCollection(settingsCollection)
+	require.NoError(t, err)
+	return settingsCollection
 }

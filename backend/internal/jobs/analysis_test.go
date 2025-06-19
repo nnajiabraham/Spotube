@@ -3,7 +3,9 @@ package jobs
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -22,6 +24,12 @@ type RecordInterface interface {
 	GetBool(field string) bool
 }
 
+// Helper function to generate unique playlist IDs for each test
+func getUniquePlaylistID(t *testing.T, prefix string) string {
+	testName := strings.ReplaceAll(t.Name(), "/", "_")
+	return fmt.Sprintf("%s_%s", prefix, testName)
+}
+
 func TestShouldAnalyzeMapping_ActualImplementation(t *testing.T) {
 	testApp := testhelpers.SetupTestApp(t)
 	defer testApp.Cleanup()
@@ -33,7 +41,8 @@ func TestShouldAnalyzeMapping_ActualImplementation(t *testing.T) {
 		collection, err := testApp.Dao().FindCollectionByNameOrId("mappings")
 		require.NoError(t, err)
 		mapping := models.NewRecord(collection)
-		mapping.Set("spotify_playlist_id", "test_playlist")
+		mapping.Set("spotify_playlist_id", getUniquePlaylistID(t, "test_playlist"))
+		mapping.Set("youtube_playlist_id", getUniquePlaylistID(t, "test_youtube"))
 		// next_analysis_at left empty
 		err = testApp.Dao().SaveRecord(mapping)
 		require.NoError(t, err)
@@ -46,7 +55,8 @@ func TestShouldAnalyzeMapping_ActualImplementation(t *testing.T) {
 		collection, err := testApp.Dao().FindCollectionByNameOrId("mappings")
 		require.NoError(t, err)
 		mapping := models.NewRecord(collection)
-		mapping.Set("spotify_playlist_id", "test_playlist")
+		mapping.Set("spotify_playlist_id", getUniquePlaylistID(t, "test_playlist"))
+		mapping.Set("youtube_playlist_id", getUniquePlaylistID(t, "test_youtube"))
 		pastTime := now.Add(-1 * time.Hour)
 		mapping.Set("next_analysis_at", pastTime.Format("2006-01-02 15:04:05.000Z"))
 		err = testApp.Dao().SaveRecord(mapping)
@@ -60,7 +70,8 @@ func TestShouldAnalyzeMapping_ActualImplementation(t *testing.T) {
 		collection, err := testApp.Dao().FindCollectionByNameOrId("mappings")
 		require.NoError(t, err)
 		mapping := models.NewRecord(collection)
-		mapping.Set("spotify_playlist_id", "test_playlist")
+		mapping.Set("spotify_playlist_id", getUniquePlaylistID(t, "test_playlist"))
+		mapping.Set("youtube_playlist_id", getUniquePlaylistID(t, "test_youtube"))
 		futureTime := now.Add(2 * time.Hour) // Use 2 hours to ensure it's definitely in the future
 		mapping.Set("next_analysis_at", futureTime.Format("2006-01-02 15:04:05.000Z"))
 		err = testApp.Dao().SaveRecord(mapping)
@@ -74,7 +85,8 @@ func TestShouldAnalyzeMapping_ActualImplementation(t *testing.T) {
 		collection, err := testApp.Dao().FindCollectionByNameOrId("mappings")
 		require.NoError(t, err)
 		mapping := models.NewRecord(collection)
-		mapping.Set("spotify_playlist_id", "test_playlist")
+		mapping.Set("spotify_playlist_id", getUniquePlaylistID(t, "test_playlist"))
+		mapping.Set("youtube_playlist_id", getUniquePlaylistID(t, "test_youtube"))
 		mapping.Set("next_analysis_at", "invalid-date-format")
 		err = testApp.Dao().SaveRecord(mapping)
 		require.NoError(t, err)
@@ -92,7 +104,8 @@ func TestAnalyzeTracks_ActualImplementation(t *testing.T) {
 	collection, err := testApp.Dao().FindCollectionByNameOrId("mappings")
 	require.NoError(t, err)
 	mapping := models.NewRecord(collection)
-	mapping.Set("spotify_playlist_id", "test_playlist")
+	mapping.Set("spotify_playlist_id", getUniquePlaylistID(t, "test_playlist"))
+	mapping.Set("youtube_playlist_id", getUniquePlaylistID(t, "test_youtube"))
 	err = testApp.Dao().SaveRecord(mapping)
 	require.NoError(t, err)
 
@@ -245,7 +258,8 @@ func TestAnalyzePlaylistNames_ActualImplementation(t *testing.T) {
 		collection, err := testApp.Dao().FindCollectionByNameOrId("mappings")
 		require.NoError(t, err)
 		mapping := models.NewRecord(collection)
-		mapping.Set("spotify_playlist_id", "test_playlist")
+		mapping.Set("spotify_playlist_id", getUniquePlaylistID(t, "test_playlist"))
+		mapping.Set("youtube_playlist_id", getUniquePlaylistID(t, "test_youtube"))
 		mapping.Set("spotify_playlist_name", "My Spotify Playlist")
 		mapping.Set("youtube_playlist_name", "My YouTube Playlist")
 		err = testApp.Dao().SaveRecord(mapping)
@@ -281,7 +295,8 @@ func TestAnalyzePlaylistNames_ActualImplementation(t *testing.T) {
 		collection, err := testApp.Dao().FindCollectionByNameOrId("mappings")
 		require.NoError(t, err)
 		mapping := models.NewRecord(collection)
-		mapping.Set("spotify_playlist_id", "test_playlist")
+		mapping.Set("spotify_playlist_id", getUniquePlaylistID(t, "test_playlist"))
+		mapping.Set("youtube_playlist_id", getUniquePlaylistID(t, "test_youtube"))
 		mapping.Set("spotify_playlist_name", "Identical Playlist Name")
 		mapping.Set("youtube_playlist_name", "Identical Playlist Name")
 		err = testApp.Dao().SaveRecord(mapping)
@@ -308,7 +323,8 @@ func TestAnalyzePlaylistNames_ActualImplementation(t *testing.T) {
 		collection, err := testApp.Dao().FindCollectionByNameOrId("mappings")
 		require.NoError(t, err)
 		mapping := models.NewRecord(collection)
-		mapping.Set("spotify_playlist_id", "test_playlist")
+		mapping.Set("spotify_playlist_id", getUniquePlaylistID(t, "test_playlist"))
+		mapping.Set("youtube_playlist_id", getUniquePlaylistID(t, "test_youtube"))
 		mapping.Set("spotify_playlist_name", "My Playlist")
 		mapping.Set("youtube_playlist_name", "")
 		err = testApp.Dao().SaveRecord(mapping)
@@ -335,7 +351,8 @@ func TestAnalyzePlaylistNames_ActualImplementation(t *testing.T) {
 		collection, err := testApp.Dao().FindCollectionByNameOrId("mappings")
 		require.NoError(t, err)
 		mapping := models.NewRecord(collection)
-		mapping.Set("spotify_playlist_id", "test_playlist")
+		mapping.Set("spotify_playlist_id", getUniquePlaylistID(t, "test_playlist"))
+		mapping.Set("youtube_playlist_id", getUniquePlaylistID(t, "test_youtube"))
 		mapping.Set("spotify_playlist_name", "")
 		mapping.Set("youtube_playlist_name", "My YouTube Playlist")
 		err = testApp.Dao().SaveRecord(mapping)
@@ -373,7 +390,8 @@ func TestUpdateMappingAnalysisTime_ActualImplementation(t *testing.T) {
 				collection, err := testApp.Dao().FindCollectionByNameOrId("mappings")
 				require.NoError(t, err)
 				mapping := models.NewRecord(collection)
-				mapping.Set("spotify_playlist_id", "test_playlist")
+				mapping.Set("spotify_playlist_id", getUniquePlaylistID(t, "test_playlist"))
+				mapping.Set("youtube_playlist_id", getUniquePlaylistID(t, "test_youtube"))
 				mapping.Set("interval_minutes", tc.intervalMinutes)
 				err = testApp.Dao().SaveRecord(mapping)
 				require.NoError(t, err)
@@ -492,9 +510,9 @@ func TestAnalyseMappings_Integration(t *testing.T) {
 	collection, err := testApp.Dao().FindCollectionByNameOrId("mappings")
 	require.NoError(t, err)
 	mappingRecord := models.NewRecord(collection)
-	mappingRecord.Set("spotify_playlist_id", "test_spotify_playlist")
+	mappingRecord.Set("spotify_playlist_id", getUniquePlaylistID(t, "test_spotify_playlist"))
 	mappingRecord.Set("spotify_playlist_name", "My Spotify Playlist")
-	mappingRecord.Set("youtube_playlist_id", "test_youtube_playlist")
+	mappingRecord.Set("youtube_playlist_id", getUniquePlaylistID(t, "test_youtube_playlist"))
 	mappingRecord.Set("youtube_playlist_name", "My YouTube Playlist")
 	mappingRecord.Set("sync_name", true)
 	mappingRecord.Set("sync_tracks", true)
@@ -546,7 +564,8 @@ func TestShouldAnalyzeMapping_WithPocketBaseRecord(t *testing.T) {
 	collection, err := testApp.Dao().FindCollectionByNameOrId("mappings")
 	require.NoError(t, err)
 	mappingRecord := models.NewRecord(collection)
-	mappingRecord.Set("spotify_playlist_id", "test_playlist")
+	mappingRecord.Set("spotify_playlist_id", getUniquePlaylistID(t, "test_playlist"))
+	mappingRecord.Set("youtube_playlist_id", getUniquePlaylistID(t, "test_youtube"))
 	pastTime := now.Add(-1 * time.Hour)
 	mappingRecord.Set("next_analysis_at", pastTime.Format("2006-01-02 15:04:05.000Z"))
 	err = testApp.Dao().SaveRecord(mappingRecord)
@@ -598,9 +617,9 @@ func TestAnalyzeMapping_NoSyncItems(t *testing.T) {
 	collection, err := testApp.Dao().FindCollectionByNameOrId("mappings")
 	require.NoError(t, err)
 	mappingRecord := models.NewRecord(collection)
-	mappingRecord.Set("spotify_playlist_id", "test_playlist")
+	mappingRecord.Set("spotify_playlist_id", getUniquePlaylistID(t, "test_playlist"))
+	mappingRecord.Set("youtube_playlist_id", getUniquePlaylistID(t, "test_youtube"))
 	mappingRecord.Set("spotify_playlist_name", "Same Name")
-	mappingRecord.Set("youtube_playlist_id", "test_playlist")
 	mappingRecord.Set("youtube_playlist_name", "Same Name")
 	mappingRecord.Set("sync_name", true)
 	mappingRecord.Set("sync_tracks", true)
@@ -626,7 +645,8 @@ func TestEnqueueSyncItem_Integration(t *testing.T) {
 	collection, err := testApp.Dao().FindCollectionByNameOrId("mappings")
 	require.NoError(t, err)
 	mappingRecord := models.NewRecord(collection)
-	mappingRecord.Set("spotify_playlist_id", "test_playlist")
+	mappingRecord.Set("spotify_playlist_id", getUniquePlaylistID(t, "test_playlist"))
+	mappingRecord.Set("youtube_playlist_id", getUniquePlaylistID(t, "test_youtube"))
 	err = testApp.Dao().SaveRecord(mappingRecord)
 	require.NoError(t, err)
 
@@ -724,7 +744,8 @@ func TestUpdateMappingAnalysisTime_Integration(t *testing.T) {
 	collection, err := testApp.Dao().FindCollectionByNameOrId("mappings")
 	require.NoError(t, err)
 	mappingRecord := models.NewRecord(collection)
-	mappingRecord.Set("spotify_playlist_id", "test_playlist")
+	mappingRecord.Set("spotify_playlist_id", getUniquePlaylistID(t, "test_playlist"))
+	mappingRecord.Set("youtube_playlist_id", getUniquePlaylistID(t, "test_youtube"))
 	mappingRecord.Set("interval_minutes", 30) // 30 minute interval
 	err = testApp.Dao().SaveRecord(mappingRecord)
 	require.NoError(t, err)

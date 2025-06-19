@@ -1,22 +1,26 @@
 package googleauth
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/jarcoal/httpmock"
 	"github.com/labstack/echo/v5"
+	"github.com/manlikeabro/spotube/internal/testhelpers"
 	"github.com/pocketbase/pocketbase/models"
-	"github.com/pocketbase/pocketbase/models/schema"
-	"github.com/pocketbase/pocketbase/tests"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestLoginHandler(t *testing.T) {
+	testApp := testhelpers.SetupTestApp(t)
+	defer testApp.Cleanup()
+
 	os.Setenv("GOOGLE_CLIENT_ID", "test_id")
 	os.Setenv("GOOGLE_CLIENT_SECRET", "test_secret")
 	defer os.Unsetenv("GOOGLE_CLIENT_ID")
@@ -27,8 +31,8 @@ func TestLoginHandler(t *testing.T) {
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 
-	// loginHandler doesn't use the app instance for db access, so we can pass a mock/nil daoProvider
-	err := loginHandler(nil)(c)
+	// Test actual loginHandler function with real PocketBase app
+	err := loginHandler(testApp)(c)
 	assert.NoError(t, err)
 
 	assert.Equal(t, http.StatusTemporaryRedirect, rec.Code)
@@ -36,14 +40,20 @@ func TestLoginHandler(t *testing.T) {
 	assert.Contains(t, redirectURL, "accounts.google.com/o/oauth2/auth")
 	assert.Contains(t, redirectURL, "scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fyoutube.readonly")
 
+	// Validate PKCE challenge in redirect URL
+	assert.Contains(t, redirectURL, "code_challenge")
+	assert.Contains(t, redirectURL, "code_challenge_method=S256")
+
+	// Validate cookie handling
 	cookie := rec.Result().Cookies()[0]
 	assert.Equal(t, cookieName, cookie.Name)
 	assert.NotEmpty(t, cookie.Value)
+	assert.True(t, cookie.HttpOnly)
+	assert.True(t, cookie.Expires.After(time.Now()))
 }
 
 func TestCallbackHandler_Success(t *testing.T) {
-	testApp, err := tests.NewTestApp()
-	require.NoError(t, err)
+	testApp := testhelpers.SetupTestApp(t)
 	defer testApp.Cleanup()
 
 	os.Setenv("GOOGLE_CLIENT_ID", "test_id")
@@ -51,24 +61,65 @@ func TestCallbackHandler_Success(t *testing.T) {
 	defer os.Unsetenv("GOOGLE_CLIENT_ID")
 	defer os.Unsetenv("GOOGLE_CLIENT_SECRET")
 
-	httpmock.Activate()
+	testhelpers.SetupAPIHttpMocks(t)
 	defer httpmock.DeactivateAndReset()
 
+	// Mock Google OAuth token exchange endpoint
 	httpmock.RegisterResponder("POST", "https://oauth2.googleapis.com/token",
 		httpmock.NewJsonResponderOrPanic(200, httpmock.File("testdata/token_response.json")))
 
-	// Manually create the collection for the test database
-	collection := &models.Collection{}
-	collection.Name = "oauth_tokens"
-	collection.Type = models.CollectionTypeBase
-	collection.Schema = schema.NewSchema(
-		&schema.SchemaField{Name: "provider", Type: schema.FieldTypeText},
-		&schema.SchemaField{Name: "access_token", Type: schema.FieldTypeText},
-		&schema.SchemaField{Name: "refresh_token", Type: schema.FieldTypeText},
-		&schema.SchemaField{Name: "expiry", Type: schema.FieldTypeDate},
-		&schema.SchemaField{Name: "scopes", Type: schema.FieldTypeText},
-	)
-	err = testApp.Dao().SaveCollection(collection)
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodGet, "/api/auth/google/callback?state=test_state&code=test_code", nil)
+	req.AddCookie(&http.Cookie{Name: cookieName, Value: "test_state:test_verifier"})
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	// Test actual callbackHandler function with real PocketBase integration
+	err := callbackHandler(testApp)(c)
+	assert.NoError(t, err)
+
+	assert.Equal(t, http.StatusTemporaryRedirect, rec.Code)
+	assert.Equal(t, "/dashboard?youtube=connected", rec.Header().Get("Location"))
+
+	// Validate token was stored in database
+	record, err := testApp.Dao().FindFirstRecordByFilter("oauth_tokens", "provider = 'google'")
+	assert.NoError(t, err)
+	assert.NotNil(t, record)
+	assert.Equal(t, "test_access_token", record.GetString("access_token"))
+	assert.Equal(t, "test_refresh_token", record.GetString("refresh_token"))
+	assert.NotEmpty(t, record.GetString("scopes"))
+}
+
+func TestCallbackHandler_TokenRefresh(t *testing.T) {
+	testApp := testhelpers.SetupTestApp(t)
+	defer testApp.Cleanup()
+
+	os.Setenv("GOOGLE_CLIENT_ID", "test_id")
+	os.Setenv("GOOGLE_CLIENT_SECRET", "test_secret")
+	defer os.Unsetenv("GOOGLE_CLIENT_ID")
+	defer os.Unsetenv("GOOGLE_CLIENT_SECRET")
+
+	testhelpers.SetupAPIHttpMocks(t)
+	defer httpmock.DeactivateAndReset()
+
+	// Mock token refresh
+	httpmock.RegisterResponder("POST", "https://oauth2.googleapis.com/token",
+		httpmock.NewJsonResponderOrPanic(200, map[string]interface{}{
+			"access_token":  "new_access_token",
+			"refresh_token": "new_refresh_token",
+			"token_type":    "Bearer",
+			"expires_in":    3600,
+		}))
+
+	// Create existing expired token
+	collection, err := testApp.Dao().FindCollectionByNameOrId("oauth_tokens")
+	require.NoError(t, err)
+	expiredToken := models.NewRecord(collection)
+	expiredToken.Set("provider", "google")
+	expiredToken.Set("access_token", "expired_token")
+	expiredToken.Set("refresh_token", "old_refresh_token")
+	expiredToken.Set("expiry", time.Now().Add(-1*time.Hour).Format("2006-01-02 15:04:05.000Z"))
+	err = testApp.Dao().SaveRecord(expiredToken)
 	require.NoError(t, err)
 
 	e := echo.New()
@@ -77,26 +128,18 @@ func TestCallbackHandler_Success(t *testing.T) {
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 
-	// testApp satisfies the daoProvider interface
 	err = callbackHandler(testApp)(c)
 	assert.NoError(t, err)
 
-	assert.Equal(t, http.StatusTemporaryRedirect, rec.Code)
-	assert.Equal(t, "/dashboard?youtube=connected", rec.Header().Get("Location"))
-
-	record, err := testApp.Dao().FindFirstRecordByFilter("oauth_tokens", "provider = 'google'")
+	// Verify token was updated (not created as new)
+	records, err := testApp.Dao().FindRecordsByFilter("oauth_tokens", "provider = 'google'", "", 10, 0)
 	assert.NoError(t, err)
-	assert.NotNil(t, record)
-	assert.Equal(t, "test_access_token", record.GetString("access_token"))
+	assert.Len(t, records, 1, "Should update existing token, not create new one")
+	assert.Equal(t, "new_access_token", records[0].GetString("access_token"))
 }
 
-func TestPlaylistsHandler_Success(t *testing.T) {
-	// Activate httpmock FIRST before any HTTP client usage
-	httpmock.Activate()
-	defer httpmock.DeactivateAndReset()
-
-	testApp, err := tests.NewTestApp()
-	require.NoError(t, err)
+func TestCallbackHandler_ErrorScenarios(t *testing.T) {
+	testApp := testhelpers.SetupTestApp(t)
 	defer testApp.Cleanup()
 
 	os.Setenv("GOOGLE_CLIENT_ID", "test_id")
@@ -104,71 +147,167 @@ func TestPlaylistsHandler_Success(t *testing.T) {
 	defer os.Unsetenv("GOOGLE_CLIENT_ID")
 	defer os.Unsetenv("GOOGLE_CLIENT_SECRET")
 
+	t.Run("missing state parameter", func(t *testing.T) {
+		e := echo.New()
+		req := httptest.NewRequest(http.MethodGet, "/api/auth/google/callback?code=test_code", nil)
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+
+		err := callbackHandler(testApp)(c)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusTemporaryRedirect, rec.Code)
+		assert.Contains(t, rec.Header().Get("Location"), "youtube=error")
+	})
+
+	t.Run("missing code parameter", func(t *testing.T) {
+		e := echo.New()
+		req := httptest.NewRequest(http.MethodGet, "/api/auth/google/callback?state=test_state", nil)
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+
+		err := callbackHandler(testApp)(c)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusTemporaryRedirect, rec.Code)
+		assert.Contains(t, rec.Header().Get("Location"), "youtube=error")
+	})
+
+	t.Run("missing cookie", func(t *testing.T) {
+		e := echo.New()
+		req := httptest.NewRequest(http.MethodGet, "/api/auth/google/callback?state=test_state&code=test_code", nil)
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+
+		err := callbackHandler(testApp)(c)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusTemporaryRedirect, rec.Code)
+		assert.Contains(t, rec.Header().Get("Location"), "youtube=error")
+	})
+}
+
+func TestPlaylistsHandler_Integration(t *testing.T) {
+	testApp := testhelpers.SetupTestApp(t)
+	defer testApp.Cleanup()
+
+	os.Setenv("GOOGLE_CLIENT_ID", "test_id")
+	os.Setenv("GOOGLE_CLIENT_SECRET", "test_secret")
+	defer os.Unsetenv("GOOGLE_CLIENT_ID")
+	defer os.Unsetenv("GOOGLE_CLIENT_SECRET")
+
+	testhelpers.SetupAPIHttpMocks(t)
+	defer httpmock.DeactivateAndReset()
+
 	// Read the mock response files
 	playlistsData, err := os.ReadFile("testdata/playlists_response.json")
 	require.NoError(t, err)
 
-	// Mock the YouTube API endpoint - use a more flexible matcher
+	// Mock the YouTube API endpoint with actual test data
 	httpmock.RegisterResponder("GET", `=~^https://.*youtube.*playlists`,
 		func(req *http.Request) (*http.Response, error) {
-			t.Logf("Mock hit for URL: %s", req.URL.String())
+			t.Logf("YouTube playlists API called: %s", req.URL.String())
 			return httpmock.NewBytesResponse(200, playlistsData), nil
 		})
 
-	// Also mock the token endpoint in case it's called
-	httpmock.RegisterResponder("POST", "https://oauth2.googleapis.com/token",
-		httpmock.NewJsonResponderOrPanic(200, map[string]interface{}{
-			"access_token": "new_access_token",
-			"token_type":   "Bearer",
-			"expires_in":   3600,
-		}))
-
-	// Manually create the collection for the test database
-	collection := &models.Collection{}
-	collection.Name = "oauth_tokens"
-	collection.Type = models.CollectionTypeBase
-	collection.Schema = schema.NewSchema(
-		&schema.SchemaField{Name: "provider", Type: schema.FieldTypeText},
-		&schema.SchemaField{Name: "access_token", Type: schema.FieldTypeText},
-		&schema.SchemaField{Name: "refresh_token", Type: schema.FieldTypeText},
-		&schema.SchemaField{Name: "expiry", Type: schema.FieldTypeDate},
-		&schema.SchemaField{Name: "scopes", Type: schema.FieldTypeText},
-	)
-	err = testApp.Dao().SaveCollection(collection)
-	require.NoError(t, err)
-
-	collectionAfter, err := testApp.Dao().FindCollectionByNameOrId("oauth_tokens")
-	require.NoError(t, err)
-
-	rec := models.NewRecord(collectionAfter)
-	rec.Set("provider", "google")
-	rec.Set("access_token", "fake_access_token")
-	rec.Set("refresh_token", "fake_refresh_token")
-	rec.Set("expiry", time.Now().Add(1*time.Hour).Format(time.RFC3339))
-	err = testApp.Dao().SaveRecord(rec)
-	require.NoError(t, err)
+	// Setup OAuth tokens using shared helper
+	testhelpers.SetupOAuthTokens(t, testApp)
 
 	e := echo.New()
 	req := httptest.NewRequest(http.MethodGet, "/api/youtube/playlists", nil)
 	res := httptest.NewRecorder()
 	c := e.NewContext(req, res)
 
-	// Use the handler with httpmock's HTTP client - this ensures httpmock intercepts requests
-	mockClient := &http.Client{
-		Transport: httpmock.DefaultTransport,
-	}
-	handler := playlistsHandlerWithClient(testApp, mockClient)
-	err = handler(c)
+	// Test actual playlistsHandler function
+	err = playlistsHandler(testApp)(c)
+	require.NoError(t, err)
 
-	// Log the response for debugging
-	t.Logf("Response status: %d", res.Code)
-	t.Logf("Response body: %s", res.Body.String())
-
-	assert.NoError(t, err)
 	assert.Equal(t, http.StatusOK, res.Code)
 	assert.Contains(t, res.Body.String(), "Test Playlist")
 
 	// Verify httpmock was called
 	info := httpmock.GetCallCountInfo()
 	t.Logf("HTTP mock call counts: %+v", info)
+	// Check that YouTube API was called (the exact key might vary)
+	youtubeCalled := false
+	for key := range info {
+		if strings.Contains(key, "youtube") && info[key] > 0 {
+			youtubeCalled = true
+			break
+		}
+	}
+	assert.True(t, youtubeCalled, "YouTube API should be called")
+}
+
+func TestWithGoogleClient_ValidToken(t *testing.T) {
+	testApp := testhelpers.SetupTestApp(t)
+	defer testApp.Cleanup()
+
+	os.Setenv("GOOGLE_CLIENT_ID", "test_id")
+	os.Setenv("GOOGLE_CLIENT_SECRET", "test_secret")
+	defer os.Unsetenv("GOOGLE_CLIENT_ID")
+	defer os.Unsetenv("GOOGLE_CLIENT_SECRET")
+
+	// Setup valid OAuth tokens using shared helper
+	testhelpers.SetupOAuthTokens(t, testApp)
+
+	// Test withGoogleClient function with valid token
+	ctx := context.Background()
+	client, err := withGoogleClient(ctx, testApp)
+	assert.NoError(t, err)
+	assert.NotNil(t, client)
+}
+
+func TestWithGoogleClient_MissingToken(t *testing.T) {
+	testApp := testhelpers.SetupTestApp(t)
+	defer testApp.Cleanup()
+
+	os.Setenv("GOOGLE_CLIENT_ID", "test_id")
+	os.Setenv("GOOGLE_CLIENT_SECRET", "test_secret")
+	defer os.Unsetenv("GOOGLE_CLIENT_ID")
+	defer os.Unsetenv("GOOGLE_CLIENT_SECRET")
+
+	// Don't setup OAuth tokens - test missing token scenario
+	ctx := context.Background()
+	client, err := withGoogleClient(ctx, testApp)
+	assert.Error(t, err)
+	assert.Nil(t, client)
+	assert.Contains(t, err.Error(), "no google token found")
+}
+
+func TestPlaylistsHandler_ErrorScenarios(t *testing.T) {
+	testApp := testhelpers.SetupTestApp(t)
+	defer testApp.Cleanup()
+
+	os.Setenv("GOOGLE_CLIENT_ID", "test_id")
+	os.Setenv("GOOGLE_CLIENT_SECRET", "test_secret")
+	defer os.Unsetenv("GOOGLE_CLIENT_ID")
+	defer os.Unsetenv("GOOGLE_CLIENT_SECRET")
+
+	t.Run("missing OAuth token", func(t *testing.T) {
+		e := echo.New()
+		req := httptest.NewRequest(http.MethodGet, "/api/youtube/playlists", nil)
+		res := httptest.NewRecorder()
+		c := e.NewContext(req, res)
+
+		err := playlistsHandler(testApp)(c)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusUnauthorized, res.Code)
+	})
+
+	t.Run("API failure", func(t *testing.T) {
+		testhelpers.SetupOAuthTokens(t, testApp)
+		testhelpers.SetupAPIHttpMocks(t)
+		defer httpmock.DeactivateAndReset()
+
+		// Mock API failure
+		httpmock.RegisterResponder("GET", `=~^https://.*youtube.*playlists`,
+			httpmock.NewStringResponder(500, "Internal Server Error"))
+
+		e := echo.New()
+		req := httptest.NewRequest(http.MethodGet, "/api/youtube/playlists", nil)
+		res := httptest.NewRecorder()
+		c := e.NewContext(req, res)
+
+		err := playlistsHandler(testApp)(c)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusInternalServerError, res.Code)
+	})
 }
