@@ -30,10 +30,10 @@ dev:
 	@echo "Press Ctrl+C to stop both servers."
 	@wait
 
-# Run backend with Air (live reload) - PB auto-migrates on each restart
+
 backend-dev:
-	@echo "Starting backend with Air on port $(PB_DEV_PORT)..."
-	@cd backend && PORT=$(PB_DEV_PORT) go run github.com/air-verse/air@latest
+	@echo "Starting backend on port $(PB_DEV_PORT)..."
+	@cd backend && PORT=$(PB_DEV_PORT) go run ./cmd/server serve --dev
 
 # Run analysis+executor workers continuously (dev)
 backend-workers:

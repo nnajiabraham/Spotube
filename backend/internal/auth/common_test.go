@@ -9,6 +9,8 @@ import (
 	"golang.org/x/oauth2"
 
 	"github.com/manlikeabro/spotube/internal/testhelpers"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestLoadCredentialsFromSettings(t *testing.T) {
@@ -208,4 +210,29 @@ func TestRefreshTokenIfNeeded(t *testing.T) {
 			t.Error("Token should not have been refreshed")
 		}
 	})
+}
+
+func TestTokenExpiry(t *testing.T) {
+	testApp := testhelpers.SetupTestApp(t)
+	defer testApp.Cleanup()
+
+	// Create a token with a specific expiry time
+	expiryTime := time.Now().Add(time.Hour).UTC()
+	token := &oauth2.Token{
+		AccessToken:  "test_access_token_expiry",
+		RefreshToken: "test_refresh_token_expiry",
+		Expiry:       expiryTime,
+	}
+
+	// Save the token
+	err := SaveTokenWithScopes(testApp, "test_provider", token, []string{"test_scope"})
+	require.NoError(t, err)
+
+	// Load the token back from the database
+	loadedToken, err := loadTokenFromDatabase(testApp, "test_provider")
+	require.NoError(t, err)
+	require.NotNil(t, loadedToken)
+
+	// Verify that the expiry time is correct (with tolerance for precision)
+	assert.WithinDuration(t, expiryTime, loadedToken.Expiry, time.Second, "Expiry time should be loaded correctly")
 }

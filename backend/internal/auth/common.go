@@ -10,6 +10,7 @@ import (
 
 	"github.com/pocketbase/pocketbase/daos"
 	"github.com/pocketbase/pocketbase/models"
+	"github.com/pocketbase/pocketbase/tools/types"
 	"github.com/zmb3/spotify/v2"
 	"golang.org/x/oauth2"
 	"google.golang.org/api/youtube/v3"
@@ -108,7 +109,10 @@ func saveTokenToDatabase(dbProvider DatabaseProvider, provider string, token *oa
 	// Update token fields
 	record.Set("access_token", token.AccessToken)
 	record.Set("refresh_token", token.RefreshToken)
-	record.Set("expiry", token.Expiry)
+
+	// Correctly format the expiry time for PocketBase
+	expiry, _ := types.ParseDateTime(token.Expiry)
+	record.Set("expiry", expiry)
 
 	return dao.SaveRecord(record)
 }
@@ -135,7 +139,10 @@ func SaveTokenWithScopes(dbProvider DatabaseProvider, provider string, token *oa
 	// Update token fields
 	record.Set("access_token", token.AccessToken)
 	record.Set("refresh_token", token.RefreshToken)
-	record.Set("expiry", token.Expiry)
+
+	// Correctly format the expiry time for PocketBase
+	expiry, _ := types.ParseDateTime(token.Expiry)
+	record.Set("expiry", expiry)
 
 	// Set scopes if provided
 	if len(scopes) > 0 {
@@ -160,13 +167,12 @@ func loadTokenFromDatabase(dbProvider DatabaseProvider, provider string) (*oauth
 		TokenType:    "Bearer",
 	}
 
-	// Parse expiry time
-	expiryStr := record.GetString("expiry")
-	if expiryStr != "" {
-		expiry, err := time.Parse(time.RFC3339, expiryStr)
-		if err == nil {
-			token.Expiry = expiry
-		}
+	// Correctly parse the expiry time from PocketBase
+	expiry, err := types.ParseDateTime(record.Get("expiry"))
+	if err != nil {
+		log.Printf("Warning: Failed to parse expiry time for provider '%s': %v", provider, err)
+	} else {
+		token.Expiry = expiry.Time()
 	}
 
 	return token, nil

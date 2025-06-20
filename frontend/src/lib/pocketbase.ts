@@ -67,7 +67,7 @@ export interface MappingsResponse {
   totalItems: number;
   totalPages: number;
   items: Mapping[];
-}
+} 
 
 export interface BlacklistEntry {
   id: string;
