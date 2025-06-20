@@ -1,8 +1,6 @@
 package migrations
 
 import (
-	"encoding/json"
-
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase/daos"
 	m "github.com/pocketbase/pocketbase/migrations"
@@ -20,42 +18,24 @@ func init() {
 
 		// Add next_attempt_at field
 		if collection.Schema.GetFieldByName("next_attempt_at") == nil {
-			nextAttemptAtField := &schema.SchemaField{}
-			if err := json.Unmarshal([]byte(`{
-				"system": false,
-				"id": "next_attempt_at",
-				"name": "next_attempt_at",
-				"type": "date",
-				"required": true,
-				"presentable": false,
-				"unique": false,
-				"options": {
-					"min": "",
-					"max": ""
-				}
-			}`), nextAttemptAtField); err != nil {
-				return err
+			nextAttemptAtField := &schema.SchemaField{
+				Name:     "next_attempt_at",
+				Type:     schema.FieldTypeDate,
+				Required: true,
 			}
 			collection.Schema.AddField(nextAttemptAtField)
 		}
 
 		// Add attempt_backoff_secs field
 		if collection.Schema.GetFieldByName("attempt_backoff_secs") == nil {
-			attemptBackoffSecsField := &schema.SchemaField{}
-			if err := json.Unmarshal([]byte(`{
-				"system": false,
-				"id": "attempt_backoff_secs",
-				"name": "attempt_backoff_secs",
-				"type": "number",
-				"required": true,
-				"presentable": false,
-				"unique": false,
-				"options": {
-					"min": 30,
-					"max": 3600
-				}
-			}`), attemptBackoffSecsField); err != nil {
-				return err
+			attemptBackoffSecsField := &schema.SchemaField{
+				Name:     "attempt_backoff_secs",
+				Type:     schema.FieldTypeNumber,
+				Required: true,
+				Options: &schema.NumberOptions{
+					Min: func() *float64 { f := 30.0; return &f }(),
+					Max: func() *float64 { f := 3600.0; return &f }(),
+				},
 			}
 			collection.Schema.AddField(attemptBackoffSecsField)
 		}

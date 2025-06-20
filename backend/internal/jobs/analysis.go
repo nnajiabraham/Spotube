@@ -182,6 +182,10 @@ func analyzeTracks(app daoProvider, mapping *models.Record, spotifyTracks, youtu
 	toAddOnSpotify := lo.Without(youtubeIDs, spotifyIDs...) // YouTube tracks missing from Spotify
 	toAddOnYouTube := lo.Without(spotifyIDs, youtubeIDs...) // Spotify tracks missing from YouTube
 
+	// Filter out blacklisted tracks before enqueuing
+	toAddOnSpotify = filterBlacklistedTracks(app, mapping, "spotify", toAddOnSpotify)
+	toAddOnYouTube = filterBlacklistedTracks(app, mapping, "youtube", toAddOnYouTube)
+
 	// Enqueue add_track items for Spotify
 	for _, trackID := range toAddOnSpotify {
 		if err := enqueueSyncItem(app, mapping, "spotify", "add_track", map[string]string{"track_id": trackID}); err != nil {
@@ -200,6 +204,66 @@ func analyzeTracks(app daoProvider, mapping *models.Record, spotifyTracks, youtu
 		mapping.Id, len(toAddOnSpotify), len(toAddOnYouTube))
 
 	return nil
+}
+
+// filterBlacklistedTracks removes blacklisted tracks from the given track list
+func filterBlacklistedTracks(app daoProvider, mapping *models.Record, service string, trackIDs []string) []string {
+	if len(trackIDs) == 0 {
+		return trackIDs
+	}
+
+	// Build filter to check for blacklisted tracks
+	// Check both mapping-specific blacklist (mapping_id = current mapping)
+	// and global blacklist (mapping_id is empty/null)
+	filter := fmt.Sprintf(
+		"service = '%s' && (mapping_id = '%s' || mapping_id = '')",
+		service, mapping.Id,
+	)
+
+	blacklistRecords, err := app.Dao().FindRecordsByFilter(
+		"blacklist",
+		filter,
+		"",   // no specific order needed
+		1000, // reasonable limit for blacklist entries
+		0,    // no offset
+	)
+	if err != nil {
+		// Log error but don't fail the analysis - continue without filtering
+		log.Printf("Failed to query blacklist for mapping %s service %s: %v", mapping.Id, service, err)
+		return trackIDs
+	}
+
+	if len(blacklistRecords) == 0 {
+		// No blacklist entries found, return all tracks
+		return trackIDs
+	}
+
+	// Extract blacklisted track IDs
+	blacklistedTrackIDs := make(map[string]bool)
+	for _, record := range blacklistRecords {
+		trackID := record.GetString("track_id")
+		if trackID != "" {
+			blacklistedTrackIDs[trackID] = true
+		}
+	}
+
+	// Filter out blacklisted tracks
+	var filteredTracks []string
+	var filteredCount int
+	for _, trackID := range trackIDs {
+		if !blacklistedTrackIDs[trackID] {
+			filteredTracks = append(filteredTracks, trackID)
+		} else {
+			filteredCount++
+		}
+	}
+
+	if filteredCount > 0 {
+		log.Printf("Mapping %s: filtered %d blacklisted tracks for service %s",
+			mapping.Id, filteredCount, service)
+	}
+
+	return filteredTracks
 }
 
 // analyzePlaylistNames checks for playlist name differences and enqueues rename actions

@@ -2,8 +2,10 @@ package spotifyauth
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"strconv"
@@ -39,24 +41,29 @@ func Register(app *pocketbase.PocketBase) {
 }
 
 // getSpotifyAuthenticator creates a Spotify OAuth2 authenticator with PKCE
-func getSpotifyAuthenticator() (*spotifyauth.Authenticator, error) {
-	// Use temporary context and mock dbProvider for credential loading
-	// In the future, this should be refactored to accept a proper dbProvider parameter
-	clientID := os.Getenv("SPOTIFY_CLIENT_ID")
-	clientSecret := os.Getenv("SPOTIFY_CLIENT_SECRET")
-
-	if clientID == "" || clientSecret == "" {
-		// Settings collection integration is now handled by unified auth factory
-		// This function maintains backward compatibility for OAuth flow setup
-		return nil, fmt.Errorf("Spotify client credentials not configured")
+func getSpotifyAuthenticator(dbProvider auth.DatabaseProvider) (*spotifyauth.Authenticator, error) {
+	// Use unified auth system to load credentials from settings collection with env fallback
+	clientID, clientSecret, err := auth.LoadCredentialsFromSettings(dbProvider, "spotify")
+	if err != nil {
+		return nil, fmt.Errorf("Spotify client credentials not configured: %w", err)
 	}
 
+	// For OAuth callbacks, we need the backend URL, not the frontend URL
+	// In development: backend=8090, frontend=5173
+	// The PUBLIC_URL might point to frontend, but OAuth callbacks must go to backend
 	publicURL := os.Getenv("PUBLIC_URL")
 	if publicURL == "" {
 		publicURL = "http://localhost:8090"
 	}
 
+	// If PUBLIC_URL points to frontend (port 5173), adjust it to backend (port 8090)
+	if strings.Contains(publicURL, ":5173") {
+		publicURL = strings.Replace(publicURL, ":5173", ":8090", 1)
+		log.Printf("Adjusted OAuth redirect URL from frontend to backend: %s", publicURL)
+	}
+
 	redirectURL := fmt.Sprintf("%s/api/auth/spotify/callback", publicURL)
+	log.Printf("Using Spotify OAuth redirect URL: %s", redirectURL)
 
 	auth := spotifyauth.New(
 		spotifyauth.WithClientID(clientID),
@@ -76,8 +83,11 @@ func getSpotifyAuthenticator() (*spotifyauth.Authenticator, error) {
 // loginHandler handles the /api/auth/spotify/login route
 func loginHandler(app *pocketbase.PocketBase) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		auth, err := getSpotifyAuthenticator()
+		log.Println("Starting Spotify OAuth login flow")
+
+		auth, err := getSpotifyAuthenticator(app)
 		if err != nil {
+			log.Printf("Failed to create Spotify authenticator: %v", err)
 			return c.JSON(http.StatusInternalServerError, map[string]string{
 				"error": err.Error(),
 			})
@@ -86,6 +96,7 @@ func loginHandler(app *pocketbase.PocketBase) echo.HandlerFunc {
 		// Generate state and verifier for PKCE
 		state, err := generateRandomString(16)
 		if err != nil {
+			log.Printf("Failed to generate OAuth state: %v", err)
 			return c.JSON(http.StatusInternalServerError, map[string]string{
 				"error": "Failed to generate state",
 			})
@@ -93,10 +104,13 @@ func loginHandler(app *pocketbase.PocketBase) echo.HandlerFunc {
 
 		verifier, err := generateRandomString(64)
 		if err != nil {
+			log.Printf("Failed to generate PKCE verifier: %v", err)
 			return c.JSON(http.StatusInternalServerError, map[string]string{
 				"error": "Failed to generate verifier",
 			})
 		}
+
+		log.Printf("Generated OAuth state and verifier - state: %s, verifier: %s...", state, verifier[:10])
 
 		// Store state and verifier in HTTP-only cookie
 		cookieValue := fmt.Sprintf("%s:%s", state, verifier)
@@ -111,12 +125,16 @@ func loginHandler(app *pocketbase.PocketBase) echo.HandlerFunc {
 		})
 
 		// Generate auth URL with PKCE
+		challenge := generateCodeChallenge(verifier)
+		log.Printf("Generated PKCE code challenge: %s", challenge)
+
 		url := auth.AuthURL(
 			state,
 			oauth2.SetAuthURLParam("code_challenge_method", "S256"),
-			oauth2.SetAuthURLParam("code_challenge", generateCodeChallenge(verifier)),
+			oauth2.SetAuthURLParam("code_challenge", challenge),
 		)
 
+		log.Printf("Redirecting to Spotify authorization: %s", url)
 		return c.Redirect(http.StatusTemporaryRedirect, url)
 	}
 }
@@ -124,27 +142,41 @@ func loginHandler(app *pocketbase.PocketBase) echo.HandlerFunc {
 // callbackHandler handles the /api/auth/spotify/callback route
 func callbackHandler(app *pocketbase.PocketBase) echo.HandlerFunc {
 	return func(c echo.Context) error {
+		log.Println("Handling Spotify OAuth callback")
+
 		// Get state and code from query params
 		state := c.QueryParam("state")
 		code := c.QueryParam("code")
+		errorParam := c.QueryParam("error")
+
+		if errorParam != "" {
+			log.Printf("OAuth error from Spotify: %s", errorParam)
+			return c.Redirect(http.StatusTemporaryRedirect, "/dashboard?spotify=error&message="+errorParam)
+		}
 
 		if state == "" || code == "" {
+			log.Printf("Missing state or code in callback - state: %s, code: %s", state, code)
 			return c.Redirect(http.StatusTemporaryRedirect, "/dashboard?spotify=error&message=Missing+state+or+code")
 		}
+
+		log.Printf("Received OAuth callback with state: %s, code: %s...", state, code[:10])
 
 		// Get and validate cookie
 		cookie, err := c.Cookie(cookieName)
 		if err != nil {
+			log.Printf("Missing auth cookie in callback: %v", err)
 			return c.Redirect(http.StatusTemporaryRedirect, "/dashboard?spotify=error&message=Missing+auth+cookie")
 		}
 
 		// Parse state and verifier from cookie
 		cookieParts := parseAuthCookie(cookie.Value)
 		if len(cookieParts) != 2 || cookieParts[0] != state {
+			log.Printf("State mismatch in OAuth callback - expected: %s, received: %s", cookieParts[0], state)
 			return c.Redirect(http.StatusTemporaryRedirect, "/dashboard?spotify=error&message=Invalid+state")
 		}
 
 		verifier := cookieParts[1]
+		log.Printf("Retrieved PKCE verifier from cookie: %s...", verifier[:10])
 
 		// Clear the cookie
 		c.SetCookie(&http.Cookie{
@@ -156,18 +188,23 @@ func callbackHandler(app *pocketbase.PocketBase) echo.HandlerFunc {
 		})
 
 		// Get authenticator and exchange code for token
-		auth, err := getSpotifyAuthenticator()
+		auth, err := getSpotifyAuthenticator(app)
 		if err != nil {
+			log.Printf("Failed to create authenticator in callback: %v", err)
 			return c.Redirect(http.StatusTemporaryRedirect, "/dashboard?spotify=error&message=Auth+config+error")
 		}
 
 		// Exchange code for token with verifier
+		log.Println("Exchanging authorization code for access token")
 		token, err := auth.Exchange(c.Request().Context(), code,
 			oauth2.SetAuthURLParam("code_verifier", verifier),
 		)
 		if err != nil {
+			log.Printf("Token exchange failed: %v", err)
 			return c.Redirect(http.StatusTemporaryRedirect, "/dashboard?spotify=error&message=Token+exchange+failed")
 		}
+
+		log.Printf("Successfully exchanged code for token - expiry: %v", token.Expiry)
 
 		// Save tokens to database
 		scopes := []string{
@@ -178,9 +215,11 @@ func callbackHandler(app *pocketbase.PocketBase) echo.HandlerFunc {
 		}
 
 		if err := saveSpotifyTokens(app.Dao(), token, scopes); err != nil {
+			log.Printf("Failed to save tokens to database: %v", err)
 			return c.Redirect(http.StatusTemporaryRedirect, "/dashboard?spotify=error&message=Failed+to+save+tokens")
 		}
 
+		log.Println("Spotify OAuth flow completed successfully")
 		// Redirect to dashboard with success
 		return c.Redirect(http.StatusTemporaryRedirect, "/dashboard?spotify=connected")
 	}
@@ -325,12 +364,10 @@ func generateRandomString(length int) (string, error) {
 	return base64.URLEncoding.EncodeToString(bytes)[:length], nil
 }
 
-// generateCodeChallenge generates a PKCE code challenge from verifier
+// generateCodeChallenge generates a PKCE code challenge from verifier using SHA256
 func generateCodeChallenge(verifier string) string {
-	// The spotify library handles S256 challenge generation internally
-	// This is a placeholder that returns the verifier
-	// The actual challenge is computed by the library
-	return verifier
+	hash := sha256.Sum256([]byte(verifier))
+	return base64.URLEncoding.WithPadding(base64.NoPadding).EncodeToString(hash[:])
 }
 
 // parseAuthCookie splits the cookie value into state and verifier

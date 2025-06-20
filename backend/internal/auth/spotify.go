@@ -18,7 +18,7 @@ type JobAuthContext struct {
 
 // GetCredentials loads credentials from settings collection with environment fallback
 func (j *JobAuthContext) GetCredentials(service string) (clientID, clientSecret string, err error) {
-	return loadCredentialsFromSettings(j.dbProvider, service)
+	return LoadCredentialsFromSettings(j.dbProvider, service)
 }
 
 // NewJobAuthContext creates an AuthContext for background jobs
@@ -34,7 +34,7 @@ type APIAuthContext struct {
 
 // GetCredentials loads credentials from settings collection with environment fallback
 func (a *APIAuthContext) GetCredentials(service string) (clientID, clientSecret string, err error) {
-	return loadCredentialsFromSettings(a.dbProvider, service)
+	return LoadCredentialsFromSettings(a.dbProvider, service)
 }
 
 // NewAPIAuthContext creates an AuthContext for API handlers

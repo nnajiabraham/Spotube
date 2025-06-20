@@ -82,8 +82,8 @@ func RegisterExecutor(app *pocketbase.PocketBase) {
 	// Create a new cron instance
 	c := cron.New()
 
-	// Register a cron job that runs every 5 seconds
-	c.MustAdd("sync_executor", "*/5 * * * * *", func() {
+	// Register a cron job that runs every minute (since 5-second intervals aren't supported in standard cron)
+	c.MustAdd("sync_executor", "* * * * *", func() {
 		ctx := context.Background()
 		if err := ProcessQueue(app, ctx); err != nil {
 			log.Printf("Executor job failed: %v", err)
@@ -184,7 +184,14 @@ func processSyncItem(app daoProvider, item *models.Record) error {
 		} else if isFatalError(err) {
 			// Fatal error - mark as error and don't retry
 			log.Printf("Fatal error for item %s: %v", item.Id, err)
-			item.Set("status", "error")
+
+			// Create or update blacklist entry for unrecoverable errors
+			if err := createOrUpdateBlacklistEntry(app, item, err); err != nil {
+				log.Printf("Failed to create blacklist entry for item %s: %v", item.Id, err)
+				// Continue with marking as error even if blacklist creation fails
+			}
+
+			item.Set("status", "skipped") // Mark as skipped instead of error since it's blacklisted
 			item.Set("last_error", truncateError(err.Error(), 512))
 		} else {
 			// Temporary error - retry with backoff
@@ -247,6 +254,8 @@ func isRateLimitError(err error) bool {
 func isFatalError(err error) bool {
 	errStr := strings.ToLower(err.Error())
 	return strings.Contains(errStr, "404") ||
+		strings.Contains(errStr, "not found") ||
+		strings.Contains(errStr, "could not be found") ||
 		strings.Contains(errStr, "forbidden") ||
 		strings.Contains(errStr, "unauthorized") ||
 		strings.Contains(errStr, "invalid")
@@ -258,6 +267,118 @@ func truncateError(errMsg string, maxLen int) string {
 		return errMsg
 	}
 	return errMsg[:maxLen-3] + "..."
+}
+
+// createOrUpdateBlacklistEntry creates or updates a blacklist entry for failed sync items
+func createOrUpdateBlacklistEntry(app daoProvider, item *models.Record, execErr error) error {
+	// Only create blacklist entries for add_track actions
+	action := item.GetString("action")
+	if action != "add_track" {
+		return nil // Don't blacklist rename operations
+	}
+
+	// Extract track ID from payload
+	payloadStr := item.GetString("payload")
+	var payload map[string]string
+	if err := json.Unmarshal([]byte(payloadStr), &payload); err != nil {
+		return fmt.Errorf("failed to parse payload: %w", err)
+	}
+
+	trackID, ok := payload["track_id"]
+	if !ok || trackID == "" {
+		return fmt.Errorf("track_id not found in payload")
+	}
+
+	// Get mapping ID from sync item
+	var mappingID string
+	rawMappingId := item.Get("mapping_id")
+	if mappingIds, ok := rawMappingId.([]string); ok && len(mappingIds) > 0 {
+		mappingID = mappingIds[0] // Get first element from array
+	} else {
+		mappingID = item.GetString("mapping_id") // Fallback to string
+	}
+
+	service := item.GetString("service")
+
+	// Determine reason based on error type
+	reason := categorizeError(execErr)
+
+	// Check if blacklist entry already exists
+	filter := fmt.Sprintf("mapping_id = '%s' && service = '%s' && track_id = '%s'",
+		mappingID, service, trackID)
+
+	existingRecords, err := app.Dao().FindRecordsByFilter(
+		"blacklist",
+		filter,
+		"",
+		1,
+		0,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to query existing blacklist entries: %w", err)
+	}
+
+	collection, err := app.Dao().FindCollectionByNameOrId("blacklist")
+	if err != nil {
+		return fmt.Errorf("failed to find blacklist collection: %w", err)
+	}
+
+	now := time.Now()
+
+	if len(existingRecords) > 0 {
+		// Update existing blacklist entry
+		record := existingRecords[0]
+		skipCounter := record.GetInt("skip_counter") + 1
+		record.Set("skip_counter", skipCounter)
+		record.Set("last_skipped_at", now.Format("2006-01-02 15:04:05.000Z"))
+		record.Set("reason", reason) // Update reason in case it changed
+
+		if err := app.Dao().SaveRecord(record); err != nil {
+			return fmt.Errorf("failed to update blacklist entry: %w", err)
+		}
+
+		log.Printf("Updated blacklist entry for mapping %s, service %s, track %s (skip_counter: %d)",
+			mappingID, service, trackID, skipCounter)
+	} else {
+		// Create new blacklist entry
+		record := models.NewRecord(collection)
+		record.Set("mapping_id", mappingID)
+		record.Set("service", service)
+		record.Set("track_id", trackID)
+		record.Set("reason", reason)
+		record.Set("skip_counter", 1)
+		record.Set("last_skipped_at", now.Format("2006-01-02 15:04:05.000Z"))
+
+		if err := app.Dao().SaveRecord(record); err != nil {
+			return fmt.Errorf("failed to create blacklist entry: %w", err)
+		}
+
+		log.Printf("Created blacklist entry for mapping %s, service %s, track %s (reason: %s)",
+			mappingID, service, trackID, reason)
+	}
+
+	return nil
+}
+
+// categorizeError determines the blacklist reason based on the error
+func categorizeError(err error) string {
+	errStr := strings.ToLower(err.Error())
+
+	if strings.Contains(errStr, "404") || strings.Contains(errStr, "not found") {
+		return "not_found"
+	}
+	if strings.Contains(errStr, "403") || strings.Contains(errStr, "forbidden") {
+		return "forbidden"
+	}
+	if strings.Contains(errStr, "401") || strings.Contains(errStr, "unauthorized") {
+		return "unauthorized"
+	}
+	if strings.Contains(errStr, "invalid") {
+		return "invalid"
+	}
+
+	// Default reason for other fatal errors
+	return "error"
 }
 
 // Placeholder action implementations - these will be implemented in the next steps

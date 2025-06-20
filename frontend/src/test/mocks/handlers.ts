@@ -216,6 +216,83 @@ export const handlers = [
 
     return new HttpResponse(null, { status: 204 })
   }),
+
+  // Blacklist handlers
+  http.get('*/api/collections/blacklist/records', ({ request }) => {
+    const authHeader = request.headers.get('authorization')
+    
+    if (!authHeader) {
+      return new HttpResponse(null, { status: 401 })
+    }
+
+    const url = new URL(request.url)
+    const filter = url.searchParams.get('filter')
+    
+    // Mock blacklist data
+    const allBlacklistEntries = [
+      {
+        id: 'blacklist1',
+        mapping_id: 'mapping1',
+        service: 'spotify',
+        track_id: 'spotify_track_456',
+        reason: 'not_found',
+        skip_counter: 2,
+        last_skipped_at: '2024-01-01T12:00:00Z',
+        created: '2024-01-01T10:00:00Z',
+        updated: '2024-01-01T12:00:00Z',
+      },
+      {
+        id: 'blacklist2',
+        mapping_id: 'mapping1',
+        service: 'youtube',
+        track_id: 'youtube_video_789',
+        reason: 'forbidden',
+        skip_counter: 1,
+        last_skipped_at: '2024-01-01T14:00:00Z',
+        created: '2024-01-01T14:00:00Z',
+        updated: '2024-01-01T14:00:00Z',
+      },
+      {
+        id: 'blacklist3',
+        mapping_id: 'mapping2',
+        service: 'spotify',
+        track_id: 'spotify_track_123',
+        reason: 'unauthorized',
+        skip_counter: 3,
+        last_skipped_at: '2024-01-02T08:00:00Z',
+        created: '2024-01-01T20:00:00Z',
+        updated: '2024-01-02T08:00:00Z',
+      },
+    ]
+
+    // Filter by mapping_id if specified
+    let filteredEntries = allBlacklistEntries
+    if (filter) {
+      const mappingIdMatch = filter.match(/mapping_id = "([^"]+)"/)
+      if (mappingIdMatch) {
+        const mappingId = mappingIdMatch[1]
+        filteredEntries = allBlacklistEntries.filter(entry => entry.mapping_id === mappingId)
+      }
+    }
+
+    return HttpResponse.json({
+      page: 1,
+      perPage: 30,
+      totalItems: filteredEntries.length,
+      totalPages: 1,
+      items: filteredEntries,
+    })
+  }),
+
+  http.delete('*/api/collections/blacklist/records/:id', ({ request }) => {
+    const authHeader = request.headers.get('authorization')
+    
+    if (!authHeader) {
+      return new HttpResponse(null, { status: 401 })
+    }
+
+    return new HttpResponse(null, { status: 204 })
+  }),
 ];
 
 // Handler for simulating unauthorized state - can be used to override the default

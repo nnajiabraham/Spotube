@@ -7,6 +7,7 @@ import type {
   YouTubePlaylistsResponse,
   Mapping,
   MappingsResponse,
+  BlacklistResponse,
 } from './pocketbase';
 
 export class ApiError extends Error {
@@ -107,6 +108,30 @@ export const api = {
   deleteMapping: async (id: string): Promise<boolean> => {
     try {
       await pb.collection('mappings').delete(id);
+      return true;
+    } catch (error: unknown) {
+      const err = error as { status?: number, message?: string };
+      throw new ApiError(err.status ?? 500, err.message ?? 'Request failed');
+    }
+  },
+
+  // Blacklist API
+  getBlacklist: async (mappingId?: string, params?: { page?: number; perPage?: number }): Promise<BlacklistResponse> => {
+    try {
+      const filter = mappingId ? `mapping_id = "${mappingId}"` : '';
+      return await pb.collection('blacklist').getList(params?.page || 1, params?.perPage || 30, {
+        filter: filter,
+        sort: '-created',
+      });
+    } catch (error: unknown) {
+      const err = error as { status?: number, message?: string };
+      throw new ApiError(err.status ?? 500, err.message ?? 'Request failed');
+    }
+  },
+
+  deleteBlacklistEntry: async (id: string): Promise<boolean> => {
+    try {
+      await pb.collection('blacklist').delete(id);
       return true;
     } catch (error: unknown) {
       const err = error as { status?: number, message?: string };

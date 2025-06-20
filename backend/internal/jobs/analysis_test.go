@@ -798,3 +798,159 @@ func TestUpdateMappingAnalysisTime_Integration(t *testing.T) {
 	assert.True(t, actualDuration >= expectedDuration-tolerance && actualDuration <= expectedDuration+tolerance,
 		"Expected duration ~%v, got %v", expectedDuration, actualDuration)
 }
+
+func TestFilterBlacklistedTracks(t *testing.T) {
+	testApp := testhelpers.SetupTestApp(t)
+	defer testApp.Cleanup()
+
+	// Create a test mapping
+	mapping := testhelpers.CreateTestMapping(testApp, map[string]interface{}{
+		"spotify_playlist_id": "test_spotify_playlist_123",
+		"youtube_playlist_id": "test_youtube_playlist_123",
+	})
+
+	t.Run("no blacklist entries should return all tracks", func(t *testing.T) {
+		trackIDs := []string{"track1", "track2", "track3"}
+		result := filterBlacklistedTracks(testApp, mapping, "spotify", trackIDs)
+		assert.Equal(t, trackIDs, result, "Should return all tracks when no blacklist entries exist")
+	})
+
+	t.Run("mapping-specific blacklist should filter tracks", func(t *testing.T) {
+		// Create mapping-specific blacklist entry
+		testhelpers.CreateTestBlacklistEntry(testApp, map[string]interface{}{
+			"mapping_id": mapping.Id,
+			"service":    "spotify",
+			"track_id":   "track2",
+			"reason":     "not_found",
+		})
+
+		trackIDs := []string{"track1", "track2", "track3"}
+		result := filterBlacklistedTracks(testApp, mapping, "spotify", trackIDs)
+		expected := []string{"track1", "track3"}
+		assert.Equal(t, expected, result, "Should filter out blacklisted track2")
+	})
+
+	t.Run("global blacklist should filter tracks", func(t *testing.T) {
+		// Create global blacklist entry (mapping_id = "")
+		testhelpers.CreateTestBlacklistEntry(testApp, map[string]interface{}{
+			"mapping_id": "", // Global blacklist
+			"service":    "spotify",
+			"track_id":   "track1",
+			"reason":     "forbidden",
+		})
+
+		trackIDs := []string{"track1", "track2", "track3"}
+		result := filterBlacklistedTracks(testApp, mapping, "spotify", trackIDs)
+		expected := []string{"track3"} // track1 (global) and track2 (mapping-specific) should be filtered
+		assert.Equal(t, expected, result, "Should filter out both global and mapping-specific blacklisted tracks")
+	})
+
+	t.Run("different service blacklist should not affect filtering", func(t *testing.T) {
+		// Create blacklist entry for different service
+		testhelpers.CreateTestBlacklistEntry(testApp, map[string]interface{}{
+			"mapping_id": mapping.Id,
+			"service":    "youtube", // Different service
+			"track_id":   "track3",
+			"reason":     "not_found",
+		})
+
+		trackIDs := []string{"track1", "track2", "track3"}
+		result := filterBlacklistedTracks(testApp, mapping, "spotify", trackIDs)
+		expected := []string{"track3"} // Only track1 (global) and track2 (mapping-specific) should be filtered
+		assert.Equal(t, expected, result, "YouTube blacklist should not affect Spotify filtering")
+	})
+
+	t.Run("empty track list should return empty list", func(t *testing.T) {
+		trackIDs := []string{}
+		result := filterBlacklistedTracks(testApp, mapping, "spotify", trackIDs)
+		assert.Equal(t, trackIDs, result, "Should return empty list for empty input")
+	})
+}
+
+func TestAnalyzeTracksWithBlacklistFiltering(t *testing.T) {
+	testApp := testhelpers.SetupTestApp(t)
+	defer testApp.Cleanup()
+
+	// Create a test mapping
+	mapping := testhelpers.CreateTestMapping(testApp, map[string]interface{}{
+		"spotify_playlist_id": "test_spotify_playlist_456",
+		"youtube_playlist_id": "test_youtube_playlist_456",
+	})
+
+	t.Run("blacklisted tracks should not be enqueued", func(t *testing.T) {
+		// Create blacklist entries
+		testhelpers.CreateTestBlacklistEntry(testApp, map[string]interface{}{
+			"mapping_id": mapping.Id,
+			"service":    "spotify",
+			"track_id":   "youtube_track_2", // This YouTube track is blacklisted for Spotify
+			"reason":     "not_found",
+		})
+		testhelpers.CreateTestBlacklistEntry(testApp, map[string]interface{}{
+			"mapping_id": mapping.Id,
+			"service":    "youtube",
+			"track_id":   "spotify_track_1", // This Spotify track is blacklisted for YouTube
+			"reason":     "forbidden",
+		})
+
+		// Create track lists with some differences
+		spotifyTracks := TrackList{
+			Tracks: []Track{
+				{ID: "spotify_track_1", Title: "Song 1"},
+				{ID: "spotify_track_2", Title: "Song 2"},
+			},
+			Service: "spotify",
+		}
+		youtubeTracks := TrackList{
+			Tracks: []Track{
+				{ID: "youtube_track_1", Title: "Song A"},
+				{ID: "youtube_track_2", Title: "Song B"},
+			},
+			Service: "youtube",
+		}
+
+		// Clear any existing sync items
+		allItems, _ := testApp.Dao().FindRecordsByFilter("sync_items", "id != ''", "-created", 100, 0)
+		for _, item := range allItems {
+			testApp.Dao().DeleteRecord(item)
+		}
+
+		// Run track analysis
+		err := analyzeTracks(testApp, mapping, spotifyTracks, youtubeTracks)
+		assert.NoError(t, err)
+
+		// Verify sync items were created
+		syncItems, err := testApp.Dao().FindRecordsByFilter("sync_items", "id != ''", "-created", 100, 0)
+		require.NoError(t, err)
+
+		// Should have 2 items: youtube_track_1 for Spotify, spotify_track_2 for YouTube
+		// youtube_track_2 should be filtered out for Spotify (blacklisted)
+		// spotify_track_1 should be filtered out for YouTube (blacklisted)
+		assert.Equal(t, 2, len(syncItems), "Should have 2 sync items after blacklist filtering")
+
+		// Check that the right tracks were enqueued
+		var spotifyItems, youtubeItems []*models.Record
+		for _, item := range syncItems {
+			if item.GetString("service") == "spotify" {
+				spotifyItems = append(spotifyItems, item)
+			} else if item.GetString("service") == "youtube" {
+				youtubeItems = append(youtubeItems, item)
+			}
+		}
+
+		assert.Equal(t, 1, len(spotifyItems), "Should have 1 item for Spotify")
+		assert.Equal(t, 1, len(youtubeItems), "Should have 1 item for YouTube")
+
+		// Check payloads
+		if len(spotifyItems) > 0 {
+			var payload map[string]string
+			json.Unmarshal([]byte(spotifyItems[0].GetString("payload")), &payload)
+			assert.Equal(t, "youtube_track_1", payload["track_id"], "Should enqueue youtube_track_1 for Spotify")
+		}
+
+		if len(youtubeItems) > 0 {
+			var payload map[string]string
+			json.Unmarshal([]byte(youtubeItems[0].GetString("payload")), &payload)
+			assert.Equal(t, "spotify_track_2", payload["track_id"], "Should enqueue spotify_track_2 for YouTube")
+		}
+	})
+}

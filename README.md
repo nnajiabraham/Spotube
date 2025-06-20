@@ -46,16 +46,24 @@ A lightweight self-hosted application that keeps your YouTube Music and Spotify 
    - **Spotify OAuth**: Create an app at https://developer.spotify.com/dashboard and get your Client ID and Client Secret
    - **Google OAuth**: Set up a project at https://console.cloud.google.com/ and create OAuth 2.0 credentials
    
-   The wizard will save these credentials securely in the database. You can also provide them via environment variables:
+   The wizard will save these credentials securely in the database. You can also provide them via environment variables or a `.env` file:
    
+   **Option 1: Environment Variables**
    ```bash
-   export SPOTIFY_ID="your-spotify-client-id"
-   export SPOTIFY_SECRET="your-spotify-client-secret"
+   export SPOTIFY_CLIENT_ID="your-spotify-client-id"
+   export SPOTIFY_CLIENT_SECRET="your-spotify-client-secret"
    export GOOGLE_CLIENT_ID="your-google-client-id"
    export GOOGLE_CLIENT_SECRET="your-google-client-secret"
    ```
    
-   **Note**: If environment variables are set, the setup wizard will be skipped automatically.
+   **Option 2: .env File (Recommended for Development)**
+   ```bash
+   # Copy the example and edit with your values
+   cp backend/env.example backend/.env
+   # Edit backend/.env with your actual OAuth credentials
+   ```
+   
+   **Note**: If environment variables or .env file credentials are set, the setup wizard will be skipped automatically. The app loads .env files automatically on startup for development convenience.
 
 ### PocketBase Development Flow
 
@@ -93,6 +101,7 @@ The backend uses **PocketBase** as the foundation, providing:
 - RFC-006: Playlist mapping collections & UI
 - RFC-007: Sync analysis job (scheduled detection)
 - RFC-008: Sync execution job (worker processing queue)
+- RFC-009: Conflict & blacklist handling system
 
 **Current Features:**
 - Monorepo structure with separate backend/frontend workspaces
@@ -112,8 +121,10 @@ The backend uses **PocketBase** as the foundation, providing:
 - Worker pool with concurrent processing and rate limiting
 - Exponential backoff retry logic with error classification
 - YouTube quota tracking with daily limits
+- Automatic blacklist system for failed tracks with conflict resolution UI
+- Color-coded blacklist management with per-mapping track exclusions
 - MSW-powered testing infrastructure
-- Full test coverage for OAuth flows, mappings UI, sync analysis, and execution workers
+- Full test coverage for OAuth flows, mappings UI, sync analysis, execution workers, and blacklist functionality
 
 ## Spotify OAuth Setup
 
@@ -277,6 +288,83 @@ After connecting both your Spotify and YouTube accounts, you can create playlist
 - Cached playlist names are displayed for better UX (refreshed during sync)
 - All operations require authentication
 - Sync execution is handled by scheduled jobs (see Sync Analysis & Processing section)
+
+## Blacklist Management
+
+When synchronizing playlists between Spotify and YouTube, some tracks may fail to sync due to various issues like regional restrictions, content not available on the target platform, or API errors. Spotube includes a comprehensive blacklist system to handle these conflicts gracefully.
+
+### Automatic Blacklisting
+
+**How It Works:**
+- When a track consistently fails to sync with a fatal error, it's automatically added to the blacklist
+- This prevents infinite retry loops and reduces API quota consumption
+- Blacklisted tracks are excluded from future sync analysis until manually removed
+
+**Error Categories:**
+- **Not Found (404):** Track doesn't exist or isn't available on the target platform
+- **Forbidden (403):** Regional restrictions or content blocked in your location  
+- **Unauthorized (401):** Permission issues or expired credentials
+- **Invalid:** Malformed track IDs or corrupted data
+- **Error:** Other unrecoverable errors
+
+### Managing Blacklisted Tracks
+
+**Viewing Blacklist:**
+1. Navigate to your mapping edit page (`/mappings/{id}/edit`)
+2. Click "View Blacklist" to see all blacklisted tracks for that mapping
+3. The blacklist shows:
+   - **Service:** Which platform (Spotify/YouTube) the track failed on
+   - **Track ID:** The unique identifier for the failed track
+   - **Reason:** Why the track was blacklisted (color-coded)
+   - **Skip Count:** How many times the track has been skipped
+   - **Last Skipped:** When the track was most recently blacklisted
+
+**Un-blacklisting Tracks:**
+- Click the trash icon next to any blacklist entry
+- Confirm the removal when prompted
+- The track will be retried in the next sync analysis cycle
+- Useful when regional restrictions are lifted or content becomes available
+
+### Blacklist Behavior
+
+**Per-Mapping Scope:**
+- Blacklists are specific to each playlist mapping
+- A track blacklisted in one mapping won't affect other mappings
+- Allows fine-grained control over sync conflicts
+
+**Automatic Prevention:**
+- Analysis job filters out blacklisted tracks before creating sync items
+- Executor job creates blacklist entries when fatal errors occur
+- System maintains skip counters for tracking repeated failures
+
+**Manual Override:**
+- Users can remove any blacklist entry to retry problematic tracks
+- Useful for temporary issues that may have been resolved
+- No bulk operations currently supported (individual track management)
+
+### Common Blacklist Scenarios
+
+**Regional Content:**
+- Music videos not available in your country on YouTube
+- Tracks geo-blocked on Spotify in certain regions
+- **Solution:** Content may become available later; retry by un-blacklisting
+
+**Platform Exclusives:**
+- Podcast episodes only on Spotify
+- YouTube-specific content (covers, remixes) not on Spotify
+- **Solution:** Expected behavior; these remain blacklisted
+
+**API Changes:**
+- Track IDs that change due to platform updates
+- Content that gets removed and re-added with new IDs
+- **Solution:** Remove old blacklist entries and let sync detect new versions
+
+### Technical Implementation
+
+- Blacklist entries stored in the `blacklist` collection
+- Composite unique index on `(mapping_id, service, track_id)`
+- Integration with both analysis filtering and executor error handling
+- Color-coded UI with service badges for easy visual identification
 
 ## Sync Analysis & Processing
 

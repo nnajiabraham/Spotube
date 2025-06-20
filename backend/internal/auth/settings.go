@@ -5,8 +5,8 @@ import (
 	"os"
 )
 
-// loadCredentialsFromSettings loads OAuth credentials from settings collection with env fallback
-func loadCredentialsFromSettings(dbProvider DatabaseProvider, service string) (clientID, clientSecret string, err error) {
+// LoadCredentialsFromSettings loads OAuth credentials from settings collection with env fallback
+func LoadCredentialsFromSettings(dbProvider DatabaseProvider, service string) (clientID, clientSecret string, err error) {
 	dao := dbProvider.Dao()
 
 	// Try to load from settings collection first

@@ -17,6 +17,7 @@ import (
 	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/daos"
 	"github.com/pocketbase/pocketbase/models"
+	"github.com/pocketbase/pocketbase/tests"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/zmb3/spotify/v2"
@@ -39,10 +40,51 @@ type daoProvider interface {
 }
 
 func loginHandlerWithInterface(provider daoProvider) echo.HandlerFunc {
-	// Create a real PocketBase wrapper from the daoProvider for testing
-	// The loginHandler doesn't actually use DAO operations, only environment variables
-	app := &pocketbase.PocketBase{}
-	return loginHandler(app)
+	// Create a login handler that uses the provider for settings collection access
+	return func(c echo.Context) error {
+		auth, err := getSpotifyAuthenticator(provider)
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{
+				"error": err.Error(),
+			})
+		}
+
+		// Generate state and verifier for PKCE
+		state, err := generateRandomString(16)
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{
+				"error": "Failed to generate state",
+			})
+		}
+
+		verifier, err := generateRandomString(64)
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{
+				"error": "Failed to generate verifier",
+			})
+		}
+
+		// Store state and verifier in HTTP-only cookie
+		cookieValue := fmt.Sprintf("%s:%s", state, verifier)
+		c.SetCookie(&http.Cookie{
+			Name:     cookieName,
+			Value:    cookieValue,
+			Path:     "/",
+			HttpOnly: true,
+			Secure:   c.Request().URL.Scheme == "https",
+			SameSite: http.SameSiteLaxMode,
+			Expires:  time.Now().Add(cookieDuration),
+		})
+
+		// Generate auth URL with PKCE
+		url := auth.AuthURL(
+			state,
+			oauth2.SetAuthURLParam("code_challenge_method", "S256"),
+			oauth2.SetAuthURLParam("code_challenge", generateCodeChallenge(verifier)),
+		)
+
+		return c.Redirect(http.StatusTemporaryRedirect, url)
+	}
 }
 
 func callbackHandlerWithInterface(provider daoProvider) echo.HandlerFunc {
@@ -80,7 +122,7 @@ func callbackHandlerWithInterface(provider daoProvider) echo.HandlerFunc {
 		})
 
 		// Get authenticator and exchange code for token
-		auth, err := getSpotifyAuthenticator()
+		auth, err := getSpotifyAuthenticator(provider)
 		if err != nil {
 			return c.Redirect(http.StatusTemporaryRedirect, "/dashboard?spotify=error&message=Auth+config+error")
 		}
@@ -264,6 +306,9 @@ func TestLoginHandler(t *testing.T) {
 	t.Setenv("SPOTIFY_CLIENT_ID", "test-client-id")
 	t.Setenv("SPOTIFY_CLIENT_SECRET", "test-client-secret")
 	t.Setenv("PUBLIC_URL", "http://localhost:8090")
+
+	// Create settings record for fallback compatibility
+	setupSettingsWithCredentials(t, testApp, "", "")
 
 	e := echo.New()
 	req := httptest.NewRequest(http.MethodGet, "/api/auth/spotify/login", nil)
@@ -672,4 +717,26 @@ func TestGenerateCodeChallenge(t *testing.T) {
 	// Should be URL safe
 	assert.NotContains(t, challenge, "+")
 	assert.NotContains(t, challenge, "/")
+}
+
+// Helper function to setup settings collection with given credentials (shared with oauth_settings_integration_test.go)
+func setupSettingsWithCredentials(t *testing.T, testApp *tests.TestApp, spotifyID, spotifySecret string) {
+	dao := testApp.Dao()
+	collection, err := dao.FindCollectionByNameOrId("settings")
+	require.NoError(t, err)
+
+	// Try to find existing record or create new one
+	record, err := dao.FindRecordById("settings", "settings")
+	if err != nil {
+		// Create new record if it doesn't exist
+		record = models.NewRecord(collection)
+		record.SetId("settings")
+	}
+
+	// Set Spotify credentials
+	record.Set("spotify_client_id", spotifyID)
+	record.Set("spotify_client_secret", spotifySecret)
+
+	err = dao.SaveRecord(record)
+	require.NoError(t, err)
 }

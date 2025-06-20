@@ -43,20 +43,26 @@ func Register(app *pocketbase.PocketBase) {
 	})
 }
 
-func getGoogleOAuthConfig() (*oauth2.Config, error) {
-	// Settings collection integration is now handled by unified auth factory
-	// This function maintains backward compatibility for OAuth flow setup
-	clientID := os.Getenv("GOOGLE_CLIENT_ID")
-	clientSecret := os.Getenv("GOOGLE_CLIENT_SECRET")
-
-	if clientID == "" || clientSecret == "" {
-		return nil, fmt.Errorf("Google client credentials not configured")
+func getGoogleOAuthConfig(dbProvider auth.DatabaseProvider) (*oauth2.Config, error) {
+	// Use unified auth system to load credentials from settings collection with env fallback
+	clientID, clientSecret, err := auth.LoadCredentialsFromSettings(dbProvider, "google")
+	if err != nil {
+		return nil, fmt.Errorf("Google client credentials not configured: %w", err)
 	}
 
+	// For OAuth callbacks, we need the backend URL, not the frontend URL
+	// In development: backend=8090, frontend=5173
+	// The PUBLIC_URL might point to frontend, but OAuth callbacks must go to backend
 	publicURL := os.Getenv("PUBLIC_URL")
 	if publicURL == "" {
 		publicURL = "http://localhost:8090"
 	}
+
+	// If PUBLIC_URL points to frontend (port 5173), adjust it to backend (port 8090)
+	if strings.Contains(publicURL, ":5173") {
+		publicURL = strings.Replace(publicURL, ":5173", ":8090", 1)
+	}
+
 	redirectURL := fmt.Sprintf("%s/api/auth/google/callback", publicURL)
 
 	return &oauth2.Config{
@@ -70,7 +76,7 @@ func getGoogleOAuthConfig() (*oauth2.Config, error) {
 
 func loginHandler(app daoProvider) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		conf, err := getGoogleOAuthConfig()
+		conf, err := getGoogleOAuthConfig(app)
 		if err != nil {
 			return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		}
@@ -124,7 +130,7 @@ func callbackHandler(app daoProvider) echo.HandlerFunc {
 
 		c.SetCookie(&http.Cookie{Name: cookieName, Value: "", Path: "/", HttpOnly: true, MaxAge: -1})
 
-		conf, err := getGoogleOAuthConfig()
+		conf, err := getGoogleOAuthConfig(app)
 		if err != nil {
 			return c.Redirect(http.StatusTemporaryRedirect, "/dashboard?youtube=error&message=Auth+config+error")
 		}

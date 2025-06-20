@@ -90,7 +90,7 @@ func TestLoadCredentialsFromSettings(t *testing.T) {
 			}
 
 			// Test credential loading
-			clientID, clientSecret, err := loadCredentialsFromSettings(testApp, tt.service)
+			clientID, clientSecret, err := LoadCredentialsFromSettings(testApp, tt.service)
 
 			if tt.expectedError {
 				if err == nil {

@@ -1,8 +1,6 @@
 package migrations
 
 import (
-	"encoding/json"
-
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase/daos"
 	m "github.com/pocketbase/pocketbase/migrations"
@@ -20,42 +18,20 @@ func init() {
 
 		// Add last_analysis_at field
 		if collection.Schema.GetFieldByName("last_analysis_at") == nil {
-			lastAnalysisAtField := &schema.SchemaField{}
-			if err := json.Unmarshal([]byte(`{
-				"system": false,
-				"id": "last_analysis_at",
-				"name": "last_analysis_at",
-				"type": "date",
-				"required": false,
-				"presentable": false,
-				"unique": false,
-				"options": {
-					"min": "",
-					"max": ""
-				}
-			}`), lastAnalysisAtField); err != nil {
-				return err
+			lastAnalysisAtField := &schema.SchemaField{
+				Name:     "last_analysis_at",
+				Type:     schema.FieldTypeDate,
+				Required: false,
 			}
 			collection.Schema.AddField(lastAnalysisAtField)
 		}
 
 		// Add next_analysis_at field
 		if collection.Schema.GetFieldByName("next_analysis_at") == nil {
-			nextAnalysisAtField := &schema.SchemaField{}
-			if err := json.Unmarshal([]byte(`{
-				"system": false,
-				"id": "next_analysis_at",
-				"name": "next_analysis_at",
-				"type": "date",
-				"required": false,
-				"presentable": false,
-				"unique": false,
-				"options": {
-					"min": "",
-					"max": ""
-				}
-			}`), nextAnalysisAtField); err != nil {
-				return err
+			nextAnalysisAtField := &schema.SchemaField{
+				Name:     "next_analysis_at",
+				Type:     schema.FieldTypeDate,
+				Required: false,
 			}
 			collection.Schema.AddField(nextAnalysisAtField)
 		}

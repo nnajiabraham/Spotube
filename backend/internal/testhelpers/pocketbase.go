@@ -25,6 +25,7 @@ func CreateStandardCollections(t *testing.T, testApp *tests.TestApp) {
 	CreateOAuthTokensCollection(t, testApp)
 	mappingsCollection := CreateMappingsCollection(t, testApp)
 	CreateSyncItemsCollection(t, testApp, mappingsCollection)
+	CreateBlacklistCollection(t, testApp, mappingsCollection)
 	CreateSettingsCollection(t, testApp)
 }
 
@@ -137,6 +138,53 @@ func float64Ptr(v float64) *float64 {
 	return &v
 }
 
+// CreateBlacklistCollection creates the blacklist collection
+func CreateBlacklistCollection(t *testing.T, testApp *tests.TestApp, mappingsCollection *models.Collection) *models.Collection {
+	blacklistCollection := &models.Collection{}
+	blacklistCollection.Name = "blacklist"
+	blacklistCollection.Type = models.CollectionTypeBase
+	blacklistCollection.Schema = schema.NewSchema(
+		&schema.SchemaField{
+			Name:     "mapping_id",
+			Type:     schema.FieldTypeRelation,
+			Required: false, // nullable for global blacklist
+			Options: &schema.RelationOptions{
+				CollectionId:  mappingsCollection.Id,
+				CascadeDelete: true,
+				MinSelect:     nil,
+				MaxSelect:     intPtr(1),
+			},
+		},
+		&schema.SchemaField{
+			Name:     "service",
+			Type:     schema.FieldTypeSelect,
+			Required: true,
+			Options: &schema.SelectOptions{
+				Values: []string{"spotify", "youtube"},
+			},
+		},
+		&schema.SchemaField{Name: "track_id", Type: schema.FieldTypeText, Required: true},
+		&schema.SchemaField{Name: "reason", Type: schema.FieldTypeText, Required: true},
+		&schema.SchemaField{
+			Name:     "skip_counter",
+			Type:     schema.FieldTypeNumber,
+			Required: true,
+			Options: &schema.NumberOptions{
+				Min: float64Ptr(1),
+			},
+		},
+		&schema.SchemaField{Name: "last_skipped_at", Type: schema.FieldTypeDate, Required: true},
+	)
+	err := testApp.Dao().SaveCollection(blacklistCollection)
+	require.NoError(t, err)
+	return blacklistCollection
+}
+
+// Helper function for int pointers
+func intPtr(v int) *int {
+	return &v
+}
+
 // SetupOAuthTokens creates test OAuth tokens for both services
 func SetupOAuthTokens(t *testing.T, testApp *tests.TestApp) {
 	// Create Spotify token
@@ -207,4 +255,37 @@ func CreateSettingsCollection(t *testing.T, testApp *tests.TestApp) *models.Coll
 	err := testApp.Dao().SaveCollection(settingsCollection)
 	require.NoError(t, err)
 	return settingsCollection
+}
+
+// CreateTestBlacklistEntry creates a blacklist record with given properties
+func CreateTestBlacklistEntry(testApp *tests.TestApp, properties map[string]interface{}) *models.Record {
+	collection, err := testApp.Dao().FindCollectionByNameOrId("blacklist")
+	if err != nil {
+		return nil
+	}
+
+	blacklistRecord := models.NewRecord(collection)
+
+	// Set provided properties
+	for key, value := range properties {
+		blacklistRecord.Set(key, value)
+	}
+
+	// Set defaults if not provided
+	if blacklistRecord.GetString("reason") == "" {
+		blacklistRecord.Set("reason", "not_found")
+	}
+	if blacklistRecord.GetInt("skip_counter") == 0 {
+		blacklistRecord.Set("skip_counter", 1)
+	}
+	if blacklistRecord.GetString("last_skipped_at") == "" {
+		blacklistRecord.Set("last_skipped_at", time.Now().Format("2006-01-02 15:04:05.000Z"))
+	}
+
+	err = testApp.Dao().SaveRecord(blacklistRecord)
+	if err != nil {
+		return nil
+	}
+
+	return blacklistRecord
 }

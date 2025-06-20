@@ -2,10 +2,12 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"strings"
 
+	"github.com/joho/godotenv"
 	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/plugins/migratecmd"
 
@@ -19,7 +21,25 @@ import (
 )
 
 func main() {
+	// Load .env file if it exists (for development convenience)
+	// This loads environment variables from .env file in the current working directory
+	// Production deployments should use actual environment variables
+	if err := godotenv.Load(); err != nil {
+		// Only log if the error is not "file not found" since .env is optional
+		if !os.IsNotExist(err) {
+			log.Printf("Warning: Error loading .env file: %v", err)
+		}
+	}
+
+	fmt.Println("PUBLIC_URL", os.Getenv("PUBLIC_URL"))
+
 	app := pocketbase.New()
+
+	// Enable debug logging if LOG_LEVEL is set to debug
+	if strings.ToLower(os.Getenv("LOG_LEVEL")) == "debug" {
+		app.Settings().Logs.MaxDays = 7
+		log.Println("Debug logging enabled")
+	}
 
 	// Register setup wizard routes and hooks
 	setupwizard.Register(app)

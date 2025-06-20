@@ -67,4 +67,24 @@ export interface MappingsResponse {
   totalItems: number;
   totalPages: number;
   items: Mapping[];
+}
+
+export interface BlacklistEntry {
+  id: string;
+  mapping_id: string;
+  service: 'spotify' | 'youtube';
+  track_id: string;
+  reason: string;
+  skip_counter: number;
+  last_skipped_at: string;
+  created: string;
+  updated: string;
+}
+
+export interface BlacklistResponse {
+  page: number;
+  perPage: number;
+  totalItems: number;
+  totalPages: number;
+  items: BlacklistEntry[];
 } 

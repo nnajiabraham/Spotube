@@ -262,6 +262,8 @@ func TestErrorClassification(t *testing.T) {
 		{fmt.Errorf("rate limit exceeded"), true, false},
 		{fmt.Errorf("Too Many Requests"), true, false},
 		{fmt.Errorf("404 not found"), false, true},
+		{fmt.Errorf("resource not found"), false, true},
+		{fmt.Errorf("The requested resource could not be found."), false, true},
 		{fmt.Errorf("403 forbidden"), false, true},
 		{fmt.Errorf("401 unauthorized"), false, true},
 		{fmt.Errorf("invalid request"), false, true},
@@ -595,4 +597,225 @@ func TestExecutorActions_ActualImplementations(t *testing.T) {
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to find mapping")
 	})
+}
+
+func TestCreateOrUpdateBlacklistEntry(t *testing.T) {
+	testApp := testhelpers.SetupTestApp(t)
+	defer testApp.Cleanup()
+
+	wrapper := &testAppWrapper{testApp}
+
+	// Create a test mapping for this test
+	collection, err := testApp.Dao().FindCollectionByNameOrId("mappings")
+	require.NoError(t, err)
+	mapping := models.NewRecord(collection)
+	mapping.Set("spotify_playlist_id", "test_playlist_blacklist")
+	mapping.Set("youtube_playlist_id", "test_youtube_blacklist")
+	mapping.Set("interval_minutes", 60)
+	err = testApp.Dao().SaveRecord(mapping)
+	require.NoError(t, err)
+
+	t.Run("should create new blacklist entry for add_track action", func(t *testing.T) {
+		// Create sync item with the mapping we created
+		syncItemCollection, syncErr := testApp.Dao().FindCollectionByNameOrId("sync_items")
+		require.NoError(t, syncErr)
+		syncItem := models.NewRecord(syncItemCollection)
+		syncItem.Set("mapping_id", mapping.Id)
+		syncItem.Set("service", "spotify")
+		syncItem.Set("action", "add_track")
+		syncItem.Set("payload", `{"track_id":"blacklisted_track_123"}`)
+		syncItem.Set("status", "pending")
+		syncItem.Set("attempts", 0)
+		syncItem.Set("next_attempt_at", time.Now().Format("2006-01-02 15:04:05.000Z"))
+		syncItem.Set("attempt_backoff_secs", 30)
+		syncErr = testApp.Dao().SaveRecord(syncItem)
+		require.NoError(t, syncErr)
+
+		// Simulate a fatal error
+		err := createOrUpdateBlacklistEntry(wrapper, syncItem, fmt.Errorf("404 not found"))
+		assert.NoError(t, err)
+
+		// Verify blacklist entry was created
+		blacklistEntries, err := testApp.Dao().FindRecordsByFilter(
+			"blacklist",
+			fmt.Sprintf("mapping_id = '%s' && service = 'spotify' && track_id = 'blacklisted_track_123'", mapping.Id),
+			"",
+			10,
+			0,
+		)
+		require.NoError(t, err)
+		assert.Equal(t, 1, len(blacklistEntries), "Should create one blacklist entry")
+
+		entry := blacklistEntries[0]
+		assert.Equal(t, mapping.Id, entry.GetString("mapping_id"))
+		assert.Equal(t, "spotify", entry.GetString("service"))
+		assert.Equal(t, "blacklisted_track_123", entry.GetString("track_id"))
+		assert.Equal(t, "not_found", entry.GetString("reason"))
+		assert.Equal(t, 1, entry.GetInt("skip_counter"))
+		assert.NotEmpty(t, entry.GetString("last_skipped_at"))
+	})
+
+	t.Run("should update existing blacklist entry", func(t *testing.T) {
+		// Create initial blacklist entry
+		existingEntry := testhelpers.CreateTestBlacklistEntry(testApp, map[string]interface{}{
+			"mapping_id":   mapping.Id,
+			"service":      "youtube",
+			"track_id":     "existing_track_456",
+			"reason":       "forbidden",
+			"skip_counter": 1,
+		})
+
+		// Create sync item for the same track
+		syncItemCollection, syncErr := testApp.Dao().FindCollectionByNameOrId("sync_items")
+		require.NoError(t, syncErr)
+		syncItem := models.NewRecord(syncItemCollection)
+		syncItem.Set("mapping_id", mapping.Id)
+		syncItem.Set("service", "youtube")
+		syncItem.Set("action", "add_track")
+		syncItem.Set("payload", `{"track_id":"existing_track_456"}`)
+		syncItem.Set("status", "pending")
+		syncItem.Set("attempts", 0)
+		syncItem.Set("next_attempt_at", time.Now().Format("2006-01-02 15:04:05.000Z"))
+		syncItem.Set("attempt_backoff_secs", 30)
+		syncErr = testApp.Dao().SaveRecord(syncItem)
+		require.NoError(t, syncErr)
+
+		// Simulate another fatal error
+		err := createOrUpdateBlacklistEntry(wrapper, syncItem, fmt.Errorf("401 unauthorized"))
+		assert.NoError(t, err)
+
+		// Reload the blacklist entry
+		updatedEntry, err := testApp.Dao().FindRecordById("blacklist", existingEntry.Id)
+		require.NoError(t, err)
+
+		// Verify it was updated
+		assert.Equal(t, 2, updatedEntry.GetInt("skip_counter"), "Skip counter should be incremented")
+		assert.Equal(t, "unauthorized", updatedEntry.GetString("reason"), "Reason should be updated")
+		assert.NotEmpty(t, updatedEntry.GetString("last_skipped_at"))
+	})
+
+	t.Run("should not create blacklist entry for rename actions", func(t *testing.T) {
+		// Count existing blacklist entries
+		allEntries, err := testApp.Dao().FindRecordsByFilter("blacklist", "id != ''", "", 100, 0)
+		require.NoError(t, err)
+		initialCount := len(allEntries)
+
+		// Create sync item for rename action
+		syncItemCollection, syncErr := testApp.Dao().FindCollectionByNameOrId("sync_items")
+		require.NoError(t, syncErr)
+		syncItem := models.NewRecord(syncItemCollection)
+		syncItem.Set("mapping_id", mapping.Id)
+		syncItem.Set("service", "spotify")
+		syncItem.Set("action", "rename_playlist")
+		syncItem.Set("payload", `{"new_name":"New Name"}`)
+		syncItem.Set("status", "pending")
+		syncItem.Set("attempts", 0)
+		syncItem.Set("next_attempt_at", time.Now().Format("2006-01-02 15:04:05.000Z"))
+		syncItem.Set("attempt_backoff_secs", 30)
+		syncErr = testApp.Dao().SaveRecord(syncItem)
+		require.NoError(t, syncErr)
+
+		// Try to create blacklist entry
+		err = createOrUpdateBlacklistEntry(wrapper, syncItem, fmt.Errorf("404 not found"))
+		assert.NoError(t, err)
+
+		// Verify no new blacklist entries were created
+		allEntriesAfter, err := testApp.Dao().FindRecordsByFilter("blacklist", "id != ''", "", 100, 0)
+		require.NoError(t, err)
+		assert.Equal(t, initialCount, len(allEntriesAfter), "Should not create blacklist entry for rename actions")
+	})
+}
+
+func TestCategorizeError(t *testing.T) {
+	tests := []struct {
+		err      error
+		expected string
+	}{
+		{fmt.Errorf("404 not found"), "not_found"},
+		{fmt.Errorf("track not found"), "not_found"},
+		{fmt.Errorf("403 forbidden"), "forbidden"},
+		{fmt.Errorf("access forbidden"), "forbidden"},
+		{fmt.Errorf("401 unauthorized"), "unauthorized"},
+		{fmt.Errorf("invalid track ID"), "invalid"},
+		{fmt.Errorf("some other error"), "error"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.err.Error(), func(t *testing.T) {
+			result := categorizeError(test.err)
+			assert.Equal(t, test.expected, result)
+		})
+	}
+}
+
+func TestProcessSyncItem_FatalErrorCreatesBlacklist(t *testing.T) {
+	testApp := testhelpers.SetupTestApp(t)
+	defer testApp.Cleanup()
+
+	// Setup OAuth tokens and API mocks to reach the HTTP layer
+	testhelpers.SetupOAuthTokens(t, testApp)
+	testhelpers.SetupAPIHttpMocks(t)
+	defer httpmock.DeactivateAndReset()
+
+	// Set environment variables for OAuth
+	os.Setenv("SPOTIFY_CLIENT_ID", "test_spotify_id")
+	os.Setenv("SPOTIFY_CLIENT_SECRET", "test_spotify_secret")
+	defer func() {
+		os.Unsetenv("SPOTIFY_CLIENT_ID")
+		os.Unsetenv("SPOTIFY_CLIENT_SECRET")
+	}()
+
+	// Mock Spotify API to return 404 not found (fatal error)
+	httpmock.RegisterResponder("POST", `=~^https://api\.spotify\.com/v1/playlists/.*/tracks`,
+		httpmock.NewJsonResponderOrPanic(404, map[string]interface{}{
+			"error": map[string]interface{}{
+				"status":  404,
+				"message": "The requested resource could not be found.",
+			},
+		}))
+
+	wrapper := &testAppWrapper{testApp}
+
+	// Create a test sync item
+	syncItem := createTestSyncItem(t, testApp, map[string]interface{}{
+		"service": "spotify",
+		"action":  "add_track",
+		"payload": `{"track_id":"fatal_error_track"}`,
+		"status":  "pending",
+	})
+
+	// Process the item (should result in fatal error from 404 response)
+	err := processSyncItem(wrapper, syncItem)
+	assert.NoError(t, err) // processSyncItem itself should not error
+
+	// Verify the item was marked as skipped
+	assert.Equal(t, "skipped", syncItem.GetString("status"))
+	assert.NotEmpty(t, syncItem.GetString("last_error"))
+
+	// Check if blacklist entry was created (it should be for the mapping ID from the sync item)
+	var actualMappingId string
+	rawMappingId := syncItem.Get("mapping_id")
+	if mappingIds, ok := rawMappingId.([]string); ok && len(mappingIds) > 0 {
+		actualMappingId = mappingIds[0]
+	} else {
+		actualMappingId = syncItem.GetString("mapping_id")
+	}
+
+	blacklistEntries, err := testApp.Dao().FindRecordsByFilter(
+		"blacklist",
+		fmt.Sprintf("mapping_id = '%s' && service = 'spotify' && track_id = 'fatal_error_track'", actualMappingId),
+		"",
+		10,
+		0,
+	)
+	require.NoError(t, err)
+	assert.Equal(t, 1, len(blacklistEntries), "Should create blacklist entry for fatal error")
+
+	if len(blacklistEntries) > 0 {
+		entry := blacklistEntries[0]
+		assert.Equal(t, "spotify", entry.GetString("service"))
+		assert.Equal(t, "fatal_error_track", entry.GetString("track_id"))
+		assert.Equal(t, 1, entry.GetInt("skip_counter"))
+		assert.NotEmpty(t, entry.GetString("reason"))
+	}
 }
