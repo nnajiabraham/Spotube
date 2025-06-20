@@ -3,7 +3,6 @@ package auth
 import (
 	"context"
 	"fmt"
-	"net/http"
 
 	"github.com/labstack/echo/v5"
 	"github.com/zmb3/spotify/v2"
@@ -75,13 +74,9 @@ func GetSpotifyClient(ctx context.Context, dbProvider DatabaseProvider, authCtx 
 		return nil, fmt.Errorf("failed to refresh Spotify token: %w", err)
 	}
 
-	// Create authenticated HTTP client
-	httpClient := &http.Client{
-		Transport: &oauth2.Transport{
-			Source: oauth2.StaticTokenSource(refreshedToken),
-			Base:   http.DefaultTransport,
-		},
-	}
+	// Create authenticated HTTP client using the refreshed token
+	// This approach ensures that our test mocks can intercept the requests.
+	httpClient := config.Client(ctx, refreshedToken)
 
 	// Create and return Spotify client
 	client := spotify.New(httpClient)

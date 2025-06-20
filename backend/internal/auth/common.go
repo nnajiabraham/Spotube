@@ -3,6 +3,8 @@ package auth
 import (
 	"context"
 	"fmt"
+	"log"
+	"net/http"
 	"strings"
 	"time"
 
@@ -57,27 +59,39 @@ type ClientFactory interface {
 	GetYouTubeService(ctx context.Context, dbProvider DatabaseProvider, authCtx AuthContext) (*youtube.Service, error)
 }
 
-// refreshTokenIfNeeded handles unified OAuth token refresh logic
+// refreshTokenIfNeeded checks if an OAuth2 token is expired and refreshes it if needed.
+// It uses a 30-second buffer to avoid race conditions with token expiry.
+// The updated token is saved back to the database.
 func refreshTokenIfNeeded(ctx context.Context, dbProvider DatabaseProvider, token *oauth2.Token, config *oauth2.Config, provider string) (*oauth2.Token, error) {
-	// Check if token needs refresh (30-second buffer)
-	if token.Expiry.Before(time.Now().Add(30 * time.Second)) {
-		// Create token source that will auto-refresh
-		ts := config.TokenSource(ctx, token)
-		newToken, err := ts.Token()
+	log.Printf("Checking token for provider '%s' - Expiry: %v, Now: %v", provider, token.Expiry, time.Now())
+
+	// Check if the token is expired or close to expiring (30-second buffer)
+	if !token.Valid() || token.Expiry.Before(time.Now().Add(30*time.Second)) {
+		log.Printf("Token for provider '%s' is expired or expiring soon, attempting refresh...", provider)
+
+		// Create a token source and refresh the token
+		// We pass a context with a default HTTP client to ensure mocks work in tests
+		ctxWithClient := context.WithValue(ctx, oauth2.HTTPClient, http.DefaultClient)
+		tokenSource := config.TokenSource(ctxWithClient, token)
+		newToken, err := tokenSource.Token()
 		if err != nil {
-			return nil, fmt.Errorf("failed to refresh %s token: %w", provider, err)
+			log.Printf("Failed to refresh token for provider '%s': %v", provider, err)
+			return nil, fmt.Errorf("failed to refresh token: %w", err)
 		}
 
-		// Save refreshed token if it changed
-		if newToken.AccessToken != token.AccessToken {
-			if err := saveTokenToDatabase(dbProvider, provider, newToken); err != nil {
-				return nil, fmt.Errorf("failed to save refreshed %s token: %w", provider, err)
-			}
+		log.Printf("Successfully refreshed token for provider '%s'. New expiry: %v", provider, newToken.Expiry)
+
+		// Save the newly refreshed token back to the database
+		if err := saveTokenToDatabase(dbProvider, provider, newToken); err != nil {
+			log.Printf("Failed to save refreshed token for provider '%s': %v", provider, err)
+			return nil, fmt.Errorf("failed to save refreshed token: %w", err)
 		}
 
+		log.Printf("Successfully saved new token for provider '%s'", provider)
 		return newToken, nil
 	}
 
+	log.Printf("Token for provider '%s' is still valid, no refresh needed", provider)
 	return token, nil
 }
 

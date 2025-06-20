@@ -61,14 +61,13 @@ func GetYouTubeService(ctx context.Context, dbProvider DatabaseProvider, authCtx
 		log.Println("Token was still valid, no refresh needed")
 	}
 
-	// Use YouTube package's built-in authentication with token source
-	// This is the recommended approach according to Google's documentation
-	tokenSource := config.TokenSource(ctx, refreshedToken)
-	log.Println("Created token source for YouTube service")
+	// Create an OAuth2 client that uses the default transport for httpmock compatibility
+	// The client will automatically handle token refreshes.
+	oauthClient := config.Client(ctx, refreshedToken)
+	log.Println("Created OAuth2 client with automatic authentication headers")
 
-	// Create YouTube service using the recommended approach with token source
-	// This allows the YouTube package to handle authentication internally
-	svc, err := youtube.NewService(ctx, option.WithTokenSource(tokenSource))
+	// Create YouTube service with the authenticated HTTP client
+	svc, err := youtube.NewService(ctx, option.WithHTTPClient(oauthClient))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create YouTube service: %w", err)
 	}
@@ -113,27 +112,19 @@ func WithGoogleClientCustom(ctx context.Context, dbProvider DatabaseProvider, ht
 		return nil, fmt.Errorf("failed to refresh Google token: %w", err)
 	}
 
-	// Create token source with custom HTTP client if provided (for testing)
-	var tokenSource oauth2.TokenSource
+	// If custom HTTP client provided, use it for OAuth client
+	var oauthClient *http.Client
 	if httpClient != nil {
-		// For testing - create context with custom client for OAuth operations
+		// For testing, inject the mock client into the context so refreshes are mocked
 		ctxWithClient := context.WithValue(ctx, oauth2.HTTPClient, httpClient)
-		tokenSource = config.TokenSource(ctxWithClient, refreshedToken)
+		oauthClient = config.Client(ctxWithClient, refreshedToken)
 	} else {
-		// Normal case - use default token source
-		tokenSource = config.TokenSource(ctx, refreshedToken)
+		// Normal case - use default OAuth client
+		oauthClient = config.Client(ctx, refreshedToken)
 	}
 
-	// Create YouTube service with token source (simpler than custom HTTP client)
-	var svc *youtube.Service
-	if httpClient != nil {
-		// For testing - use custom HTTP client
-		svc, err = youtube.NewService(ctx, option.WithTokenSource(tokenSource), option.WithHTTPClient(httpClient))
-	} else {
-		// Normal case - let YouTube package handle HTTP client
-		svc, err = youtube.NewService(ctx, option.WithTokenSource(tokenSource))
-	}
-
+	// Create YouTube service with the OAuth client
+	svc, err := youtube.NewService(ctx, option.WithHTTPClient(oauthClient))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create YouTube service: %w", err)
 	}
