@@ -3,35 +3,51 @@ package auth
 import (
 	"context"
 	"fmt"
+	"log"
 	"net/http"
 
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
+	googleoauth2 "google.golang.org/api/oauth2/v2"
 	"google.golang.org/api/option"
 	"google.golang.org/api/youtube/v3"
 )
 
+// YouTube API requires user identity establishment for proper authentication
+// Using constants from Google API packages instead of hardcoded strings
+var youtubeScopes = []string{
+	youtube.YoutubeReadonlyScope,      // YouTube readonly access
+	googleoauth2.UserinfoProfileScope, // User profile for identity
+	googleoauth2.UserinfoEmailScope,   // User email for identity
+}
+
 // GetYouTubeService creates an authenticated YouTube service using the unified factory
 func GetYouTubeService(ctx context.Context, dbProvider DatabaseProvider, authCtx AuthContext) (*youtube.Service, error) {
+	log.Println("Creating YouTube service with enhanced scopes and simplified authentication...")
+
 	// Load credentials using the auth context
 	clientID, clientSecret, err := authCtx.GetCredentials("google")
 	if err != nil {
 		return nil, fmt.Errorf("failed to load Google credentials: %w", err)
 	}
+	log.Printf("Loaded Google credentials - ClientID: %s...", clientID[:min(10, len(clientID))])
 
 	// Load token from database
 	token, err := loadTokenFromDatabase(dbProvider, "google")
 	if err != nil {
 		return nil, fmt.Errorf("failed to load Google token: %w", err)
 	}
+	log.Printf("Loaded Google token - AccessToken: %s..., Expiry: %v",
+		token.AccessToken[:min(10, len(token.AccessToken))], token.Expiry)
 
-	// Create OAuth2 config for token refresh
+	// Create OAuth2 config for token management
 	config := &oauth2.Config{
 		ClientID:     clientID,
 		ClientSecret: clientSecret,
-		Scopes:       []string{youtube.YoutubeReadonlyScope},
+		Scopes:       youtubeScopes,
 		Endpoint:     google.Endpoint,
 	}
+	log.Printf("Created OAuth config with scopes: %v", youtubeScopes)
 
 	// Refresh token if needed
 	refreshedToken, err := refreshTokenIfNeeded(ctx, dbProvider, token, config, "google")
@@ -39,27 +55,25 @@ func GetYouTubeService(ctx context.Context, dbProvider DatabaseProvider, authCtx
 		return nil, fmt.Errorf("failed to refresh Google token: %w", err)
 	}
 
-	// Create HTTP client that will use the default transport (for httpmock compatibility)
-	httpClient := &http.Client{
-		Transport: http.DefaultTransport,
+	if refreshedToken.AccessToken != token.AccessToken {
+		log.Println("Token was refreshed")
+	} else {
+		log.Println("Token was still valid, no refresh needed")
 	}
 
-	// Create a context with the custom client for OAuth operations
-	ctxWithClient := context.WithValue(ctx, oauth2.HTTPClient, httpClient)
+	// Use YouTube package's built-in authentication with token source
+	// This is the recommended approach according to Google's documentation
+	tokenSource := config.TokenSource(ctx, refreshedToken)
+	log.Println("Created token source for YouTube service")
 
-	tokenSource := config.TokenSource(ctxWithClient, refreshedToken)
-
-	// Create YouTube service with the HTTP client and token source
-	opts := []option.ClientOption{
-		option.WithTokenSource(tokenSource),
-		option.WithHTTPClient(httpClient),
-	}
-
-	svc, err := youtube.NewService(ctx, opts...)
+	// Create YouTube service using the recommended approach with token source
+	// This allows the YouTube package to handle authentication internally
+	svc, err := youtube.NewService(ctx, option.WithTokenSource(tokenSource))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create YouTube service: %w", err)
 	}
 
+	log.Println("Successfully created YouTube service with built-in authentication")
 	return svc, nil
 }
 
@@ -89,37 +103,37 @@ func WithGoogleClientCustom(ctx context.Context, dbProvider DatabaseProvider, ht
 	config := &oauth2.Config{
 		ClientID:     clientID,
 		ClientSecret: clientSecret,
-		Scopes:       []string{youtube.YoutubeReadonlyScope},
+		Scopes:       youtubeScopes,
 		Endpoint:     google.Endpoint,
 	}
 
-	// Use custom HTTP client if provided (for testing)
-	if httpClient == nil {
-		httpClient = http.DefaultClient
-	}
-
-	// Create a context with the custom client
-	ctxWithClient := context.WithValue(ctx, oauth2.HTTPClient, httpClient)
-
-	tokenSource := config.TokenSource(ctxWithClient, token)
-	newToken, err := tokenSource.Token()
+	// Refresh token if needed
+	refreshedToken, err := refreshTokenIfNeeded(ctx, dbProvider, token, config, "google")
 	if err != nil {
-		return nil, fmt.Errorf("failed to refresh token: %w", err)
+		return nil, fmt.Errorf("failed to refresh Google token: %w", err)
 	}
 
-	if newToken.AccessToken != token.AccessToken {
-		if err := saveTokenToDatabase(dbProvider, "google", newToken); err != nil {
-			return nil, fmt.Errorf("failed to save refreshed token: %w", err)
-		}
+	// Create token source with custom HTTP client if provided (for testing)
+	var tokenSource oauth2.TokenSource
+	if httpClient != nil {
+		// For testing - create context with custom client for OAuth operations
+		ctxWithClient := context.WithValue(ctx, oauth2.HTTPClient, httpClient)
+		tokenSource = config.TokenSource(ctxWithClient, refreshedToken)
+	} else {
+		// Normal case - use default token source
+		tokenSource = config.TokenSource(ctx, refreshedToken)
 	}
 
-	// Create YouTube service with custom HTTP client
-	opts := []option.ClientOption{
-		option.WithTokenSource(tokenSource),
-		option.WithHTTPClient(httpClient),
+	// Create YouTube service with token source (simpler than custom HTTP client)
+	var svc *youtube.Service
+	if httpClient != nil {
+		// For testing - use custom HTTP client
+		svc, err = youtube.NewService(ctx, option.WithTokenSource(tokenSource), option.WithHTTPClient(httpClient))
+	} else {
+		// Normal case - let YouTube package handle HTTP client
+		svc, err = youtube.NewService(ctx, option.WithTokenSource(tokenSource))
 	}
 
-	svc, err := youtube.NewService(ctx, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create YouTube service: %w", err)
 	}

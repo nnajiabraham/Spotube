@@ -1,11 +1,11 @@
 package googleauth
 
 import (
-	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -19,6 +19,7 @@ import (
 	"github.com/pocketbase/pocketbase/models"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
+	googleoauth2 "google.golang.org/api/oauth2/v2"
 	"google.golang.org/api/youtube/v3"
 )
 
@@ -31,8 +32,15 @@ type daoProvider interface {
 const (
 	cookieName     = "google_auth_state"
 	cookieDuration = 5 * time.Minute
-	scope          = youtube.YoutubeReadonlyScope
 )
+
+// YouTube API requires user identity establishment for proper authentication
+// Using constants from Google API packages instead of hardcoded strings
+var scopes = []string{
+	youtube.YoutubeReadonlyScope,      // YouTube readonly access
+	googleoauth2.UserinfoProfileScope, // User profile for identity
+	googleoauth2.UserinfoEmailScope,   // User email for identity
+}
 
 func Register(app *pocketbase.PocketBase) {
 	app.OnBeforeServe().Add(func(e *core.ServeEvent) error {
@@ -69,7 +77,7 @@ func getGoogleOAuthConfig(dbProvider auth.DatabaseProvider) (*oauth2.Config, err
 		ClientID:     clientID,
 		ClientSecret: clientSecret,
 		RedirectURL:  redirectURL,
-		Scopes:       []string{scope},
+		Scopes:       scopes,
 		Endpoint:     google.Endpoint,
 	}, nil
 }
@@ -99,7 +107,10 @@ func loginHandler(app daoProvider) echo.HandlerFunc {
 			Expires:  time.Now().Add(cookieDuration),
 		})
 
-		url := conf.AuthCodeURL(state, oauth2.AccessTypeOffline, oauth2.S256ChallengeOption(verifier))
+		url := conf.AuthCodeURL(state,
+			oauth2.AccessTypeOffline,
+			oauth2.S256ChallengeOption(verifier),
+			oauth2.SetAuthURLParam("prompt", "consent"))
 		return c.Redirect(http.StatusTemporaryRedirect, url)
 	}
 }
@@ -110,21 +121,24 @@ func callbackHandler(app daoProvider) echo.HandlerFunc {
 		code := c.QueryParam("code")
 		errorParam := c.QueryParam("error")
 
+		// Get frontend URL for redirects
+		frontendURL := getFrontendURL()
+
 		if errorParam != "" {
-			return c.Redirect(http.StatusTemporaryRedirect, fmt.Sprintf("/dashboard?youtube=error&message=%s", errorParam))
+			return c.Redirect(http.StatusTemporaryRedirect, fmt.Sprintf("%s/dashboard?youtube=error&message=%s", frontendURL, errorParam))
 		}
 		if state == "" || code == "" {
-			return c.Redirect(http.StatusTemporaryRedirect, "/dashboard?youtube=error&message=Missing+state+or+code")
+			return c.Redirect(http.StatusTemporaryRedirect, fmt.Sprintf("%s/dashboard?youtube=error&message=Missing+state+or+code", frontendURL))
 		}
 
 		cookie, err := c.Cookie(cookieName)
 		if err != nil {
-			return c.Redirect(http.StatusTemporaryRedirect, "/dashboard?youtube=error&message=Missing+auth+cookie")
+			return c.Redirect(http.StatusTemporaryRedirect, fmt.Sprintf("%s/dashboard?youtube=error&message=Missing+auth+cookie", frontendURL))
 		}
 
 		parts := strings.Split(cookie.Value, ":")
 		if len(parts) != 2 || parts[0] != state {
-			return c.Redirect(http.StatusTemporaryRedirect, "/dashboard?youtube=error&message=Invalid+state")
+			return c.Redirect(http.StatusTemporaryRedirect, fmt.Sprintf("%s/dashboard?youtube=error&message=Invalid+state", frontendURL))
 		}
 		verifier := parts[1]
 
@@ -132,38 +146,54 @@ func callbackHandler(app daoProvider) echo.HandlerFunc {
 
 		conf, err := getGoogleOAuthConfig(app)
 		if err != nil {
-			return c.Redirect(http.StatusTemporaryRedirect, "/dashboard?youtube=error&message=Auth+config+error")
+			return c.Redirect(http.StatusTemporaryRedirect, fmt.Sprintf("%s/dashboard?youtube=error&message=Auth+config+error", frontendURL))
 		}
 
 		token, err := conf.Exchange(c.Request().Context(), code, oauth2.VerifierOption(verifier))
 		if err != nil {
-			return c.Redirect(http.StatusTemporaryRedirect, fmt.Sprintf("/dashboard?youtube=error&message=Token+exchange+failed: %v", err))
+			return c.Redirect(http.StatusTemporaryRedirect, fmt.Sprintf("%s/dashboard?youtube=error&message=Token+exchange+failed", frontendURL))
 		}
 
 		if err := saveGoogleTokens(app.Dao(), token); err != nil {
-			return c.Redirect(http.StatusTemporaryRedirect, fmt.Sprintf("/dashboard?youtube=error&message=Failed+to+save+tokens: %v", err))
+			return c.Redirect(http.StatusTemporaryRedirect, fmt.Sprintf("%s/dashboard?youtube=error&message=Failed+to+save+tokens", frontendURL))
 		}
 
-		return c.Redirect(http.StatusTemporaryRedirect, "/dashboard?youtube=connected")
+		return c.Redirect(http.StatusTemporaryRedirect, fmt.Sprintf("%s/dashboard?youtube=connected", frontendURL))
 	}
 }
 
-func playlistsHandler(app daoProvider) echo.HandlerFunc {
-	return playlistsHandlerWithClient(app, nil)
+// getFrontendURL returns the frontend URL for redirects after OAuth
+func getFrontendURL() string {
+	// In development, frontend runs on different port than backend
+	frontendURL := os.Getenv("FRONTEND_URL")
+	if frontendURL == "" {
+		// Default to development frontend URL
+		frontendURL = "http://localhost:5173"
+	}
+	return frontendURL
 }
 
-func playlistsHandlerWithClient(app daoProvider, httpClient *http.Client) echo.HandlerFunc {
+func playlistsHandler(app daoProvider) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		svc, err := withGoogleClientCustom(c.Request().Context(), app, httpClient)
+		log.Println("YouTube playlists request received")
+
+		// Use direct authentication like Spotify does - no complex indirection
+		svc, err := WithGoogleClient(app, c)
 		if err != nil {
+			log.Printf("Failed to create YouTube client: %v", err)
 			return c.JSON(http.StatusUnauthorized, map[string]string{"error": err.Error()})
 		}
+
+		log.Println("Successfully created YouTube client, fetching playlists...")
 
 		call := svc.Playlists.List([]string{"id", "snippet", "contentDetails"}).Mine(true).MaxResults(50)
 		resp, err := call.Do()
 		if err != nil {
+			log.Printf("YouTube API call failed: %v", err)
 			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to fetch playlists from YouTube"})
 		}
+
+		log.Printf("Successfully fetched %d playlists from YouTube", len(resp.Items))
 
 		type PlaylistItem struct {
 			ID          string `json:"id"`
@@ -186,7 +216,20 @@ func playlistsHandlerWithClient(app daoProvider, httpClient *http.Client) echo.H
 	}
 }
 
+// WithGoogleClient creates an authenticated YouTube service for API handlers
+// This is a thin adapter that delegates to the unified auth system
+func WithGoogleClient(app daoProvider, c echo.Context) (*youtube.Service, error) {
+	// Use the unified auth system with API context
+	authCtx := auth.NewAPIAuthContext(c, app)
+	return auth.GetYouTubeService(c.Request().Context(), app, authCtx)
+}
+
 func saveGoogleTokens(dao *daos.Dao, token *oauth2.Token) error {
+	log.Printf("Saving Google tokens - AccessToken: %s..., RefreshToken: %s, Expiry: %v",
+		token.AccessToken[:min(10, len(token.AccessToken))],
+		token.RefreshToken,
+		token.Expiry)
+
 	collection, err := dao.FindCollectionByNameOrId("oauth_tokens")
 	if err != nil {
 		return err
@@ -201,21 +244,16 @@ func saveGoogleTokens(dao *daos.Dao, token *oauth2.Token) error {
 	rec.Set("access_token", token.AccessToken)
 	rec.Set("refresh_token", token.RefreshToken)
 	rec.Set("expiry", token.Expiry)
-	rec.Set("scopes", scope)
+	rec.Set("scopes", strings.Join(scopes, ","))
 
-	return dao.SaveRecord(rec)
-}
+	err = dao.SaveRecord(rec)
+	if err != nil {
+		log.Printf("Failed to save Google tokens: %v", err)
+		return err
+	}
 
-// withGoogleClient creates an authenticated YouTube service using the unified auth factory
-// This function now delegates to the unified factory while maintaining backward compatibility
-func withGoogleClient(ctx context.Context, app daoProvider) (*youtube.Service, error) {
-	return auth.WithGoogleClient(ctx, app)
-}
-
-// withGoogleClientCustom creates an authenticated YouTube service using the unified auth factory with custom HTTP client
-// This function now delegates to the unified factory while maintaining backward compatibility
-func withGoogleClientCustom(ctx context.Context, app daoProvider, httpClient *http.Client) (*youtube.Service, error) {
-	return auth.WithGoogleClientCustom(ctx, app, httpClient)
+	log.Printf("Successfully saved Google tokens")
+	return nil
 }
 
 func generateRandomString(length int) (string, error) {

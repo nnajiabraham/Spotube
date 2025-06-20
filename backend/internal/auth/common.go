@@ -3,9 +3,11 @@ package auth
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/pocketbase/pocketbase/daos"
+	"github.com/pocketbase/pocketbase/models"
 	"github.com/zmb3/spotify/v2"
 	"golang.org/x/oauth2"
 	"google.golang.org/api/youtube/v3"
@@ -93,6 +95,38 @@ func saveTokenToDatabase(dbProvider DatabaseProvider, provider string, token *oa
 	record.Set("access_token", token.AccessToken)
 	record.Set("refresh_token", token.RefreshToken)
 	record.Set("expiry", token.Expiry)
+
+	return dao.SaveRecord(record)
+}
+
+// SaveTokenWithScopes persists OAuth tokens with scopes to the oauth_tokens collection
+// This is the public interface for saving tokens from OAuth callbacks
+func SaveTokenWithScopes(dbProvider DatabaseProvider, provider string, token *oauth2.Token, scopes []string) error {
+	dao := dbProvider.Dao()
+
+	// Find or create oauth_tokens record
+	record, err := dao.FindFirstRecordByFilter("oauth_tokens", fmt.Sprintf("provider = '%s'", provider))
+	if err != nil {
+		// Record doesn't exist, create it
+		collection, err := dao.FindCollectionByNameOrId("oauth_tokens")
+		if err != nil {
+			return fmt.Errorf("failed to find oauth_tokens collection: %w", err)
+		}
+
+		// Create new record
+		record = models.NewRecord(collection)
+		record.Set("provider", provider)
+	}
+
+	// Update token fields
+	record.Set("access_token", token.AccessToken)
+	record.Set("refresh_token", token.RefreshToken)
+	record.Set("expiry", token.Expiry)
+
+	// Set scopes if provided
+	if len(scopes) > 0 {
+		record.Set("scopes", strings.Join(scopes, " "))
+	}
 
 	return dao.SaveRecord(record)
 }

@@ -7,10 +7,16 @@ export function SpotifyConnectionCard() {
   const { isLoading, error } = useQuery({
     queryKey: ['spotify-connection'],
     queryFn: () => api.getSpotifyPlaylists({ limit: 1 }),
-    retry: false,
+    retry: (failureCount, error) => {
+      // Don't retry 401 errors (not authenticated)
+      if (error instanceof ApiError && error.status === 401) {
+        return false;
+      }
+      return failureCount < 3;
+    },
   });
 
-  const isConnected = !error || (error instanceof ApiError && error.status !== 401);
+  const isConnected = !error;
 
   if (isLoading) {
     return (
@@ -37,7 +43,7 @@ export function SpotifyConnectionCard() {
           </div>
           <div className="mt-5">
             <Link
-              to="/dashboard"
+              to="/settings/spotify"
               className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
             >
               View Playlists

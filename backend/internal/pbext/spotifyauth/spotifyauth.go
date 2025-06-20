@@ -16,8 +16,6 @@ import (
 	"github.com/manlikeabro/spotube/internal/auth"
 	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/core"
-	"github.com/pocketbase/pocketbase/daos"
-	"github.com/pocketbase/pocketbase/models"
 	"github.com/zmb3/spotify/v2"
 	spotifyauth "github.com/zmb3/spotify/v2/auth"
 	"golang.org/x/oauth2"
@@ -85,7 +83,7 @@ func loginHandler(app *pocketbase.PocketBase) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		log.Println("Starting Spotify OAuth login flow")
 
-		auth, err := getSpotifyAuthenticator(app)
+		authenticator, err := getSpotifyAuthenticator(app)
 		if err != nil {
 			log.Printf("Failed to create Spotify authenticator: %v", err)
 			return c.JSON(http.StatusInternalServerError, map[string]string{
@@ -128,7 +126,7 @@ func loginHandler(app *pocketbase.PocketBase) echo.HandlerFunc {
 		challenge := generateCodeChallenge(verifier)
 		log.Printf("Generated PKCE code challenge: %s", challenge)
 
-		url := auth.AuthURL(
+		url := authenticator.AuthURL(
 			state,
 			oauth2.SetAuthURLParam("code_challenge_method", "S256"),
 			oauth2.SetAuthURLParam("code_challenge", challenge),
@@ -149,14 +147,17 @@ func callbackHandler(app *pocketbase.PocketBase) echo.HandlerFunc {
 		code := c.QueryParam("code")
 		errorParam := c.QueryParam("error")
 
+		// Get frontend URL for redirects
+		frontendURL := getFrontendURL()
+
 		if errorParam != "" {
 			log.Printf("OAuth error from Spotify: %s", errorParam)
-			return c.Redirect(http.StatusTemporaryRedirect, "/dashboard?spotify=error&message="+errorParam)
+			return c.Redirect(http.StatusTemporaryRedirect, fmt.Sprintf("%s/dashboard?spotify=error&message=%s", frontendURL, errorParam))
 		}
 
 		if state == "" || code == "" {
 			log.Printf("Missing state or code in callback - state: %s, code: %s", state, code)
-			return c.Redirect(http.StatusTemporaryRedirect, "/dashboard?spotify=error&message=Missing+state+or+code")
+			return c.Redirect(http.StatusTemporaryRedirect, fmt.Sprintf("%s/dashboard?spotify=error&message=Missing+state+or+code", frontendURL))
 		}
 
 		log.Printf("Received OAuth callback with state: %s, code: %s...", state, code[:10])
@@ -165,14 +166,14 @@ func callbackHandler(app *pocketbase.PocketBase) echo.HandlerFunc {
 		cookie, err := c.Cookie(cookieName)
 		if err != nil {
 			log.Printf("Missing auth cookie in callback: %v", err)
-			return c.Redirect(http.StatusTemporaryRedirect, "/dashboard?spotify=error&message=Missing+auth+cookie")
+			return c.Redirect(http.StatusTemporaryRedirect, fmt.Sprintf("%s/dashboard?spotify=error&message=Missing+auth+cookie", frontendURL))
 		}
 
 		// Parse state and verifier from cookie
 		cookieParts := parseAuthCookie(cookie.Value)
 		if len(cookieParts) != 2 || cookieParts[0] != state {
 			log.Printf("State mismatch in OAuth callback - expected: %s, received: %s", cookieParts[0], state)
-			return c.Redirect(http.StatusTemporaryRedirect, "/dashboard?spotify=error&message=Invalid+state")
+			return c.Redirect(http.StatusTemporaryRedirect, fmt.Sprintf("%s/dashboard?spotify=error&message=Invalid+state", frontendURL))
 		}
 
 		verifier := cookieParts[1]
@@ -188,25 +189,25 @@ func callbackHandler(app *pocketbase.PocketBase) echo.HandlerFunc {
 		})
 
 		// Get authenticator and exchange code for token
-		auth, err := getSpotifyAuthenticator(app)
+		authenticator, err := getSpotifyAuthenticator(app)
 		if err != nil {
 			log.Printf("Failed to create authenticator in callback: %v", err)
-			return c.Redirect(http.StatusTemporaryRedirect, "/dashboard?spotify=error&message=Auth+config+error")
+			return c.Redirect(http.StatusTemporaryRedirect, fmt.Sprintf("%s/dashboard?spotify=error&message=Auth+config+error", frontendURL))
 		}
 
 		// Exchange code for token with verifier
 		log.Println("Exchanging authorization code for access token")
-		token, err := auth.Exchange(c.Request().Context(), code,
+		token, err := authenticator.Exchange(c.Request().Context(), code,
 			oauth2.SetAuthURLParam("code_verifier", verifier),
 		)
 		if err != nil {
 			log.Printf("Token exchange failed: %v", err)
-			return c.Redirect(http.StatusTemporaryRedirect, "/dashboard?spotify=error&message=Token+exchange+failed")
+			return c.Redirect(http.StatusTemporaryRedirect, fmt.Sprintf("%s/dashboard?spotify=error&message=Token+exchange+failed", frontendURL))
 		}
 
 		log.Printf("Successfully exchanged code for token - expiry: %v", token.Expiry)
 
-		// Save tokens to database
+		// Save tokens to database using unified auth system
 		scopes := []string{
 			string(spotifyauth.ScopeUserReadPrivate),
 			string(spotifyauth.ScopeUserReadEmail),
@@ -214,15 +215,26 @@ func callbackHandler(app *pocketbase.PocketBase) echo.HandlerFunc {
 			string(spotifyauth.ScopePlaylistReadCollaborative),
 		}
 
-		if err := saveSpotifyTokens(app.Dao(), token, scopes); err != nil {
+		if err := auth.SaveTokenWithScopes(app, "spotify", token, scopes); err != nil {
 			log.Printf("Failed to save tokens to database: %v", err)
-			return c.Redirect(http.StatusTemporaryRedirect, "/dashboard?spotify=error&message=Failed+to+save+tokens")
+			return c.Redirect(http.StatusTemporaryRedirect, fmt.Sprintf("%s/dashboard?spotify=error&message=Failed+to+save+tokens", frontendURL))
 		}
 
 		log.Println("Spotify OAuth flow completed successfully")
-		// Redirect to dashboard with success
-		return c.Redirect(http.StatusTemporaryRedirect, "/dashboard?spotify=connected")
+		// Redirect to frontend dashboard with success
+		return c.Redirect(http.StatusTemporaryRedirect, fmt.Sprintf("%s/dashboard?spotify=connected", frontendURL))
 	}
+}
+
+// getFrontendURL returns the frontend URL for redirects after OAuth
+func getFrontendURL() string {
+	// In development, frontend runs on different port than backend
+	frontendURL := os.Getenv("FRONTEND_URL")
+	if frontendURL == "" {
+		// Default to development frontend URL
+		frontendURL = "http://localhost:5173"
+	}
+	return frontendURL
 }
 
 // playlistsHandler proxies requests to Spotify's /me/playlists endpoint
@@ -329,30 +341,6 @@ func playlistsHandler(app *pocketbase.PocketBase) echo.HandlerFunc {
 
 		return c.JSON(http.StatusOK, response)
 	}
-}
-
-// saveSpotifyTokens saves Spotify OAuth tokens to the oauth_tokens collection
-func saveSpotifyTokens(dao *daos.Dao, token *oauth2.Token, scopes []string) error {
-	// Find or create oauth_tokens record for Spotify
-	rec, _ := dao.FindFirstRecordByFilter("oauth_tokens", "provider = 'spotify'")
-
-	if rec == nil {
-		// Create new record
-		collection, err := dao.FindCollectionByNameOrId("oauth_tokens")
-		if err != nil {
-			return err
-		}
-		rec = models.NewRecord(collection)
-		rec.Set("provider", "spotify")
-	}
-
-	// Update token fields
-	rec.Set("access_token", token.AccessToken)
-	rec.Set("refresh_token", token.RefreshToken)
-	rec.Set("expiry", token.Expiry)
-	rec.Set("scopes", strings.Join(scopes, " "))
-
-	return dao.SaveRecord(rec)
 }
 
 // generateRandomString generates a cryptographically secure random string

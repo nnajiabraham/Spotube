@@ -1,7 +1,6 @@
 package googleauth
 
 import (
-	"context"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -79,7 +78,7 @@ func TestCallbackHandler_Success(t *testing.T) {
 	assert.NoError(t, err)
 
 	assert.Equal(t, http.StatusTemporaryRedirect, rec.Code)
-	assert.Equal(t, "/dashboard?youtube=connected", rec.Header().Get("Location"))
+	assert.Equal(t, "http://localhost:5173/dashboard?youtube=connected", rec.Header().Get("Location"))
 
 	// Validate token was stored in database
 	record, err := testApp.Dao().FindFirstRecordByFilter("oauth_tokens", "provider = 'google'")
@@ -248,9 +247,13 @@ func TestWithGoogleClient_ValidToken(t *testing.T) {
 	// Setup valid OAuth tokens using shared helper
 	testhelpers.SetupOAuthTokens(t, testApp)
 
-	// Test withGoogleClient function with valid token
-	ctx := context.Background()
-	client, err := withGoogleClient(ctx, testApp)
+	// Test WithGoogleClient function with valid token
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	client, err := WithGoogleClient(testApp, c)
 	assert.NoError(t, err)
 	assert.NotNil(t, client)
 }
@@ -265,8 +268,12 @@ func TestWithGoogleClient_MissingToken(t *testing.T) {
 	defer os.Unsetenv("GOOGLE_CLIENT_SECRET")
 
 	// Don't setup OAuth tokens - test missing token scenario
-	ctx := context.Background()
-	client, err := withGoogleClient(ctx, testApp)
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	client, err := WithGoogleClient(testApp, c)
 	assert.Error(t, err)
 	assert.Nil(t, client)
 	assert.Contains(t, err.Error(), "no google token found")

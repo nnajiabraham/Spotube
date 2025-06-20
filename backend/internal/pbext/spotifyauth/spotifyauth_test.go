@@ -13,6 +13,7 @@ import (
 
 	"github.com/jarcoal/httpmock"
 	"github.com/labstack/echo/v5"
+	"github.com/manlikeabro/spotube/internal/auth"
 	"github.com/manlikeabro/spotube/internal/testhelpers"
 	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/daos"
@@ -122,13 +123,13 @@ func callbackHandlerWithInterface(provider daoProvider) echo.HandlerFunc {
 		})
 
 		// Get authenticator and exchange code for token
-		auth, err := getSpotifyAuthenticator(provider)
+		authenticator, err := getSpotifyAuthenticator(provider)
 		if err != nil {
 			return c.Redirect(http.StatusTemporaryRedirect, "/dashboard?spotify=error&message=Auth+config+error")
 		}
 
 		// Exchange code for token with verifier
-		token, err := auth.Exchange(c.Request().Context(), code,
+		token, err := authenticator.Exchange(c.Request().Context(), code,
 			oauth2.SetAuthURLParam("code_verifier", verifier),
 		)
 		if err != nil {
@@ -143,12 +144,12 @@ func callbackHandlerWithInterface(provider daoProvider) echo.HandlerFunc {
 			string(spotifyauth.ScopePlaylistReadCollaborative),
 		}
 
-		if err := saveSpotifyTokens(provider.Dao(), token, scopes); err != nil {
+		if err := auth.SaveTokenWithScopes(provider, "spotify", token, scopes); err != nil {
 			return c.Redirect(http.StatusTemporaryRedirect, "/dashboard?spotify=error&message=Failed+to+save+tokens")
 		}
 
-		// Redirect to dashboard with success
-		return c.Redirect(http.StatusTemporaryRedirect, "/dashboard?spotify=connected")
+		// Redirect to dashboard with success (for tests, use frontend URL)
+		return c.Redirect(http.StatusTemporaryRedirect, "http://localhost:5173/dashboard?spotify=connected")
 	}
 }
 
@@ -395,7 +396,7 @@ func TestCallbackHandler_Success(t *testing.T) {
 	assert.NoError(t, err)
 
 	assert.Equal(t, http.StatusTemporaryRedirect, rec.Code)
-	assert.Equal(t, "/dashboard?spotify=connected", rec.Header().Get("Location"))
+	assert.Equal(t, "http://localhost:5173/dashboard?spotify=connected", rec.Header().Get("Location"))
 
 	// Validate token was stored in database
 	record, err := testApp.Dao().FindFirstRecordByFilter("oauth_tokens", "provider = 'spotify'")
@@ -739,4 +740,24 @@ func setupSettingsWithCredentials(t *testing.T, testApp *tests.TestApp, spotifyI
 
 	err = dao.SaveRecord(record)
 	require.NoError(t, err)
+}
+
+// Test token saving functionality using unified auth system
+func TestSaveTokenWithScopes(t *testing.T) {
+	testApp := testhelpers.SetupTestApp(t)
+	defer testApp.Cleanup()
+
+	t.Setenv("SPOTIFY_CLIENT_ID", "test-client-id")
+	t.Setenv("SPOTIFY_CLIENT_SECRET", "test-client-secret")
+
+	// Test token saving functionality using unified auth system
+	token := &oauth2.Token{
+		AccessToken:  "test_access_token",
+		RefreshToken: "test_refresh_token",
+		Expiry:       time.Now().Add(time.Hour),
+	}
+	scopes := []string{"user-read-private", "playlist-read-private"}
+
+	err := auth.SaveTokenWithScopes(testApp, "spotify", token, scopes)
+	assert.NoError(t, err)
 }
