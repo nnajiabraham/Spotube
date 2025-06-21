@@ -67,12 +67,12 @@ To enable proper logging and track matching, the system needs to be updated.
     *   If no match is found, the item will be blacklisted with a reason of `search_failed`.
     *   The rest of the execution logic will use the `destination_track_id` from the payload to add the track to the playlist.
 
-## 4. Technical Design: Logging Dashboard
+## 4. Technical Design: Activity Logging Dashboard
 
-### 4.1 New Collection: `logs`
+### 4.1 New Collection: `activity_logs`
 Create via:
 ```bash
-cd backend && go run cmd/server/main.go migrate create "create_logs_collection"
+cd backend && go run cmd/server/main.go migrate create "create_activity_logs_collection"
 ```
 Fields:
 | field | type | notes |
@@ -84,13 +84,15 @@ Fields:
 
 *   **Rules**: Publicly readable. Only the system (via admin API key or hooks) can create/update/delete entries.
 
+**Note**: The `activity_logs` collection is specifically for tracking sync job activities, system events, and status updates that are displayed in the dashboard. This is distinct from general application logging (stdout/stderr) handled by Zerolog.
+
 ### 4.2 Backend Implementation
 
-#### 4.2.1 Logging Service
-A new helper `logger.Log(level, message, syncItemID, jobType)` will be created in a `backend/internal/logger` package. It will write to both Zerolog (for console output) and the `logs` PocketBase collection.
+#### 4.2.1 Activity Logger Service
+A new helper `activityLogger.Record(level, message, syncItemID, jobType)` will be created in a `backend/internal/activitylogger` package. It will write to both Zerolog (for console output) and the `activity_logs` PocketBase collection.
 
 #### 4.2.2 Job Integration
-The `analysis` and `executor` jobs will be modified to call the new logging service at key points:
+The `analysis` and `executor` jobs will be modified to call the new activity logger service at key points:
 *   `analysis`: "Starting analysis for X mappings", "Found Y diffs for mapping Z", "Analysis complete".
 *   `executor`: "Processing item for track '{track_title}' (ID: {track_id})", "Successfully added track", "Error processing item: [reason]".
 
@@ -116,8 +118,8 @@ The main dashboard page will be updated to display real-time status cards using 
 *   **Controls**: A "Pause" button will stop the automatic refetching. A "Refresh" button will trigger a manual refetch.
 *   **TanStack Query**: Data will be fetched with a `refetchInterval` of **60 seconds**, which can be paused and resumed.
 
-#### 4.3.2 Logs Page (`/logs`)
-A new route at `/logs` will display the contents of the `logs` collection in a virtualized table (e.g., using TanStack Table).
+#### 4.3.2 Activity Logs Page (`/logs`)
+A new route at `/logs` will display the contents of the `activity_logs` collection in a virtualized table (e.g., using TanStack Table).
 *   **Columns**: Timestamp, Level, Job Type, Message. If a `sync_item_id` is present, the message will be a link to a modal showing the details of that sync item (source/destination track, services, etc.).
 *   **Filtering**: UI controls to filter by `level` and `job_type`.
 
@@ -145,23 +147,23 @@ A new route at `/logs` will display the contents of the `logs` collection in a v
         -   [x] Test that if a track is found via search, its ID is stored in the `payload` and used for the `add_track` operation.
         -   [x] Test that if a track is not found via search, the `sync_item` is moved to the blacklist with reason `search_failed`.
 
-### Part 2: Logging & Dashboard Features
-- [ ] **L1** Migration for `logs` collection.
+### Part 2: Activity Logging & Dashboard Features
+- [ ] **L1** Migration for `activity_logs` collection.
     -   **Test Cases**:
-        -   [ ] Test that a `log` record can be created with all required fields via the DAO.
+        -   [ ] Test that an `activity_log` record can be created with all required fields via the DAO.
 
-- [ ] **L2** Create `logger` service and integrate with existing jobs.
+- [ ] **L2** Create `activityLogger` service and integrate with existing jobs.
     -   **Test Cases**:
-        -   [ ] Test that `logger.Log` creates a record in the `logs` collection with the correct level, message, and job type.
-        -   [ ] Test that the analysis job creates start and end log entries.
-        -   [ ] Test that the executor job creates a log entry for each major step (processing, success, error).
+        -   [ ] Test that `activityLogger.Record` creates a record in the `activity_logs` collection with the correct level, message, and job type.
+        -   [ ] Test that the analysis job creates start and end activity log entries.
+        -   [ ] Test that the executor job creates an activity log entry for each major step (processing, success, error).
 
 - [ ] **L3** Implement **unauthenticated** `/api/dashboard/stats` endpoint.
     -   **Test Cases**:
         -   [ ] Test that a request to `/api/dashboard/stats` without auth headers succeeds.
         -   [ ] Test that the endpoint aggregates correct counts for `mappings` and all `queue` statuses from mock data.
         -   [ ] Test that the `youtube_quota` values are returned correctly from the tracker.
-        -   [ ] Test that `recent_runs` are populated from the `logs` collection.
+        -   [ ] Test that `recent_runs` are populated from the `activity_logs` collection.
 
 - [ ] **L5** FE: Implement dashboard status cards with controls.
     -   **Test Cases**:
@@ -169,9 +171,9 @@ A new route at `/logs` will display the contents of the `logs` collection in a v
         -   [ ] Test that the `refetchInterval` is paused when the "Pause" button is clicked and resumed when clicked again.
         -   [ ] Test that clicking the "Refresh" button triggers `queryClient.invalidateQueries`.
 
-- [ ] **L6** FE: Implement logs page with filtering.
+- [ ] **L6** FE: Implement activity logs page with filtering.
     -   **Test Cases**:
-        -   [ ] Test that the logs table renders rows from mocked log data.
+        -   [ ] Test that the activity logs table renders rows from mocked log data.
         -   [ ] Test that the table is updated correctly when the `level` filter is changed.
         -   [ ] Test that a modal with sync item details is shown when a log message with a `sync_item_id` is clicked.
 
@@ -246,7 +248,7 @@ A new route at `/logs` will display the contents of the `logs` collection in a v
 ## 6. Definition of Done
 *   All bug fixes are implemented and tested. The sync process is reliable.
 *   The dashboard displays accurate, near real-time stats about the system's health.
-*   The logs page provides a filterable view of system events.
+*   The activity logs page provides a filterable view of system events.
 *   All new and existing tests pass.
 
 ## 7. Resources & References

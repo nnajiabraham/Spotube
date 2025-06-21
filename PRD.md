@@ -27,9 +27,9 @@ Eliminate the manual effort of recreating or updating playlists across Spotify a
 5. **Conflict & Rate-Limit Handling**
    • Separate "analysis" and "execution" jobs coordinated via a shared collection flag to avoid overlap.
    • The execution worker includes exponential back-off for retrying failed items and a daily quota tracker for the YouTube API to prevent exceeding limits.
-6. **Logging & Status**
+6. **Activity Logging & Status**
    • Sync history, per-mapping status, and detailed job progress visible in dashboard.
-   • A dedicated `logs` collection captures system-level events for debugging.
+   • A dedicated `activity_logs` collection captures sync job activities and system events for debugging and dashboard display.
    • The dashboard provides an unauthenticated, near real-time view of system health, including queue status and mapping counts.
 7. **Single Binary Deployment**
    • Dockerfile produces a minimal image containing the statically-linked PocketBase/Go binary that also serves the built Vite assets.
@@ -68,7 +68,7 @@ The service is delivered as a **single statically-linked Go binary** that embeds
    • `playlists` – normalized playlist metadata (service, playlist_id, title, etc.).  
    • `mappings` – join table defining sync relations & options.  
    • `sync_items` – queue of pending track/name operations with status/attempt counters.  
-   • `logs` – sync history & diagnostic messages (TTL configurable).
+   • `activity_logs` – sync job activities and system events for dashboard display (TTL configurable).
 4. **Jobs & Queue**
    • Each `mappings.interval_minutes` defines how often that pair should sync.  
    • A _global_ interval in the `settings` record (optional) overrides per-mapping values.  
