@@ -76,10 +76,10 @@ Keep the PRD concise and focused on the current scope. It should be treated as a
 All significant features, changes, or architectural decisions should first be defined in an RFC document, typically stored in a dedicated `docs/rfcs/` directory within the project. Each RFC serves as the specification and plan for a unit of work.
 
 1.  **Define the Work:** Create an RFC using the standard template (see below). Clearly articulate the goals and technical approach.
-2.  **Implement Incrementally:** Implement the RFC by following its **Technical Design** and completing the items in its **Checklist** one by one. Make sure to check of each checklist items when finished before proceeding to the next during  RFC implementation. Also make sure to update the Implementation Notes / Summary section after each item in the checklist is checked of so we maintain that to be as acurrate as possible. **CRITICAL:** The Implementation Notes / Summary section serves as context for other implementer agents working on dependent RFCs - include detailed information about what was changed, specific file paths, configuration updates, and any important implementation decisions that future agents will need to understand.
-3.  **Track Progress:** As each checklist item is completed, **edit the RFC file** to mark the item as done (`[X]`). This provides visibility into the progress.
-4.  **Commit Changes:** Use Git for version control, following the commit message guidelines (see below). Link commits back to the RFC being worked on.
-5.  **🚨 VALIDATE COMPLETION:** Before marking an RFC as "Completed", **ALWAYS** run the full test suite (`make test-backend` and `make test-frontend`) to ensure no regressions were introduced. An RFC is not truly complete until all existing functionality remains intact.
+2.  **Define Test Cases:** For each implementation task in the RFC's checklist, define a sub-checklist of specific test cases. These tests serve as the acceptance criteria for the task. This ensures quality and clarifies the requirements for the implementing agent.
+3.  **Implement Incrementally:** Follow the RFC's technical design to complete each checklist item sequentially. After implementing a task, update its 'Implementation Notes / Summary' section with details about the changes (e.g., file paths, configuration updates, key decisions). This provides crucial context for other agents working on dependent RFCs.
+4.  **Track Progress:** As each checklist item is completed, **edit the RFC file** to mark the item as done (`[X]`). This provides visibility into the progress.
+5.  **🚨 VALIDATE COMPLETION:** Before marking an RFC as "Completed", **ALWAYS** run the full test suite to ensure no regressions were introduced. An RFC is not truly complete until all existing functionality remains intact.
 
 ### Sequential RFC Implementation Workflow
 
@@ -127,7 +127,6 @@ Before marking any RFC or checklist item as complete, you must:
 
 5. **🚨 CRITICAL: Full Regression Testing After RFC Completion**:
    - **ALWAYS** run the complete test suite after marking an RFC as "Completed"
-   - Use `make test-backend` and `make test-frontend` (or `make test` for both)
    - **RFC cannot be considered truly complete until ALL existing tests still pass**
    - This ensures your RFC implementation doesn't break existing functionality
    - Document any test failures and their resolution in the RFC Implementation Notes
@@ -190,13 +189,27 @@ Use this template for all new RFCs to ensure consistency and clarity.
 
 ## 5. Checklist
 
-*   *Break down the implementation into small, verifiable steps. Use checkboxes.*
-*   [ ] Task 1: Add `users` table migration script.
-*   [ ] Task 2: Implement `POST /api/users` handler function.
-*   [ ] Task 3: Add input validation for email and password.
-*   [ ] Task 4: Implement password hashing using bcrypt.
-*   [ ] Task 5: Write unit tests for the user creation logic.
-*   [ ] Task 6: Add `AUTH_SECRET_KEY` to environment configuration files (`.env.example`, deployment config).
+*   *Break down the implementation into small, verifiable steps. For each task, define a sub-checklist of test cases that must pass for the task to be considered complete.*
+*   [ ] **Task 1: Add `users` table migration script.**
+    *   **Test Cases**:
+        *   [ ] Test that migration `up` creates the table with the correct schema and constraints.
+        *   [ ] Test that migration `down` successfully removes the table.
+*   [ ] **Task 2: Implement `POST /api/users` handler function.**
+    *   **Test Cases**:
+        *   [ ] Test successful user creation returns a 201 status.
+        *   [ ] Test request with a missing `email` field returns a 400 error.
+        *   [ ] Test request with an existing email returns a 409 conflict error.
+*   [ ] **Task 3: Add input validation for email and password.**
+    *   **Test Cases**:
+        *   [ ] Test that an invalid email format is rejected.
+        *   [ ] Test that a password shorter than the required length is rejected.
+*   [ ] **Task 4: Write unit tests for the user creation logic.**
+    *   **Test Cases**:
+        *   [ ] Test user creation logic is covered by unit tests.
+        *   [ ] Test input validation logic is covered by unit tests.
+*   [ ] **Task 5: Add `AUTH_SECRET_KEY` to environment configuration files.**
+    *   **Test Cases**:
+        *   [ ] Test that the application fails to start if the secret is missing in production mode.
 
 ## 6. Definition of Done
 
@@ -237,15 +250,6 @@ type(scope): message
 Linking commits to RFCs via the scope is crucial for tracing the implementation history of features and changes.
 
 ## Effective Tool Usage for RFC Implementation
-
-Leverage the available tools to efficiently implement RFCs:
-
-*   `list_dir`: Explore directory structures to understand project layout or find relevant folders (e.g., `list_dir relative_workspace_path="src/controllers"`).
-*   `read_file`: Read specific files or sections mentioned in the RFC for context before making changes (e.g., `read_file target_file="config/routes.rb" start_line_one_indexed=10 end_line_one_indexed_inclusive=25`). Use `should_read_entire_file=True` cautiously for smaller files or when full context is essential.
-*   `codebase_search`: Find relevant code snippets semantically when you know *what* you need but not *where* it is (e.g., `codebase_search query="middleware for request logging"`).
-*   `grep_search`: Find exact text matches, like function names, variable names, configuration keys, or specific error messages (e.g., `grep_search query="API_KEY"` or `grep_search query="function connectDatabase\(" include_pattern="*.js"`). Remember to escape regex special characters.
-*   `edit_file`: Propose code changes to existing files or create new files as required by the RFC tasks. Be precise and use comments like `// ... existing code ...` (adjusting the comment style for the language) to indicate unchanged sections.
-*   `run_terminal_cmd`: Execute necessary commands, such as build steps (`npm run build`, `go build`), dependency management (`pip install -r requirements.txt`, `bundle install`), database migrations (`flask db upgrade`), testing (`pytest`, `go test ./...`), or deployment scripts. Append `| cat` for commands that might paginate output (like `git log`, `less`).
 
 By following the RFC process, using the standard template, adhering to commit conventions, and utilizing tools effectively, development agents can contribute to projects in a structured, traceable, and efficient manner.
 
@@ -292,10 +296,15 @@ Here is a blank template structure for reference when creating a new RFC:
 
 ## 5. Checklist
 
-*   [ ] *Break down the work into specific, actionable tasks.*
-*   [ ] *Task 1: ...*
-*   [ ] *Task 2: ...*
-*   [ ] *Task 3: ...*
+*   *Break down the work into specific, actionable tasks. For each task, define a sub-checklist of test cases.*
+*   [ ] **Task 1: ...**
+    *   **Test Cases**:
+        *   [ ] Test case 1a.
+        *   [ ] Test case 1b.
+*   [ ] **Task 2: ...**
+    *   **Test Cases**:
+        *   [ ] Test case 2a.
+*   [ ] **Task 3: ...**
 
 ## 6. Definition of Done
 

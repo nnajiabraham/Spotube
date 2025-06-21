@@ -26,8 +26,11 @@ Eliminate the manual effort of recreating or updating playlists across Spotify a
    • Tracks skipped items (blacklist with reason + skip counter).
 5. **Conflict & Rate-Limit Handling**
    • Separate "analysis" and "execution" jobs coordinated via a shared collection flag to avoid overlap.
+   • The execution worker includes exponential back-off for retrying failed items and a daily quota tracker for the YouTube API to prevent exceeding limits.
 6. **Logging & Status**
    • Sync history, per-mapping status, and detailed job progress visible in dashboard.
+   • A dedicated `logs` collection captures system-level events for debugging.
+   • The dashboard provides an unauthenticated, near real-time view of system health, including queue status and mapping counts.
 7. **Single Binary Deployment**
    • Dockerfile produces a minimal image containing the statically-linked PocketBase/Go binary that also serves the built Vite assets.
 
@@ -54,10 +57,11 @@ The service is delivered as a **single statically-linked Go binary** that embeds
 1. **PocketBase Core (Go)**
    • Provides database (SQLite) and REST-ish API surface.  
    • Custom Go routes and event hooks extend PocketBase for OAuth callbacks, playlist retrieval, and job scheduling.  
+   • A unified OAuth client factory in `backend/internal/auth` provides consistent, context-aware authentication for both API handlers and background jobs, with credential sourcing from the `settings` collection or environment variables.
    • Two dedicated scheduled job types: _analysis_ (detects deltas) and _execution_ (applies changes).
 2. **Embedded React Frontend**
    • Built with Vite and placed into the `/pb_public` directory at build time, letting PocketBase serve the static assets automatically.  
-   • Communicates with backend exclusively through PocketBase's API endpoints.
+   • Communicates with backend exclusively through the **PocketBase JS SDK**.
 3. **Collections**
    • `settings` – singleton record storing Spotify/Google credentials.  
    • `oauth_tokens` – per-provider access & refresh tokens.  
@@ -118,11 +122,16 @@ The service is delivered as a **single statically-linked Go binary** that embeds
 | **RFC-002** | PocketBase Foundation & Migrations Framework | Wire up PocketBase app (`main.go`), add migration CLI harness, create baseline collections (`settings`). Set up Vitest + Playwright testing infrastructure. | • `go run cmd/server migrate up` creates DB schema.  • `npm test` runs Vitest.  • `npm run test:e2e` runs Playwright. |
 | **RFC-003** | Environment Setup Wizard (FE + BE) | FE form wizard; BE route to write `settings` record; skip wizard when `.env` has credentials or no record exists. UI: responsive form with validation. | • Wizard shows when no `.env` + no DB record.  • Form validation via Zod.  • Playwright test covers wizard flow. |
 | **RFC-004** | Spotify OAuth Integration | Implement `/auth/spotify/*` routes, store tokens, list playlists. UI: OAuth callback page, playlist display cards, loading states. | • Refresh token stored.  • `GET /api/spotify/playlists` returns >0 items.  • Playwright tests cover OAuth flow. |
+| **RFC-004b**| PocketBase JS SDK Migration | Migrate frontend from a custom API client to the official PocketBase JS SDK for better type safety and real-time support. | • All API calls use the SDK. • All existing tests pass without modification. |
 | **RFC-005** | YouTube OAuth Integration | Similar flow for Google OAuth + playlist listing. UI: consistent with Spotify flow, error handling. | • Refresh token stored.  • Playwright tests verify YouTube OAuth + playlist listing. |
 | **RFC-006** | Playlist Mapping Collections & UI | CRUD endpoints + React pages to create/edit mappings. UI: responsive forms, drag-drop mapping, interval controls. | • Creating a mapping persists `mappings` record; UI reflects list.  • Playwright tests cover mapping CRUD flow. |
 | **RFC-007** | Sync Analysis Job | Scheduled detection of playlist diffs, populate `sync_items`. UI: job progress indicators, sync queue visualization. | • After adding a track in Spotify, analysis job queues item.  • Vitest tests cover job scheduling logic. |
+| **RFC-007b**| Test Refactoring and Shared Helpers | Refactor `analysis` tests to use actual implementations and extract reusable test helpers for project-wide use. | • All backend tests use shared helpers. • No regressions in test suite. |
+| **RFC-007c**| Comprehensive Test Integration Refactoring | Refactor all existing test suites to use proper PocketBase integration testing patterns, replacing mocks with real database operations. | • All backend tests use real DB operations. • All backend tests pass. |
 | **RFC-008** | Sync Execution Job | Worker processes `sync_items`, updates target service, handles errors. UI: real-time sync status updates, error notifications. | • Queued item marked `done` and track appears on other platform.  • E2E test verifies full sync cycle. |
+| **RFC-008b**| Unified OAuth Client Factory | Create a unified system to eliminate code duplication for Spotify and YouTube authentication between jobs and API handlers. | • `analysis` and `executor` jobs use the unified factory. • All tests pass. |
 | **RFC-009** | Conflict & Blacklist Handling | Schema for blacklisted tracks, skip logic, UI to manage blacklist. UI: track conflict resolution modal, blacklist management table. | • Blacklisted track skipped and counter increments.  • Playwright tests cover conflict resolution UI. |
+| **RFC-009b**| OAuth Fixes and Refactoring | Retroactively document critical fixes to OAuth flows, token persistence, and migration standardization. | • Spotify and Google OAuth flows work reliably. • All tests pass. |
 | **RFC-010** | Logging & Status Dashboard | Visualize job runs, per-mapping status, log tail. UI: real-time status cards, log filtering, sync history charts. | • UI shows last N runs with success indicator.  • Playwright tests verify dashboard interactions. |
 | **RFC-011** | Docker & Release Pipeline | Multi-stage Dockerfile | • `docker run` starts server, exposes PB dashboard at `/_/`.  • `tsc --noEmit` passes. |
 | **RFC-012** | Comprehensive E2E Testing Suite | Complete Playwright test suite covering all user flows: setup wizard → OAuth → mappings → sync execution. MSW setup for API mocking. | • Full user journey works end-to-end.  • All Playwright tests pass with sufficient coverage. |
