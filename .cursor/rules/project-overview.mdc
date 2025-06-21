@@ -1,5 +1,5 @@
 ---
-description: 
+description: High-level overview of the Spotube project, including its purpose, architecture, directory structure, development workflow, and core features. Spotube enables bidirectional playlist synchronization between Spotify and YouTube Music, with a Go/PocketBase backend and a React/TypeScript frontend.
 globs: 
 alwaysApply: true
 ---

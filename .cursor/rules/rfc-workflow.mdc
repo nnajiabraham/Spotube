@@ -1,5 +1,5 @@
 ---
-description: 
+description: Guidelines for RFC-driven feature development in Spotube, including RFC structure, implementation workflow, testing requirements, and documentation standards. Ensures all major features are planned, tested, and documented using a consistent RFC process.
 globs: 
 alwaysApply: true
 ---

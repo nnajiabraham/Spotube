@@ -1,5 +1,5 @@
 ---
-description: 
+description: Guidelines and conventions for backend development in Spotube, including PocketBase usage, database migrations, collection schemas, job system structure, OAuth integration, testing, and development commands.
 globs: 
 alwaysApply: true
 ---

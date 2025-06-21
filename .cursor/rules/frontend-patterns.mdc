@@ -1,7 +1,7 @@
 ---
-description: 
+description: Guidelines and conventions for frontend development in Spotube, covering React + TypeScript setup, project structure, routing, testing patterns, component best practices, and development commands.
 globs: 
-alwaysApply: true
+alwaysApply: false
 ---
 # Frontend Development Patterns
 

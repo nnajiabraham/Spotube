@@ -1,5 +1,5 @@
 ---
-description: 
+description: General guidelines for AI code assistant behavior: maintain a critical, staff-level engineering perspective, avoid excessive refactoring, express tradeoffs, and use objective language when responding to user prompts.
 globs: 
 alwaysApply: true
 ---

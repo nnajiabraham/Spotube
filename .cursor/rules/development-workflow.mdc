@@ -1,5 +1,5 @@
 ---
-description: 
+description: Step-by-step workflow for developing, testing, debugging, and deploying Spotube. Covers environment setup, daily development commands, code quality standards, RFC-driven feature process, database operations, debugging tools, production builds, and troubleshooting common issues.
 globs: 
 alwaysApply: true
 ---
