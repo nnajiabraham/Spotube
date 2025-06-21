@@ -72,6 +72,8 @@ func getSpotifyAuthenticator(dbProvider auth.DatabaseProvider) (*spotifyauth.Aut
 			spotifyauth.ScopeUserReadEmail,
 			spotifyauth.ScopePlaylistReadPrivate,
 			spotifyauth.ScopePlaylistReadCollaborative,
+			spotifyauth.ScopePlaylistModifyPublic,  // RFC-010 BF1: Add playlist modification permissions
+			spotifyauth.ScopePlaylistModifyPrivate, // RFC-010 BF1: Add playlist modification permissions
 		),
 	)
 
@@ -213,6 +215,8 @@ func callbackHandler(app *pocketbase.PocketBase) echo.HandlerFunc {
 			string(spotifyauth.ScopeUserReadEmail),
 			string(spotifyauth.ScopePlaylistReadPrivate),
 			string(spotifyauth.ScopePlaylistReadCollaborative),
+			string(spotifyauth.ScopePlaylistModifyPublic),  // RFC-010 BF1: Add playlist modification permissions
+			string(spotifyauth.ScopePlaylistModifyPrivate), // RFC-010 BF1: Add playlist modification permissions
 		}
 
 		if err := auth.SaveTokenWithScopes(app, "spotify", token, scopes); err != nil {

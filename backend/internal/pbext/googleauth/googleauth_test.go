@@ -37,7 +37,7 @@ func TestLoginHandler(t *testing.T) {
 	assert.Equal(t, http.StatusTemporaryRedirect, rec.Code)
 	redirectURL := rec.Header().Get("Location")
 	assert.Contains(t, redirectURL, "accounts.google.com/o/oauth2/auth")
-	assert.Contains(t, redirectURL, "scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fyoutube.readonly")
+	assert.Contains(t, redirectURL, "scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fyoutube") // RFC-010 BF1: Updated to full YouTube scope
 
 	// Validate PKCE challenge in redirect URL
 	assert.Contains(t, redirectURL, "code_challenge")

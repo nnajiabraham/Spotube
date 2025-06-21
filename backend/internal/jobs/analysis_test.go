@@ -736,6 +736,96 @@ func TestEnqueueSyncItem_Integration(t *testing.T) {
 	}
 }
 
+// RFC-010 BF2: Test duplicate prevention in enqueueSyncItem
+func TestEnqueueSyncItem_DuplicatePrevention(t *testing.T) {
+	testApp := testhelpers.SetupTestApp(t)
+	defer testApp.Cleanup()
+
+	// Create a test mapping
+	collection, err := testApp.Dao().FindCollectionByNameOrId("mappings")
+	require.NoError(t, err)
+	mappingRecord := models.NewRecord(collection)
+	mappingRecord.Set("spotify_playlist_id", getUniquePlaylistID(t, "duplicate_test"))
+	mappingRecord.Set("youtube_playlist_id", getUniquePlaylistID(t, "duplicate_test_yt"))
+	err = testApp.Dao().SaveRecord(mappingRecord)
+	require.NoError(t, err)
+
+	payload := map[string]string{"track_id": "duplicate_test_track_123"}
+
+	// First enqueue - should succeed
+	err = enqueueSyncItem(testApp, mappingRecord, "spotify", "add_track", payload)
+	assert.NoError(t, err)
+
+	// Verify first item was created
+	syncItems, err := testApp.Dao().FindRecordsByFilter("sync_items", "id != ''", "-created", 100, 0)
+	require.NoError(t, err)
+	assert.Equal(t, 1, len(syncItems), "Should have 1 sync item after first enqueue")
+
+	// Second enqueue with same parameters - should be skipped (no error, no new item)
+	err = enqueueSyncItem(testApp, mappingRecord, "spotify", "add_track", payload)
+	assert.NoError(t, err, "Duplicate enqueue should not return error")
+
+	// Verify no new item was created
+	syncItems, err = testApp.Dao().FindRecordsByFilter("sync_items", "id != ''", "-created", 100, 0)
+	require.NoError(t, err)
+	assert.Equal(t, 1, len(syncItems), "Should still have only 1 sync item after duplicate enqueue attempt")
+
+	// Different action should create new item
+	err = enqueueSyncItem(testApp, mappingRecord, "spotify", "rename_playlist", map[string]string{"new_name": "New Name"})
+	assert.NoError(t, err)
+
+	syncItems, err = testApp.Dao().FindRecordsByFilter("sync_items", "id != ''", "-created", 100, 0)
+	require.NoError(t, err)
+	assert.Equal(t, 2, len(syncItems), "Different action should create new sync item")
+
+	// Different service should create new item
+	err = enqueueSyncItem(testApp, mappingRecord, "youtube", "add_track", payload)
+	assert.NoError(t, err)
+
+	syncItems, err = testApp.Dao().FindRecordsByFilter("sync_items", "id != ''", "-created", 100, 0)
+	require.NoError(t, err)
+	assert.Equal(t, 3, len(syncItems), "Different service should create new sync item")
+
+	// Mark first item as 'done' - should allow new item with same parameters
+	// Find the specific first item (spotify, add_track) to mark as done
+	var firstSpotifyItem *models.Record
+	for _, item := range syncItems {
+		// Handle mapping_id as either string or relation array
+		var itemMappingId string
+		rawMappingId := item.Get("mapping_id")
+		if mappingIds, ok := rawMappingId.([]string); ok && len(mappingIds) > 0 {
+			itemMappingId = mappingIds[0]
+		} else {
+			itemMappingId = item.GetString("mapping_id")
+		}
+
+		// Find the first spotify add_track item with our payload
+		if itemMappingId == mappingRecord.Id &&
+			item.GetString("service") == "spotify" &&
+			item.GetString("action") == "add_track" &&
+			item.GetString("payload") == `{"track_id":"duplicate_test_track_123"}` {
+			firstSpotifyItem = item
+			break
+		}
+	}
+
+	require.NotNil(t, firstSpotifyItem, "Should find the first spotify add_track item")
+
+	// Mark it as done
+	firstSpotifyItem.Set("status", "done")
+	err = testApp.Dao().SaveRecord(firstSpotifyItem)
+	require.NoError(t, err)
+
+	// Now duplicate should be allowed since original item is completed
+	// (there should be no other pending/running items with same mapping_id + service + action + payload)
+	err = enqueueSyncItem(testApp, mappingRecord, "spotify", "add_track", payload)
+	assert.NoError(t, err)
+
+	syncItems, err = testApp.Dao().FindRecordsByFilter("sync_items", "id != ''", "-created", 100, 0)
+	require.NoError(t, err)
+	assert.Equal(t, 4, len(syncItems), "Should allow duplicate when original item is completed")
+}
+
 func TestUpdateMappingAnalysisTime_Integration(t *testing.T) {
 	testApp := testhelpers.SetupTestApp(t)
 	defer testApp.Cleanup()

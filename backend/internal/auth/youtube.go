@@ -15,8 +15,9 @@ import (
 
 // YouTube API requires user identity establishment for proper authentication
 // Using constants from Google API packages instead of hardcoded strings
-var youtubeScopes = []string{
-	youtube.YoutubeReadonlyScope,      // YouTube readonly access
+// Updated to include full YouTube permissions for playlist modification (RFC-010 BF1)
+var YouTubeScopes = []string{
+	youtube.YoutubeScope,              // Full YouTube access for playlist modification
 	googleoauth2.UserinfoProfileScope, // User profile for identity
 	googleoauth2.UserinfoEmailScope,   // User email for identity
 }
@@ -44,10 +45,10 @@ func GetYouTubeService(ctx context.Context, dbProvider DatabaseProvider, authCtx
 	config := &oauth2.Config{
 		ClientID:     clientID,
 		ClientSecret: clientSecret,
-		Scopes:       youtubeScopes,
+		Scopes:       YouTubeScopes,
 		Endpoint:     google.Endpoint,
 	}
-	log.Printf("Created OAuth config with scopes: %v", youtubeScopes)
+	log.Printf("Created OAuth config with scopes: %v", YouTubeScopes)
 
 	// Refresh token if needed
 	refreshedToken, err := refreshTokenIfNeeded(ctx, dbProvider, token, config, "google")
@@ -102,7 +103,7 @@ func WithGoogleClientCustom(ctx context.Context, dbProvider DatabaseProvider, ht
 	config := &oauth2.Config{
 		ClientID:     clientID,
 		ClientSecret: clientSecret,
-		Scopes:       youtubeScopes,
+		Scopes:       YouTubeScopes,
 		Endpoint:     google.Endpoint,
 	}
 

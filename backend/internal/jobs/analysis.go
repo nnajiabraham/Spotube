@@ -301,7 +301,52 @@ func analyzePlaylistNames(app daoProvider, mapping *models.Record, spotifyTracks
 }
 
 // enqueueSyncItem creates a new sync_items record
+// RFC-010 BF2: Check for existing pending or running sync items with same parameters
+// This prevents duplicate items from being enqueued
 func enqueueSyncItem(app daoProvider, mapping *models.Record, service, action string, payload map[string]string) error {
+	// Convert payload to JSON for comparison
+	payloadJSON, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal payload: %w", err)
+	}
+	payloadStr := string(payloadJSON)
+
+	// Get all sync_items and check for duplicates manually (more reliable than complex filters)
+	allSyncItems, err := app.Dao().FindRecordsByFilter("sync_items", "id != ''", "", 100, 0)
+	if err != nil {
+		return fmt.Errorf("failed to check existing sync items: %w", err)
+	}
+
+	// Check for duplicates among pending and running items
+	for _, item := range allSyncItems {
+		itemStatus := item.GetString("status")
+
+		// Only check pending and running items (allow duplicates of completed items)
+		if itemStatus != "pending" && itemStatus != "running" {
+			continue
+		}
+
+		// Handle mapping_id as either string or relation array
+		var itemMappingId string
+		rawMappingId := item.Get("mapping_id")
+		if mappingIds, ok := rawMappingId.([]string); ok && len(mappingIds) > 0 {
+			itemMappingId = mappingIds[0] // Get first element from relation array
+		} else {
+			itemMappingId = item.GetString("mapping_id") // Fallback to string
+		}
+
+		// Check for exact match on all parameters
+		if itemMappingId == mapping.Id &&
+			item.GetString("service") == service &&
+			item.GetString("action") == action &&
+			item.GetString("payload") == payloadStr {
+			log.Printf("Skipping duplicate sync item: mapping_id=%s, service=%s, action=%s, payload=%s (existing item: %s)",
+				mapping.Id, service, action, payloadStr, item.Id)
+			return nil
+		}
+	}
+
+	// No duplicate found, proceed with creating new sync item
 	collection, err := app.Dao().FindCollectionByNameOrId("sync_items")
 	if err != nil {
 		return fmt.Errorf("failed to find sync_items collection: %w", err)
@@ -318,16 +363,10 @@ func enqueueSyncItem(app daoProvider, mapping *models.Record, service, action st
 	now := time.Now()
 	record.Set("next_attempt_at", now.Format("2006-01-02 15:04:05.000Z"))
 	record.Set("attempt_backoff_secs", 30)
-
-	// Convert payload to JSON
-	payloadJSON, err := json.Marshal(payload)
-	if err != nil {
-		return fmt.Errorf("failed to marshal payload: %w", err)
-	}
-	record.Set("payload", string(payloadJSON))
+	record.Set("payload", payloadStr)
 
 	log.Printf("Creating sync item: mapping_id=%s, service=%s, action=%s, payload=%s",
-		mapping.Id, service, action, string(payloadJSON))
+		mapping.Id, service, action, payloadStr)
 
 	if err := app.Dao().SaveRecord(record); err != nil {
 		return fmt.Errorf("failed to save sync item: %w", err)

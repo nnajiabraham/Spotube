@@ -19,7 +19,6 @@ import (
 	"github.com/pocketbase/pocketbase/models"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
-	googleoauth2 "google.golang.org/api/oauth2/v2"
 	"google.golang.org/api/youtube/v3"
 )
 
@@ -34,13 +33,8 @@ const (
 	cookieDuration = 5 * time.Minute
 )
 
-// YouTube API requires user identity establishment for proper authentication
-// Using constants from Google API packages instead of hardcoded strings
-var scopes = []string{
-	youtube.YoutubeReadonlyScope,      // YouTube readonly access
-	googleoauth2.UserinfoProfileScope, // User profile for identity
-	googleoauth2.UserinfoEmailScope,   // User email for identity
-}
+// Use unified YouTube scopes from auth package to eliminate duplication (RFC-010 BF1)
+// This ensures consistent scopes across the entire application
 
 func Register(app *pocketbase.PocketBase) {
 	app.OnBeforeServe().Add(func(e *core.ServeEvent) error {
@@ -77,7 +71,7 @@ func getGoogleOAuthConfig(dbProvider auth.DatabaseProvider) (*oauth2.Config, err
 		ClientID:     clientID,
 		ClientSecret: clientSecret,
 		RedirectURL:  redirectURL,
-		Scopes:       scopes,
+		Scopes:       auth.YouTubeScopes,
 		Endpoint:     google.Endpoint,
 	}, nil
 }
@@ -244,7 +238,7 @@ func saveGoogleTokens(dao *daos.Dao, token *oauth2.Token) error {
 	rec.Set("access_token", token.AccessToken)
 	rec.Set("refresh_token", token.RefreshToken)
 	rec.Set("expiry", token.Expiry)
-	rec.Set("scopes", strings.Join(scopes, ","))
+	rec.Set("scopes", strings.Join(auth.YouTubeScopes, ","))
 
 	err = dao.SaveRecord(rec)
 	if err != nil {
