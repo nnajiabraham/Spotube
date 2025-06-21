@@ -1,0 +1,40 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+# Spotube Project Overview
+
+## Application Purpose
+Spotube is a music playlist synchronization application that bidirectionally syncs playlists between Spotify and YouTube Music services.
+
+## Architecture
+- **Backend**: Go application using PocketBase framework ([backend/](mdc:backend))
+  - Database: PocketBase (SQLite-based with admin interface)
+  - Jobs system: Analysis and executor jobs for playlist sync
+  - OAuth integration: Spotify and YouTube authentication
+- **Frontend**: React/TypeScript SPA ([frontend/](mdc:frontend))
+  - Framework: Vite + React + TypeScript
+  - Styling: Tailwind CSS
+  - Routing: TanStack Router
+  - Testing: Vitest + Playwright E2E
+
+## Key Directories
+- [backend/](mdc:backend) - Go backend application
+- [frontend/](mdc:frontend) - React frontend application  
+- [rfcs/](mdc:rfcs) - Request for Comments documents for feature planning
+- [docker/](mdc:docker) - Docker configuration
+- [Makefile](mdc:Makefile) - Build and development commands
+
+## Development Workflow
+1. Features are planned using RFC documents in [rfcs/](mdc:rfcs)
+2. Follow the agent guide: [agent_guide_and_templates.md](mdc:agent_guide_and_templates.md)
+3. Use `make` commands for development tasks
+4. All changes must pass full test suite before completion
+
+## Core Features
+- Playlist synchronization between Spotify and YouTube
+- OAuth authentication for both services
+- Conflict resolution and blacklist management
+- Real-time sync job execution
+- Web-based dashboard for monitoring and configuration

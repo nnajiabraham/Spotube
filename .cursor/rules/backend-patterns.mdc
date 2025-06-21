@@ -1,0 +1,46 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# Backend Development Patterns
+
+## PocketBase Framework
+The backend uses PocketBase as the foundation ([backend/](mdc:backend)). Key entry point: [backend/cmd/server/main.go](mdc:backend/cmd/server/main.go)
+
+## Database Migrations
+- Location: [backend/migrations/](mdc:backend/migrations)
+- Naming: `{timestamp}_{description}.go` (e.g. `1750518227_add_track_details_to_sync_items.go`)
+- Creation: `cd backend && go run cmd/server/main.go migrate create {description}` this command creates the migration file and should always be used for creating migrations
+- Use PocketBase collection helpers for schema changes to ensure admin UI compatibility
+
+## Collections Schema
+Key collections:
+- **mappings**: Playlist sync configurations
+- **sync_items**: Individual sync tasks (tracks, renames)
+- **oauth_tokens**: Spotify/YouTube authentication
+- **blacklist**: Failed sync items to skip
+- **settings**: Application configuration
+
+## Job System
+Located in [backend/internal/jobs/](mdc:backend/internal/jobs):
+- [analysis.go](mdc:backend/internal/jobs/analysis.go) - Analyzes playlist differences
+- [executor.go](mdc:backend/internal/jobs/executor.go) - Executes sync operations
+- Jobs use PocketBase records and support retry logic with exponential backoff
+
+## OAuth Integration
+- [backend/internal/auth/](mdc:backend/internal/auth) - Core OAuth logic
+- [backend/internal/pbext/spotifyauth/](mdc:backend/internal/pbext/spotifyauth) - Spotify integration
+- [backend/internal/pbext/googleauth/](mdc:backend/internal/pbext/googleauth) - YouTube integration
+- Tokens stored in `oauth_tokens` collection with automatic refresh
+
+## Testing Patterns
+- Test helpers: [backend/internal/testhelpers/](mdc:backend/internal/testhelpers)
+- Use `testhelpers.SetupTestApp()` for PocketBase test instances
+- Mock HTTP requests with `httpmock` library
+- Always clean up test data with `defer testApp.Cleanup()`
+
+## Development Commands
+- `make dev-backend` - Start development server
+- `make test-backend` - Run all backend tests
+- `make build-backend` - Build production binary

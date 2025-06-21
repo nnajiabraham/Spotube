@@ -1,0 +1,68 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# Development Workflow
+
+## Getting Started
+1. **Prerequisites**: Go 1.21+, Node.js 18+, Make
+2. **Setup**: Run setup commands from [Makefile](mdc:Makefile)
+3. **Environment**: Copy [backend/env.example](mdc:backend/env.example) to `.env`
+4. **Dependencies**: `make install` for both backend and frontend
+
+## Daily Development
+### Starting Services
+- `make dev` - Start both backend and frontend in development mode
+- `make dev-backend` - Backend only (PocketBase server)
+- `make dev-frontend` - Frontend only (Vite dev server)
+
+### Running Tests
+- `make test` - Run all tests (backend + frontend + E2E)
+- `make test-backend` - Go tests only
+- `make test-frontend` - Frontend unit tests
+- `make test-e2e` - Playwright E2E tests (Never run unless asked by user)
+
+### Code Quality
+- Follow the patterns in [agent_guide_and_templates.md](mdc:agent_guide_and_templates.md)
+- All tests must pass before committing
+- Use conventional commit format: `type(scope): message`
+
+## Feature Development Process
+1. **Plan**: Create or update RFC in [rfcs/](mdc:rfcs)
+2. **Implement**: Follow RFC checklist sequentially
+3. **Test**: Write tests for each checklist item
+4. **Validate**: Run full test suite
+5. **Document**: Update RFC implementation notes
+
+## Database Operations
+### Migrations
+- Create: `cd backend && go run cmd/server/main.go migrate create {name}`
+- Apply: Automatic on server start
+- View: PocketBase admin UI at `http://localhost:8080/_/`
+
+### Data Management
+- Admin UI: Access collections, users, and logs
+- Backup: PocketBase handles automatic backups
+
+## Debugging
+### Backend
+- Logs: Console output shows detailed job execution
+- PocketBase Admin: Monitor collections and API calls
+- Tests: Add debug logging in test files
+
+### Frontend
+- Browser DevTools: React DevTools + Network tab
+- Mock Data: Use MSW handlers in test environment
+- E2E Debugging: Playwright trace viewer for failed tests
+
+## Production Build
+- `make build` - Build both backend and frontend
+- `make docker-build` - Create Docker image
+- [docker/Dockerfile](mdc:docker/Dockerfile) - Production container config
+
+## Common Issues
+- **Tests failing**: Check test isolation and cleanup
+- **OAuth errors**: Verify environment variables and tokens
+- **Migration errors**: Ensure proper PocketBase collection helpers usage
+- **Build errors**: Check Go modules and npm dependencies

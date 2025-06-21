@@ -1,0 +1,44 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# RFC-Driven Development Workflow
+
+## RFC Process
+All significant features follow the RFC (Request for Comments) process outlined in [agent_guide_and_templates.md](mdc:agent_guide_and_templates.md).
+
+## RFC Structure
+RFCs are stored in [rfcs/](mdc:rfcs) with naming convention `RFC-XXX-descriptive-title.md`:
+- **Status**: Draft | Active | Done
+- **Goal**: Clear objective statement
+- **Background & Context**: Why this change is needed
+- **Technical Design**: Detailed implementation plan
+- **Dependencies**: Required libraries/services
+- **Checklist**: Actionable tasks with test cases
+- **Definition of Done**: Completion criteria
+
+## Implementation Workflow
+1. **Sequential Implementation**: Complete checklist items one by one
+2. **Test First**: Each checklist item includes specific test cases
+3. **Update Progress**: Mark items as `[x]` when completed
+4. **Document Changes**: Update "Implementation Notes/Summary" section
+5. **Validate Completion**: Run full test suite before marking RFC as Done
+
+## Key RFCs
+- [RFC-010](mdc:rfcs/RFC-010-logging-status-dashboard.md) - Current: Logging & Status Dashboard
+- Previous RFCs establish the foundation (OAuth, job system, etc.)
+
+## Testing Requirements
+- **Backend**: `make test-backend` - All Go tests must pass
+- **Frontend**: `npm test` and `npm run test:e2e` - Unit and E2E tests (For E2E test confirm with user first before running them)
+- **Zero tolerance for regressions** - Fix all failing tests before proceeding
+
+## Implementation Notes
+Always update the "Implementation Notes/Summary" section with:
+- File paths modified
+- Configuration changes
+- Database migrations run
+- Key implementation decisions
+- Dependencies added
+- Any issues encountered and resolutions

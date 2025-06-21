@@ -1,0 +1,57 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# Frontend Development Patterns
+
+## React + TypeScript Setup
+The frontend is a React SPA located in [frontend/](mdc:frontend) with:
+- **Framework**: Vite + React 18 + TypeScript
+- **Styling**: Tailwind CSS
+- **Routing**: TanStack Router with file-based routing
+- **State**: React hooks + PocketBase SDK
+- **Testing**: Vitest (unit) + Playwright (E2E)
+
+## Project Structure
+- [src/routes/](mdc:frontend/src/routes) - File-based routing structure
+- [src/components/](mdc:frontend/src/components) - Reusable React components
+- [src/lib/](mdc:frontend/src/lib) - Utility functions and API clients
+- [src/test/](mdc:frontend/src/test) - Test utilities and mocks
+- [e2e/](mdc:frontend/e2e) - Playwright E2E tests (confirm with user before running these, only the user can prompt you to run this)
+
+## Key Files
+- [src/lib/pocketbase.ts](mdc:frontend/src/lib/pocketbase.ts) - PocketBase client setup
+- [src/lib/api.ts](mdc:frontend/src/lib/api.ts) - API wrapper functions
+- [routeTree.gen.ts](mdc:frontend/src/routeTree.gen.ts) - Generated route tree
+
+## Routing Patterns
+TanStack Router with file-based structure:
+- `routes/__root.tsx` - Root layout
+- `routes/_authenticated/` - Protected routes requiring auth
+- `routes/setup/` - Initial setup flow
+- Lazy loading with `.lazy.tsx` suffix
+
+## Testing Patterns
+### Unit Tests (Vitest)
+- Use MSW (Mock Service Worker) for API mocking
+- Test files: `*.test.tsx` alongside components
+- Setup: [src/test/setup.ts](mdc:frontend/src/test/setup.ts)
+- Mocks: [src/test/mocks/handlers.ts](mdc:frontend/src/test/mocks/handlers.ts)
+
+### E2E Tests (Playwright)
+- Location: [e2e/](mdc:frontend/e2e)
+- Config: [playwright.config.ts](mdc:frontend/playwright.config.ts)
+- Test real user workflows across the full application
+
+## Component Patterns
+- Use TypeScript interfaces for props
+- Implement error boundaries for robust UX
+- Use React hooks for state management
+- Follow React best practices for performance
+
+## Development Commands
+- `make dev-frontend` - Start development server
+- `make test-frontend` - Run unit tests
+- `make test-e2e` - Run E2E tests
+- `make build-frontend` - Build for production
