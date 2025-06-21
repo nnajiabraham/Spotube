@@ -106,7 +106,7 @@ func CreateSyncItemsCollection(t *testing.T, testApp *tests.TestApp, mappingsCol
 				Values: []string{"add_track", "remove_track", "rename_playlist"},
 			},
 		},
-		&schema.SchemaField{Name: "payload", Type: schema.FieldTypeJson},
+		&schema.SchemaField{Name: "payload", Type: schema.FieldTypeText},
 		&schema.SchemaField{
 			Name:     "status",
 			Type:     schema.FieldTypeSelect,
@@ -127,7 +127,32 @@ func CreateSyncItemsCollection(t *testing.T, testApp *tests.TestApp, mappingsCol
 				Max: float64Ptr(3600),
 			},
 		},
+		&schema.SchemaField{Name: "source_track_id", Type: schema.FieldTypeText, Required: false},
+		&schema.SchemaField{Name: "source_track_title", Type: schema.FieldTypeText, Required: false},
+		&schema.SchemaField{
+			Name:     "source_service",
+			Type:     schema.FieldTypeSelect,
+			Required: false,
+			Options: &schema.SelectOptions{
+				Values:    []string{"spotify", "youtube"},
+				MaxSelect: 1,
+			},
+		},
+		&schema.SchemaField{
+			Name:     "destination_service",
+			Type:     schema.FieldTypeSelect,
+			Required: false,
+			Options: &schema.SelectOptions{
+				Values:    []string{"spotify", "youtube"},
+				MaxSelect: 1,
+			},
+		},
 	)
+
+	syncItemsCollection.Indexes = types.JsonArray[string]{
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_sync_items_unique_composite ON sync_items (mapping_id, service, action, payload)`,
+	}
+
 	err := testApp.Dao().SaveCollection(syncItemsCollection)
 	require.NoError(t, err)
 	return syncItemsCollection

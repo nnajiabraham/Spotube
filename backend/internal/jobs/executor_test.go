@@ -43,8 +43,6 @@ func TestProcessSyncItem_Success(t *testing.T) {
 	testApp := testhelpers.SetupTestApp(t)
 	defer testApp.Cleanup()
 
-	wrapper := &testAppWrapper{testApp}
-
 	// Create a test sync item
 	syncItem := createTestSyncItem(t, testApp, map[string]interface{}{
 		"service": "spotify",
@@ -52,6 +50,8 @@ func TestProcessSyncItem_Success(t *testing.T) {
 		"payload": `{"track_id":"test123"}`,
 		"status":  "pending",
 	})
+
+	wrapper := &testAppWrapper{testApp}
 
 	// Process the item
 	err := processSyncItem(wrapper, syncItem)
@@ -61,12 +61,13 @@ func TestProcessSyncItem_Success(t *testing.T) {
 	updatedItem, err := testApp.Dao().FindRecordById("sync_items", syncItem.Id)
 	require.NoError(t, err)
 
-	assert.Equal(t, "pending", updatedItem.GetString("status"), "Item should remain pending after temporary error")
-	assert.Equal(t, 1, updatedItem.GetInt("attempts"), "Item should have 1 attempt")
+	// RFC-010 BF3: Track search failures now create blacklist entries and mark items as skipped
+	assert.Equal(t, "skipped", updatedItem.GetString("status"), "Item should be skipped after search failure")
+	assert.Equal(t, 0, updatedItem.GetInt("attempts"), "Item should have 0 attempts when skipped due to search failure")
 
-	// Check that the error message indicates the actual implementation was called
+	// Check that the error message indicates search failure
 	lastError := updatedItem.GetString("last_error")
-	assert.Contains(t, lastError, "failed to load Spotify credentials", "Error should indicate real implementation was called")
+	assert.Contains(t, lastError, "search_failed", "Error should indicate search failure")
 }
 
 func TestProcessSyncItem_StatusTransition(t *testing.T) {
@@ -87,9 +88,9 @@ func TestProcessSyncItem_StatusTransition(t *testing.T) {
 	err := processSyncItem(wrapper, syncItem)
 	assert.NoError(t, err)
 
-	// Item should be marked as running initially, then pending due to "not implemented"
-	assert.Equal(t, "pending", syncItem.GetString("status"))
-	assert.Equal(t, 1, syncItem.GetInt("attempts"))
+	// RFC-010 BF3: Track search failures now mark items as skipped, not pending
+	assert.Equal(t, "skipped", syncItem.GetString("status"))
+	assert.Equal(t, 0, syncItem.GetInt("attempts"))
 }
 
 func TestProcessSyncItem_RateLimitRetry(t *testing.T) {
@@ -336,6 +337,12 @@ func createTestSyncItem(t *testing.T, testApp *tests.TestApp, properties map[str
 	record.Set("next_attempt_at", time.Now().Format("2006-01-02 15:04:05.000Z"))
 	record.Set("attempt_backoff_secs", 30)
 
+	// RFC-010 BF3: Set default track detail fields for executor tests
+	record.Set("source_track_id", "test_source_track_123")
+	record.Set("source_track_title", "Test Track Title")
+	record.Set("source_service", "youtube")      // Default: track coming from YouTube
+	record.Set("destination_service", "spotify") // Default: being added to Spotify
+
 	// Override with provided properties
 	for key, value := range properties {
 		record.Set(key, value)
@@ -386,12 +393,13 @@ func TestExecutorActions_ActualImplementations(t *testing.T) {
 			"youtube_playlist_id": uniqueYouTubeId,
 			"service":             "spotify",
 			"action":              "add_track",
-			"payload":             `{"track_id":"spotify_track_123"}`,
-			"status":              "running",
+			// RFC-010 BF3: Payload now contains destination_track_id after search
+			"payload": `{"source_track_id":"test_source_track_123","action_key":"youtube_spotify_test_source_track_123","destination_track_id":"spotify_track_123"}`,
+			"status":  "running",
 		})
 
 		// Execute action
-		err := executeSpotifyAddTrack(wrapper, syncItem, `{"track_id":"spotify_track_123"}`)
+		err := executeSpotifyAddTrack(wrapper, syncItem, `{"source_track_id":"test_source_track_123","action_key":"youtube_spotify_test_source_track_123","destination_track_id":"spotify_track_123"}`)
 		assert.NoError(t, err)
 
 		// Verify API was called
@@ -434,12 +442,15 @@ func TestExecutorActions_ActualImplementations(t *testing.T) {
 			"youtube_playlist_id": uniqueYouTubeId,
 			"service":             "youtube",
 			"action":              "add_track",
-			"payload":             `{"track_id":"youtube_track_123"}`,
+			// RFC-010 BF3: Payload now contains destination_track_id after search
+			"payload":             `{"source_track_id":"test_source_track_123","action_key":"spotify_youtube_test_source_track_123","destination_track_id":"youtube_track_123"}`,
 			"status":              "running",
+			"source_service":      "spotify", // Track coming from Spotify
+			"destination_service": "youtube", // Being added to YouTube
 		})
 
 		// Execute action
-		err := executeYouTubeAddTrack(wrapper, syncItem, `{"track_id":"youtube_track_123"}`)
+		err := executeYouTubeAddTrack(wrapper, syncItem, `{"source_track_id":"test_source_track_123","action_key":"spotify_youtube_test_source_track_123","destination_track_id":"youtube_track_123"}`)
 		assert.NoError(t, err)
 
 		// Verify quota was consumed
@@ -547,13 +558,14 @@ func TestExecutorActions_ActualImplementations(t *testing.T) {
 			"youtube_playlist_id": uniqueYouTubeId,
 			"service":             "youtube",
 			"action":              "add_track",
-			"payload":             `{"wrong_field":"value"}`,
-			"status":              "running",
+			// RFC-010 BF3: Test missing destination_track_id (track search failed)
+			"payload": `{"source_track_id":"test_source_track_123","action_key":"spotify_youtube_test_source_track_123"}`,
+			"status":  "running",
 		})
 
-		err := executeYouTubeAddTrack(wrapper, syncItem, `{"wrong_field":"value"}`)
+		err := executeYouTubeAddTrack(wrapper, syncItem, `{"source_track_id":"test_source_track_123","action_key":"spotify_youtube_test_source_track_123"}`)
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "track_id not found in payload")
+		assert.Contains(t, err.Error(), "destination_track_id not found in payload")
 	})
 
 	t.Run("executeSpotifyRenamePlaylist missing new_name", func(t *testing.T) {
@@ -752,31 +764,14 @@ func TestProcessSyncItem_FatalErrorCreatesBlacklist(t *testing.T) {
 	testApp := testhelpers.SetupTestApp(t)
 	defer testApp.Cleanup()
 
-	// Setup OAuth tokens and API mocks to reach the HTTP layer
-	testhelpers.SetupOAuthTokens(t, testApp)
-	testhelpers.SetupAPIHttpMocks(t)
-	defer httpmock.DeactivateAndReset()
-
-	// Set environment variables for OAuth
-	os.Setenv("SPOTIFY_CLIENT_ID", "test_spotify_id")
-	os.Setenv("SPOTIFY_CLIENT_SECRET", "test_spotify_secret")
-	defer func() {
-		os.Unsetenv("SPOTIFY_CLIENT_ID")
-		os.Unsetenv("SPOTIFY_CLIENT_SECRET")
-	}()
-
-	// Mock Spotify API to return 404 not found (fatal error)
-	httpmock.RegisterResponder("POST", `=~^https://api\.spotify\.com/v1/playlists/.*/tracks`,
-		httpmock.NewJsonResponderOrPanic(404, map[string]interface{}{
-			"error": map[string]interface{}{
-				"status":  404,
-				"message": "The requested resource could not be found.",
-			},
-		}))
-
 	wrapper := &testAppWrapper{testApp}
 
-	// Create a test sync item
+	// Count existing blacklist entries before test
+	initialBlacklistEntries, err := testApp.Dao().FindRecordsByFilter("blacklist", "id != ''", "", 100, 0)
+	require.NoError(t, err)
+	initialCount := len(initialBlacklistEntries)
+
+	// Create a test sync item - no OAuth setup means search will fail
 	syncItem := createTestSyncItem(t, testApp, map[string]interface{}{
 		"service": "spotify",
 		"action":  "add_track",
@@ -784,38 +779,31 @@ func TestProcessSyncItem_FatalErrorCreatesBlacklist(t *testing.T) {
 		"status":  "pending",
 	})
 
-	// Process the item (should result in fatal error from 404 response)
-	err := processSyncItem(wrapper, syncItem)
+	// Process the item (should result in search failure since no OAuth tokens configured)
+	err = processSyncItem(wrapper, syncItem)
 	assert.NoError(t, err) // processSyncItem itself should not error
 
-	// Verify the item was marked as skipped
+	// RFC-010 BF3: Verify the item was marked as skipped due to search failure
 	assert.Equal(t, "skipped", syncItem.GetString("status"))
-	assert.NotEmpty(t, syncItem.GetString("last_error"))
+	assert.Contains(t, syncItem.GetString("last_error"), "search_failed")
 
-	// Check if blacklist entry was created (it should be for the mapping ID from the sync item)
-	var actualMappingId string
-	rawMappingId := syncItem.Get("mapping_id")
-	if mappingIds, ok := rawMappingId.([]string); ok && len(mappingIds) > 0 {
-		actualMappingId = mappingIds[0]
-	} else {
-		actualMappingId = syncItem.GetString("mapping_id")
-	}
-
-	blacklistEntries, err := testApp.Dao().FindRecordsByFilter(
-		"blacklist",
-		fmt.Sprintf("mapping_id = '%s' && service = 'spotify' && track_id = 'fatal_error_track'", actualMappingId),
-		"",
-		10,
-		0,
-	)
+	// Verify blacklist entry was created due to search failure
+	finalBlacklistEntries, err := testApp.Dao().FindRecordsByFilter("blacklist", "id != ''", "", 100, 0)
 	require.NoError(t, err)
-	assert.Equal(t, 1, len(blacklistEntries), "Should create blacklist entry for fatal error")
+	assert.Equal(t, initialCount+1, len(finalBlacklistEntries), "Should create one new blacklist entry for search failure")
 
-	if len(blacklistEntries) > 0 {
-		entry := blacklistEntries[0]
-		assert.Equal(t, "spotify", entry.GetString("service"))
-		assert.Equal(t, "fatal_error_track", entry.GetString("track_id"))
-		assert.Equal(t, 1, entry.GetInt("skip_counter"))
-		assert.NotEmpty(t, entry.GetString("reason"))
+	// Find the new blacklist entry
+	var newEntry *models.Record
+	for _, entry := range finalBlacklistEntries {
+		if entry.GetString("reason") == "search_failed" {
+			newEntry = entry
+			break
+		}
 	}
+
+	require.NotNil(t, newEntry, "Should find blacklist entry with search_failed reason")
+	assert.Equal(t, "spotify", newEntry.GetString("service"))
+	assert.Equal(t, "test_source_track_123", newEntry.GetString("track_id")) // Uses source_track_id from BF3
+	assert.Equal(t, 1, newEntry.GetInt("skip_counter"))
+	assert.Equal(t, "search_failed", newEntry.GetString("reason"))
 }

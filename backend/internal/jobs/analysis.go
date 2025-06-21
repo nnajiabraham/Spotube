@@ -186,16 +186,41 @@ func analyzeTracks(app daoProvider, mapping *models.Record, spotifyTracks, youtu
 	toAddOnSpotify = filterBlacklistedTracks(app, mapping, "spotify", toAddOnSpotify)
 	toAddOnYouTube = filterBlacklistedTracks(app, mapping, "youtube", toAddOnYouTube)
 
-	// Enqueue add_track items for Spotify
+	// Create lookup maps for track details
+	spotifyTrackMap := make(map[string]Track)
+	for _, track := range spotifyTracks.Tracks {
+		spotifyTrackMap[track.ID] = track
+	}
+
+	youtubeTrackMap := make(map[string]Track)
+	for _, track := range youtubeTracks.Tracks {
+		youtubeTrackMap[track.ID] = track
+	}
+
+	// Enqueue add_track items for Spotify (source: YouTube, destination: Spotify)
 	for _, trackID := range toAddOnSpotify {
-		if err := enqueueSyncItem(app, mapping, "spotify", "add_track", map[string]string{"track_id": trackID}); err != nil {
+		sourceTrack, exists := youtubeTrackMap[trackID]
+		if !exists {
+			log.Printf("Warning: YouTube track %s not found in track map", trackID)
+			continue
+		}
+
+		if err := enqueueSyncItemWithDetails(app, mapping, "spotify", "add_track",
+			trackID, sourceTrack.Title, "youtube", "spotify"); err != nil {
 			return err
 		}
 	}
 
-	// Enqueue add_track items for YouTube
+	// Enqueue add_track items for YouTube (source: Spotify, destination: YouTube)
 	for _, trackID := range toAddOnYouTube {
-		if err := enqueueSyncItem(app, mapping, "youtube", "add_track", map[string]string{"track_id": trackID}); err != nil {
+		sourceTrack, exists := spotifyTrackMap[trackID]
+		if !exists {
+			log.Printf("Warning: Spotify track %s not found in track map", trackID)
+			continue
+		}
+
+		if err := enqueueSyncItemWithDetails(app, mapping, "youtube", "add_track",
+			trackID, sourceTrack.Title, "spotify", "youtube"); err != nil {
 			return err
 		}
 	}
@@ -304,14 +329,121 @@ func analyzePlaylistNames(app daoProvider, mapping *models.Record, spotifyTracks
 // RFC-010 BF2: Check for existing pending or running sync items with same parameters
 // This prevents duplicate items from being enqueued
 func enqueueSyncItem(app daoProvider, mapping *models.Record, service, action string, payload map[string]string) error {
-	// Convert payload to JSON for comparison
+	// Create a unique payload by adding timestamp to avoid UNIQUE constraint violations
+	// while still allowing duplicate detection via application logic
+	uniquePayload := make(map[string]string)
+	for k, v := range payload {
+		uniquePayload[k] = v
+	}
+	// Add timestamp to make payload unique for database constraint
+	uniquePayload["_timestamp"] = fmt.Sprintf("%d", time.Now().UnixNano())
+
+	// Convert payload to JSON for comparison (without timestamp for duplicate detection)
+	originalPayloadJSON, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal payload: %w", err)
+	}
+	originalPayloadStr := string(originalPayloadJSON)
+
+	// Convert unique payload to JSON for storage
+	uniquePayloadJSON, err := json.Marshal(uniquePayload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal unique payload: %w", err)
+	}
+	uniquePayloadStr := string(uniquePayloadJSON)
+
+	// Get all sync_items and check for duplicates manually (more reliable than complex filters)
+	allSyncItems, err := app.Dao().FindRecordsByFilter("sync_items", "id != ''", "", 100, 0)
+	if err != nil {
+		return fmt.Errorf("failed to check existing sync items: %w", err)
+	}
+
+	// Check for duplicates among pending and running items using original payload (without timestamp)
+	for _, item := range allSyncItems {
+		itemStatus := item.GetString("status")
+
+		// Only check pending and running items (allow duplicates of completed items)
+		if itemStatus != "pending" && itemStatus != "running" {
+			continue
+		}
+
+		// Handle mapping_id as either string or relation array
+		var itemMappingId string
+		rawMappingId := item.Get("mapping_id")
+		if mappingIds, ok := rawMappingId.([]string); ok && len(mappingIds) > 0 {
+			itemMappingId = mappingIds[0] // Get first element from relation array
+		} else {
+			itemMappingId = item.GetString("mapping_id") // Fallback to string
+		}
+
+		// Parse the stored payload to remove timestamp for comparison
+		itemPayloadStr := item.GetString("payload")
+		var itemPayload map[string]string
+		if json.Unmarshal([]byte(itemPayloadStr), &itemPayload) == nil {
+			// Remove timestamp for comparison
+			delete(itemPayload, "_timestamp")
+			itemPayloadForComparison, _ := json.Marshal(itemPayload)
+
+			// Check for exact match on all parameters (using original payload without timestamp)
+			if itemMappingId == mapping.Id &&
+				item.GetString("service") == service &&
+				item.GetString("action") == action &&
+				string(itemPayloadForComparison) == originalPayloadStr {
+				log.Printf("Skipping duplicate sync item: mapping_id=%s, service=%s, action=%s, payload=%s (existing item: %s)",
+					mapping.Id, service, action, originalPayloadStr, item.Id)
+				return nil
+			}
+		}
+	}
+
+	// No duplicate found, proceed with creating new sync item
+	collection, err := app.Dao().FindCollectionByNameOrId("sync_items")
+	if err != nil {
+		return fmt.Errorf("failed to find sync_items collection: %w", err)
+	}
+
+	record := models.NewRecord(collection)
+	record.Set("mapping_id", mapping.Id)
+	record.Set("service", service)
+	record.Set("action", action)
+	record.Set("status", "pending")
+	record.Set("attempts", 0)
+
+	// Set executor fields with defaults
+	now := time.Now()
+	record.Set("next_attempt_at", now.Format("2006-01-02 15:04:05.000Z"))
+	record.Set("attempt_backoff_secs", 30)
+	record.Set("payload", uniquePayloadStr) // Use unique payload for storage
+
+	log.Printf("Creating sync item: mapping_id=%s, service=%s, action=%s, payload=%s",
+		mapping.Id, service, action, originalPayloadStr)
+
+	if err := app.Dao().SaveRecord(record); err != nil {
+		return fmt.Errorf("failed to save sync item: %w", err)
+	}
+
+	log.Printf("Successfully created sync item with ID: %s", record.Id)
+	return nil
+}
+
+// enqueueSyncItemWithDetails creates a new sync_items record with track details for BF3
+// RFC-010 BF3: Populate track detail fields for proper search and logging
+func enqueueSyncItemWithDetails(app daoProvider, mapping *models.Record, destinationService, action, sourceTrackID, sourceTrackTitle, sourceService, destService string) error {
+	// For BF3: Create a unique payload that includes track details for duplicate detection
+	// This avoids UNIQUE constraint failures when multiple tracks have empty payloads
+	payload := map[string]string{
+		"source_track_id": sourceTrackID,
+		"action_key":      fmt.Sprintf("%s_%s_%s", sourceService, destService, sourceTrackID),
+	}
+
+	// Convert payload to JSON for duplicate checking
 	payloadJSON, err := json.Marshal(payload)
 	if err != nil {
 		return fmt.Errorf("failed to marshal payload: %w", err)
 	}
 	payloadStr := string(payloadJSON)
 
-	// Get all sync_items and check for duplicates manually (more reliable than complex filters)
+	// Check for duplicates using the same logic as before, but now with track details
 	allSyncItems, err := app.Dao().FindRecordsByFilter("sync_items", "id != ''", "", 100, 0)
 	if err != nil {
 		return fmt.Errorf("failed to check existing sync items: %w", err)
@@ -335,13 +467,15 @@ func enqueueSyncItem(app daoProvider, mapping *models.Record, service, action st
 			itemMappingId = item.GetString("mapping_id") // Fallback to string
 		}
 
-		// Check for exact match on all parameters
+		// Check for duplicate based on track details rather than just payload
 		if itemMappingId == mapping.Id &&
-			item.GetString("service") == service &&
+			item.GetString("service") == destinationService &&
 			item.GetString("action") == action &&
-			item.GetString("payload") == payloadStr {
-			log.Printf("Skipping duplicate sync item: mapping_id=%s, service=%s, action=%s, payload=%s (existing item: %s)",
-				mapping.Id, service, action, payloadStr, item.Id)
+			item.GetString("source_track_id") == sourceTrackID &&
+			item.GetString("source_service") == sourceService &&
+			item.GetString("destination_service") == destService {
+			log.Printf("Skipping duplicate sync item: mapping_id=%s, service=%s, action=%s, source_track_id=%s (existing item: %s)",
+				mapping.Id, destinationService, action, sourceTrackID, item.Id)
 			return nil
 		}
 	}
@@ -354,19 +488,25 @@ func enqueueSyncItem(app daoProvider, mapping *models.Record, service, action st
 
 	record := models.NewRecord(collection)
 	record.Set("mapping_id", mapping.Id)
-	record.Set("service", service)
+	record.Set("service", destinationService)
 	record.Set("action", action)
 	record.Set("status", "pending")
 	record.Set("attempts", 0)
+
+	// RFC-010 BF3: Set the new track detail fields
+	record.Set("source_track_id", sourceTrackID)
+	record.Set("source_track_title", sourceTrackTitle)
+	record.Set("source_service", sourceService)
+	record.Set("destination_service", destService)
 
 	// Set executor fields with defaults
 	now := time.Now()
 	record.Set("next_attempt_at", now.Format("2006-01-02 15:04:05.000Z"))
 	record.Set("attempt_backoff_secs", 30)
-	record.Set("payload", payloadStr)
+	record.Set("payload", payloadStr) // Unique payload for constraint, will be updated by executor after search
 
-	log.Printf("Creating sync item: mapping_id=%s, service=%s, action=%s, payload=%s",
-		mapping.Id, service, action, payloadStr)
+	log.Printf("Creating sync item with details: mapping_id=%s, service=%s, action=%s, source_track='%s' (%s), source_service=%s, destination_service=%s",
+		mapping.Id, destinationService, action, sourceTrackTitle, sourceTrackID, sourceService, destService)
 
 	if err := app.Dao().SaveRecord(record); err != nil {
 		return fmt.Errorf("failed to save sync item: %w", err)

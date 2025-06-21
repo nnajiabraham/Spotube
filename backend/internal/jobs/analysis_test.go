@@ -235,8 +235,16 @@ func TestAnalyzeTracks_ActualImplementation(t *testing.T) {
 		json.Unmarshal([]byte(spotifyItem.GetString("payload")), &spotifyPayload)
 		json.Unmarshal([]byte(youtubeItem.GetString("payload")), &youtubePayload)
 
-		assert.Equal(t, "track4", spotifyPayload["track_id"], "Should add track4 to Spotify")
-		assert.Equal(t, "track1", youtubePayload["track_id"], "Should add track1 to YouTube")
+		// RFC-010 BF3: Check track detail fields instead of payload
+		assert.Equal(t, "track4", spotifyItem.GetString("source_track_id"), "Should add track4 to Spotify")
+		assert.Equal(t, "Song 4", spotifyItem.GetString("source_track_title"), "Should have correct track title")
+		assert.Equal(t, "youtube", spotifyItem.GetString("source_service"), "Should have correct source service")
+		assert.Equal(t, "spotify", spotifyItem.GetString("destination_service"), "Should have correct destination service")
+
+		assert.Equal(t, "track1", youtubeItem.GetString("source_track_id"), "Should add track1 to YouTube")
+		assert.Equal(t, "Song 1", youtubeItem.GetString("source_track_title"), "Should have correct track title")
+		assert.Equal(t, "spotify", youtubeItem.GetString("source_service"), "Should have correct source service")
+		assert.Equal(t, "youtube", youtubeItem.GetString("destination_service"), "Should have correct destination service")
 	})
 }
 
@@ -799,13 +807,20 @@ func TestEnqueueSyncItem_DuplicatePrevention(t *testing.T) {
 			itemMappingId = item.GetString("mapping_id")
 		}
 
-		// Find the first spotify add_track item with our payload
+		// Find the first spotify add_track item that matches our criteria (handling timestamp in payload)
 		if itemMappingId == mappingRecord.Id &&
 			item.GetString("service") == "spotify" &&
-			item.GetString("action") == "add_track" &&
-			item.GetString("payload") == `{"track_id":"duplicate_test_track_123"}` {
-			firstSpotifyItem = item
-			break
+			item.GetString("action") == "add_track" {
+
+			// Parse payload to check if it contains our track_id (ignoring timestamp)
+			payloadStr := item.GetString("payload")
+			var itemPayload map[string]string
+			if json.Unmarshal([]byte(payloadStr), &itemPayload) == nil {
+				if itemPayload["track_id"] == "duplicate_test_track_123" {
+					firstSpotifyItem = item
+					break
+				}
+			}
 		}
 	}
 
@@ -1030,17 +1045,19 @@ func TestAnalyzeTracksWithBlacklistFiltering(t *testing.T) {
 		assert.Equal(t, 1, len(spotifyItems), "Should have 1 item for Spotify")
 		assert.Equal(t, 1, len(youtubeItems), "Should have 1 item for YouTube")
 
-		// Check payloads
+		// RFC-010 BF3: Check track detail fields instead of payload
 		if len(spotifyItems) > 0 {
-			var payload map[string]string
-			json.Unmarshal([]byte(spotifyItems[0].GetString("payload")), &payload)
-			assert.Equal(t, "youtube_track_1", payload["track_id"], "Should enqueue youtube_track_1 for Spotify")
+			assert.Equal(t, "youtube_track_1", spotifyItems[0].GetString("source_track_id"), "Should enqueue youtube_track_1 for Spotify")
+			assert.Equal(t, "Song A", spotifyItems[0].GetString("source_track_title"), "Should have correct track title")
+			assert.Equal(t, "youtube", spotifyItems[0].GetString("source_service"), "Should have correct source service")
+			assert.Equal(t, "spotify", spotifyItems[0].GetString("destination_service"), "Should have correct destination service")
 		}
 
 		if len(youtubeItems) > 0 {
-			var payload map[string]string
-			json.Unmarshal([]byte(youtubeItems[0].GetString("payload")), &payload)
-			assert.Equal(t, "spotify_track_2", payload["track_id"], "Should enqueue spotify_track_2 for YouTube")
+			assert.Equal(t, "spotify_track_2", youtubeItems[0].GetString("source_track_id"), "Should enqueue spotify_track_2 for YouTube")
+			assert.Equal(t, "Song 2", youtubeItems[0].GetString("source_track_title"), "Should have correct track title")
+			assert.Equal(t, "spotify", youtubeItems[0].GetString("source_service"), "Should have correct source service")
+			assert.Equal(t, "youtube", youtubeItems[0].GetString("destination_service"), "Should have correct destination service")
 		}
 	})
 }

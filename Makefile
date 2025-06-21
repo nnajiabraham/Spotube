@@ -33,7 +33,7 @@ dev:
 
 backend-dev:
 	@echo "Starting backend on port $(PB_DEV_PORT)..."
-	@cd backend && PORT=$(PB_DEV_PORT) go run ./cmd/server serve --dev
+	@cd backend && PORT=$(PB_DEV_PORT) go run ./cmd/server serve
 
 # Run analysis+executor workers continuously (dev)
 backend-workers:

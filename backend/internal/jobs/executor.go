@@ -168,6 +168,56 @@ func processSyncItem(app daoProvider, item *models.Record) error {
 
 	log.Printf("Processing sync item %s: service=%s, action=%s", item.Id, service, action)
 
+	// RFC-010 BF3: For add_track actions, perform track search first
+	if action == "add_track" {
+		// Check if track search has already been performed (payload contains destination_track_id)
+		var existingPayload map[string]string
+		if payloadStr != "" && payloadStr != "{}" {
+			if err := json.Unmarshal([]byte(payloadStr), &existingPayload); err == nil {
+				if _, hasTrackID := existingPayload["destination_track_id"]; hasTrackID {
+					// Search already performed, proceed with execution
+					log.Printf("Track search already completed for item %s", item.Id)
+				}
+			}
+		}
+
+		// If no destination track ID found, perform search
+		if existingPayload == nil || existingPayload["destination_track_id"] == "" {
+			destinationTrackID, err := performTrackSearch(app, item)
+			if err != nil {
+				// Track search failed - blacklist the item
+				log.Printf("Track search failed for item %s: %v", item.Id, err)
+
+				if err := createOrUpdateBlacklistEntryForSearchFailure(app, item, err); err != nil {
+					log.Printf("Failed to create blacklist entry for search failure on item %s: %v", item.Id, err)
+				}
+
+				// Mark as skipped since we're blacklisting it
+				item.Set("status", "skipped")
+				item.Set("last_error", fmt.Sprintf("search_failed: %s", truncateError(err.Error(), 450)))
+				return app.Dao().SaveRecord(item)
+			}
+
+			// Search successful - update payload with destination track ID
+			updatedPayload := map[string]string{
+				"destination_track_id": destinationTrackID,
+			}
+			payloadJSON, err := json.Marshal(updatedPayload)
+			if err != nil {
+				return fmt.Errorf("failed to marshal updated payload: %w", err)
+			}
+
+			payloadStr = string(payloadJSON)
+			item.Set("payload", payloadStr)
+
+			if err := app.Dao().SaveRecord(item); err != nil {
+				return fmt.Errorf("failed to update item with search result: %w", err)
+			}
+
+			log.Printf("Track search successful for item %s: found destination track ID %s", item.Id, destinationTrackID)
+		}
+	}
+
 	// Execute the appropriate handler
 	err := executeAction(app, item, service, action, payloadStr)
 
@@ -206,6 +256,162 @@ func processSyncItem(app daoProvider, item *models.Record) error {
 	}
 
 	return app.Dao().SaveRecord(item)
+}
+
+// performTrackSearch searches for a track on the destination service using the source track title
+// RFC-010 BF3: Implement track search before adding tracks
+func performTrackSearch(app daoProvider, item *models.Record) (string, error) {
+	sourceTrackTitle := item.GetString("source_track_title")
+	destinationService := item.GetString("destination_service")
+
+	if sourceTrackTitle == "" {
+		return "", fmt.Errorf("source_track_title is empty")
+	}
+	if destinationService == "" {
+		return "", fmt.Errorf("destination_service is empty")
+	}
+
+	log.Printf("Searching for track '%s' on %s", sourceTrackTitle, destinationService)
+
+	switch destinationService {
+	case "spotify":
+		return searchTrackOnSpotify(app, sourceTrackTitle)
+	case "youtube":
+		return searchTrackOnYouTube(app, sourceTrackTitle)
+	default:
+		return "", fmt.Errorf("unsupported destination service: %s", destinationService)
+	}
+}
+
+// searchTrackOnSpotify searches for a track on Spotify by title
+func searchTrackOnSpotify(app daoProvider, trackTitle string) (string, error) {
+	ctx := context.Background()
+
+	client, err := auth.GetSpotifyClientForJob(ctx, app)
+	if err != nil {
+		return "", fmt.Errorf("failed to get Spotify client: %w", err)
+	}
+
+	// Search for tracks with the given title
+	results, err := client.Search(ctx, trackTitle, spotify.SearchTypeTrack)
+	if err != nil {
+		return "", fmt.Errorf("failed to search Spotify: %w", err)
+	}
+
+	if results.Tracks == nil || len(results.Tracks.Tracks) == 0 {
+		return "", fmt.Errorf("no tracks found on Spotify for '%s'", trackTitle)
+	}
+
+	// Return the first match
+	firstTrack := results.Tracks.Tracks[0]
+	trackID := string(firstTrack.ID)
+
+	log.Printf("Found Spotify track: '%s' (ID: %s) for search '%s'", firstTrack.Name, trackID, trackTitle)
+	return trackID, nil
+}
+
+// searchTrackOnYouTube searches for a track on YouTube by title
+func searchTrackOnYouTube(app daoProvider, trackTitle string) (string, error) {
+	ctx := context.Background()
+
+	svc, err := auth.GetYouTubeServiceForJob(ctx, app)
+	if err != nil {
+		return "", fmt.Errorf("failed to get YouTube service: %w", err)
+	}
+
+	// Search for videos with the given title
+	call := svc.Search.List([]string{"id,snippet"}).Q(trackTitle).Type("video").MaxResults(1)
+	response, err := call.Do()
+	if err != nil {
+		return "", fmt.Errorf("failed to search YouTube: %w", err)
+	}
+
+	if len(response.Items) == 0 {
+		return "", fmt.Errorf("no videos found on YouTube for '%s'", trackTitle)
+	}
+
+	// Return the first match
+	firstVideo := response.Items[0]
+	videoID := firstVideo.Id.VideoId
+
+	log.Printf("Found YouTube video: '%s' (ID: %s) for search '%s'", firstVideo.Snippet.Title, videoID, trackTitle)
+	return videoID, nil
+}
+
+// createOrUpdateBlacklistEntryForSearchFailure creates blacklist entry specifically for search failures
+func createOrUpdateBlacklistEntryForSearchFailure(app daoProvider, item *models.Record, searchErr error) error {
+	// Get track info from the sync item detail fields
+	sourceTrackID := item.GetString("source_track_id")
+	destinationService := item.GetString("destination_service")
+
+	if sourceTrackID == "" {
+		return fmt.Errorf("source_track_id is empty")
+	}
+
+	// Get mapping ID from sync item
+	var mappingID string
+	rawMappingId := item.Get("mapping_id")
+	if mappingIds, ok := rawMappingId.([]string); ok && len(mappingIds) > 0 {
+		mappingID = mappingIds[0] // Get first element from array
+	} else {
+		mappingID = item.GetString("mapping_id") // Fallback to string
+	}
+
+	// Check if blacklist entry already exists
+	filter := fmt.Sprintf("mapping_id = '%s' && service = '%s' && track_id = '%s'",
+		mappingID, destinationService, sourceTrackID)
+
+	existingRecords, err := app.Dao().FindRecordsByFilter(
+		"blacklist",
+		filter,
+		"",
+		1,
+		0,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to query existing blacklist entries: %w", err)
+	}
+
+	collection, err := app.Dao().FindCollectionByNameOrId("blacklist")
+	if err != nil {
+		return fmt.Errorf("failed to find blacklist collection: %w", err)
+	}
+
+	now := time.Now()
+
+	if len(existingRecords) > 0 {
+		// Update existing blacklist entry
+		record := existingRecords[0]
+		skipCounter := record.GetInt("skip_counter") + 1
+		record.Set("skip_counter", skipCounter)
+		record.Set("last_skipped_at", now.Format("2006-01-02 15:04:05.000Z"))
+		record.Set("reason", "search_failed")
+
+		if err := app.Dao().SaveRecord(record); err != nil {
+			return fmt.Errorf("failed to update blacklist entry: %w", err)
+		}
+
+		log.Printf("Updated blacklist entry for mapping %s, service %s, track %s (reason: search_failed, skip_counter: %d)",
+			mappingID, destinationService, sourceTrackID, skipCounter)
+	} else {
+		// Create new blacklist entry
+		record := models.NewRecord(collection)
+		record.Set("mapping_id", mappingID)
+		record.Set("service", destinationService)
+		record.Set("track_id", sourceTrackID)
+		record.Set("reason", "search_failed")
+		record.Set("skip_counter", 1)
+		record.Set("last_skipped_at", now.Format("2006-01-02 15:04:05.000Z"))
+
+		if err := app.Dao().SaveRecord(record); err != nil {
+			return fmt.Errorf("failed to create blacklist entry: %w", err)
+		}
+
+		log.Printf("Created blacklist entry for mapping %s, service %s, track %s (reason: search_failed)",
+			mappingID, destinationService, sourceTrackID)
+	}
+
+	return nil
 }
 
 // executeAction executes the specific action based on service and action type
@@ -277,16 +483,31 @@ func createOrUpdateBlacklistEntry(app daoProvider, item *models.Record, execErr 
 		return nil // Don't blacklist rename operations
 	}
 
-	// Extract track ID from payload
-	payloadStr := item.GetString("payload")
-	var payload map[string]string
-	if err := json.Unmarshal([]byte(payloadStr), &payload); err != nil {
-		return fmt.Errorf("failed to parse payload: %w", err)
+	// RFC-010 BF3: Use track detail fields instead of parsing payload
+	sourceTrackID := item.GetString("source_track_id")
+	destinationService := item.GetString("destination_service")
+
+	if sourceTrackID == "" {
+		// Fallback to old method for backward compatibility
+		payloadStr := item.GetString("payload")
+		var payload map[string]string
+		if err := json.Unmarshal([]byte(payloadStr), &payload); err != nil {
+			return fmt.Errorf("failed to parse payload and source_track_id is empty: %w", err)
+		}
+
+		// Try both old and new payload formats
+		if trackID, ok := payload["track_id"]; ok && trackID != "" {
+			sourceTrackID = trackID
+		} else if trackID, ok := payload["destination_track_id"]; ok && trackID != "" {
+			sourceTrackID = trackID
+		} else {
+			return fmt.Errorf("no track ID found in payload or source_track_id field")
+		}
 	}
 
-	trackID, ok := payload["track_id"]
-	if !ok || trackID == "" {
-		return fmt.Errorf("track_id not found in payload")
+	if destinationService == "" {
+		// Fallback to service field for backward compatibility
+		destinationService = item.GetString("service")
 	}
 
 	// Get mapping ID from sync item
@@ -298,14 +519,12 @@ func createOrUpdateBlacklistEntry(app daoProvider, item *models.Record, execErr 
 		mappingID = item.GetString("mapping_id") // Fallback to string
 	}
 
-	service := item.GetString("service")
-
 	// Determine reason based on error type
 	reason := categorizeError(execErr)
 
 	// Check if blacklist entry already exists
 	filter := fmt.Sprintf("mapping_id = '%s' && service = '%s' && track_id = '%s'",
-		mappingID, service, trackID)
+		mappingID, destinationService, sourceTrackID)
 
 	existingRecords, err := app.Dao().FindRecordsByFilter(
 		"blacklist",
@@ -338,13 +557,13 @@ func createOrUpdateBlacklistEntry(app daoProvider, item *models.Record, execErr 
 		}
 
 		log.Printf("Updated blacklist entry for mapping %s, service %s, track %s (skip_counter: %d)",
-			mappingID, service, trackID, skipCounter)
+			mappingID, destinationService, sourceTrackID, skipCounter)
 	} else {
 		// Create new blacklist entry
 		record := models.NewRecord(collection)
 		record.Set("mapping_id", mappingID)
-		record.Set("service", service)
-		record.Set("track_id", trackID)
+		record.Set("service", destinationService)
+		record.Set("track_id", sourceTrackID)
 		record.Set("reason", reason)
 		record.Set("skip_counter", 1)
 		record.Set("last_skipped_at", now.Format("2006-01-02 15:04:05.000Z"))
@@ -354,7 +573,7 @@ func createOrUpdateBlacklistEntry(app daoProvider, item *models.Record, execErr 
 		}
 
 		log.Printf("Created blacklist entry for mapping %s, service %s, track %s (reason: %s)",
-			mappingID, service, trackID, reason)
+			mappingID, destinationService, sourceTrackID, reason)
 	}
 
 	return nil
@@ -383,15 +602,15 @@ func categorizeError(err error) string {
 
 // Placeholder action implementations - these will be implemented in the next steps
 func executeSpotifyAddTrack(app daoProvider, item *models.Record, payloadStr string) error {
-	// Parse payload to get track ID
+	// Parse payload to get destination track ID (populated by search)
 	var payload map[string]string
 	if err := json.Unmarshal([]byte(payloadStr), &payload); err != nil {
 		return fmt.Errorf("failed to parse payload: %w", err)
 	}
 
-	trackID, ok := payload["track_id"]
+	trackID, ok := payload["destination_track_id"]
 	if !ok || trackID == "" {
-		return fmt.Errorf("track_id not found in payload")
+		return fmt.Errorf("destination_track_id not found in payload - track search may have failed")
 	}
 
 	// Get playlist ID from mapping - handle PocketBase relation field properly
@@ -420,13 +639,14 @@ func executeSpotifyAddTrack(app daoProvider, item *models.Record, payloadStr str
 		return fmt.Errorf("failed to get Spotify client: %w", err)
 	}
 
-	// Add track to playlist
+	// Add track to playlist using the searched destination track ID
 	_, err = client.AddTracksToPlaylist(ctx, spotify.ID(playlistID), spotify.ID(trackID))
 	if err != nil {
 		return fmt.Errorf("failed to add track to Spotify playlist: %w", err)
 	}
 
-	log.Printf("Successfully added track %s to Spotify playlist %s", trackID, playlistID)
+	sourceTrackTitle := item.GetString("source_track_title")
+	log.Printf("Successfully added track '%s' (ID: %s) to Spotify playlist %s", sourceTrackTitle, trackID, playlistID)
 	return nil
 }
 
@@ -442,15 +662,15 @@ func executeYouTubeAddTrack(app daoProvider, item *models.Record, payloadStr str
 		return nil // Return nil because skipping is not an error
 	}
 
-	// Parse payload to get track ID
+	// Parse payload to get destination track ID (populated by search)
 	var payload map[string]string
 	if err := json.Unmarshal([]byte(payloadStr), &payload); err != nil {
 		return fmt.Errorf("failed to parse payload: %w", err)
 	}
 
-	trackID, ok := payload["track_id"]
+	trackID, ok := payload["destination_track_id"]
 	if !ok || trackID == "" {
-		return fmt.Errorf("track_id not found in payload")
+		return fmt.Errorf("destination_track_id not found in payload - track search may have failed")
 	}
 
 	// Get playlist ID from mapping - handle PocketBase relation field properly
@@ -479,7 +699,7 @@ func executeYouTubeAddTrack(app daoProvider, item *models.Record, payloadStr str
 		return fmt.Errorf("failed to get YouTube service: %w", err)
 	}
 
-	// Create playlist item
+	// Create playlist item using the searched destination track ID (video ID)
 	playlistItem := &youtube.PlaylistItem{
 		Snippet: &youtube.PlaylistItemSnippet{
 			PlaylistId: playlistID,
@@ -496,7 +716,8 @@ func executeYouTubeAddTrack(app daoProvider, item *models.Record, payloadStr str
 		return fmt.Errorf("failed to add track to YouTube playlist: %w", err)
 	}
 
-	log.Printf("Successfully added track %s to YouTube playlist %s", trackID, playlistID)
+	sourceTrackTitle := item.GetString("source_track_title")
+	log.Printf("Successfully added track '%s' (ID: %s) to YouTube playlist %s", sourceTrackTitle, trackID, playlistID)
 	return nil
 }
 
