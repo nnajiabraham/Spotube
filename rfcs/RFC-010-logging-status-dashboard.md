@@ -3,8 +3,8 @@
 **Status:** Draft  
 **Branch:** `rfc/010-logging-dashboard`  
 **Depends On:**
-* RFC-007 & RFC-008 (Jobs producing data to visualize)
-* RFC-009 (Blacklist producing data to visualize)
+* RFC-007 (including 7b, 7c) & RFC-008(including 8b) (Jobs producing data to visualize)
+* RFC-009 (including 9b) (Blacklist producing data to visualize)
 
 ---
 
@@ -45,7 +45,7 @@ The `analysis` and `executor` jobs will be modified to call the new logging serv
 *   `executor`: "Processing item X", "Successfully added track Y", "Error processing item X: [reason]".
 
 #### 3.2.3 Dashboard Stats Endpoint
-A new authenticated route `/api/admin/dashboard/stats` will be created. It will return an aggregated JSON object:
+A new route `/api/admin/dashboard/stats` will be created. It will return an aggregated JSON object:
 ```json
 {
   "mappings": { "total": 5 },
@@ -63,7 +63,7 @@ This data will be aggregated via direct DAO queries for performance.
 The main dashboard page will be updated to display real-time status cards using the data from `/api/admin/dashboard/stats`.
 *   **Cards**: "Mappings Configured", "Queue - Pending", "Queue - Errors", "Queue - Skipped".
 *   Each card will be a link to the relevant management page (e.g., `/mappings`, `/logs?level=error`).
-*   **TanStack Query**: Data will be fetched with a `refetchInterval` of 5 seconds to provide a near real-time view.
+*   **TanStack Query**: Data will be fetched with a `refetchInterval` of 60 seconds to provide a near real-time view.
 
 #### 3.3.2 Logs Page (`/logs`)
 A new route at `/logs` will display the contents of the `logs` collection in a virtualized table (e.g., using TanStack Table).
