@@ -19,6 +19,7 @@
     "@hookform/resolvers": "^5.1.0",
     "@tanstack/react-query": "^5.80.6",
     "@tanstack/react-router": "^1.120.18",
+    "@tanstack/react-table": "^8.21.3",
     "clsx": "^2.1.1",
     "lucide-react": "^0.513.0",
     "pocketbase": "^0.26.1",

@@ -34,6 +34,42 @@ export interface DashboardStats {
   };
 }
 
+// Activity logs types
+export interface ActivityLog {
+  id: string;
+  level: 'info' | 'warn' | 'error';
+  message: string;
+  sync_item_id?: string;
+  job_type: 'analysis' | 'execution' | 'system';
+  created: string;
+  updated: string;
+}
+
+export interface ActivityLogsResponse {
+  page: number;
+  perPage: number;
+  totalItems: number;
+  totalPages: number;
+  items: ActivityLog[];
+}
+
+export interface SyncItem {
+  id: string;
+  mapping_id: string;
+  service: 'spotify' | 'youtube';
+  action: 'add_track' | 'remove_track' | 'rename_playlist';
+  status: 'pending' | 'running' | 'done' | 'error' | 'skipped';
+  source_track_id?: string;
+  source_track_title?: string;
+  source_service?: 'spotify' | 'youtube';
+  destination_service?: 'spotify' | 'youtube';
+  payload: string;
+  attempts: number;
+  last_error?: string;
+  created: string;
+  updated: string;
+}
+
 export class ApiError extends Error {
   status: number;
   
@@ -170,6 +206,46 @@ export const api = {
     try {
       await pb.collection('blacklist').delete(id);
       return true;
+    } catch (error: unknown) {
+      const err = error as { status?: number, message?: string };
+      throw new ApiError(err.status ?? 500, err.message ?? 'Request failed');
+    }
+  },
+
+  // Activity Logs API
+  getActivityLogs: async (params?: {
+    page?: number;
+    perPage?: number;
+    level?: string;
+    job_type?: string;
+  }): Promise<ActivityLogsResponse> => {
+    try {
+      const filters = [];
+      if (params?.level) {
+        filters.push(`level = "${params.level}"`);
+      }
+      if (params?.job_type) {
+        filters.push(`job_type = "${params.job_type}"`);
+      }
+      const filter = filters.length > 0 ? filters.join(' && ') : '';
+
+      return await pb.collection('activity_logs').getList(
+        params?.page || 1, 
+        params?.perPage || 50,
+        {
+          filter: filter,
+          sort: '-created',
+        }
+      );
+    } catch (error: unknown) {
+      const err = error as { status?: number, message?: string };
+      throw new ApiError(err.status ?? 500, err.message ?? 'Request failed');
+    }
+  },
+
+  getSyncItem: async (id: string): Promise<SyncItem> => {
+    try {
+      return await pb.collection('sync_items').getOne(id);
     } catch (error: unknown) {
       const err = error as { status?: number, message?: string };
       throw new ApiError(err.status ?? 500, err.message ?? 'Request failed');

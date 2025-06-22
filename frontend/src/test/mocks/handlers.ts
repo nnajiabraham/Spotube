@@ -322,6 +322,176 @@ export const handlers = [
 
     return new HttpResponse(null, { status: 204 })
   }),
+
+  // Activity Logs handlers
+  http.get('*/api/collections/activity_logs/records', ({ request }) => {
+    const authHeader = request.headers.get('authorization')
+    
+    if (!authHeader) {
+      return new HttpResponse(null, { status: 401 })
+    }
+
+    const url = new URL(request.url)
+    const filter = url.searchParams.get('filter')
+    
+    // Mock activity log data
+    const allActivityLogs = [
+      {
+        id: 'log1',
+        level: 'info',
+        message: 'Starting sync analysis job',
+        sync_item_id: '',
+        job_type: 'analysis',
+        created: '2024-01-01T12:00:00Z',
+        updated: '2024-01-01T12:00:00Z',
+      },
+      {
+        id: 'log2',
+        level: 'info',
+        message: 'Processing add_track action for "Song Title" (ID: track123) on spotify',
+        sync_item_id: 'sync_item_1',
+        job_type: 'execution',
+        created: '2024-01-01T12:05:00Z',
+        updated: '2024-01-01T12:05:00Z',
+      },
+      {
+        id: 'log3',
+        level: 'warn',
+        message: 'Rate limit encountered, retrying in 30 seconds',
+        sync_item_id: 'sync_item_2',
+        job_type: 'execution',
+        created: '2024-01-01T12:10:00Z',
+        updated: '2024-01-01T12:10:00Z',
+      },
+      {
+        id: 'log4',
+        level: 'error',
+        message: 'Failed to add track: Track not found',
+        sync_item_id: 'sync_item_3',
+        job_type: 'execution',
+        created: '2024-01-01T12:15:00Z',
+        updated: '2024-01-01T12:15:00Z',
+      },
+      {
+        id: 'log5',
+        level: 'info',
+        message: 'Analysis complete: Found 5 items to sync',
+        sync_item_id: '',
+        job_type: 'analysis',
+        created: '2024-01-01T12:20:00Z',
+        updated: '2024-01-01T12:20:00Z',
+      },
+    ]
+
+    // Filter by level and job_type if specified
+    let filteredLogs = allActivityLogs
+    if (filter) {
+      const levelMatch = filter.match(/level = "([^"]+)"/)
+      const jobTypeMatch = filter.match(/job_type = "([^"]+)"/)
+      
+      if (levelMatch) {
+        const level = levelMatch[1]
+        filteredLogs = filteredLogs.filter(log => log.level === level)
+      }
+      
+      if (jobTypeMatch) {
+        const jobType = jobTypeMatch[1]
+        filteredLogs = filteredLogs.filter(log => log.job_type === jobType)
+      }
+    }
+
+    return HttpResponse.json({
+      page: 1,
+      perPage: 50,
+      totalItems: filteredLogs.length,
+      totalPages: 1,
+      items: filteredLogs,
+    })
+  }),
+
+  // Sync Items handlers
+  http.get('*/api/collections/sync_items/records/:id', ({ params, request }) => {
+    const authHeader = request.headers.get('authorization')
+    
+    if (!authHeader) {
+      return new HttpResponse(null, { status: 401 })
+    }
+
+    const { id } = params
+    
+    // Mock sync item data
+    const syncItems: Record<string, {
+      id: string;
+      mapping_id: string;
+      service: string;
+      action: string;
+      status: string;
+      source_track_id: string;
+      source_track_title: string;
+      source_service: string;
+      destination_service: string;
+      payload: string;
+      attempts: number;
+      last_error: string;
+      created: string;
+      updated: string;
+    }> = {
+      'sync_item_1': {
+        id: 'sync_item_1',
+        mapping_id: 'mapping1',
+        service: 'spotify',
+        action: 'add_track',
+        status: 'done',
+        source_track_id: 'spotify_track_123',
+        source_track_title: 'Song Title',
+        source_service: 'youtube',
+        destination_service: 'spotify',
+        payload: '{"track_id":"spotify_track_123"}',
+        attempts: 1,
+        last_error: '',
+        created: '2024-01-01T11:00:00Z',
+        updated: '2024-01-01T12:05:00Z',
+      },
+      'sync_item_2': {
+        id: 'sync_item_2',
+        mapping_id: 'mapping1',
+        service: 'spotify',
+        action: 'add_track',
+        status: 'running',
+        source_track_id: 'youtube_video_456',
+        source_track_title: 'Another Song',
+        source_service: 'youtube',
+        destination_service: 'spotify',
+        payload: '',
+        attempts: 2,
+        last_error: 'Rate limit exceeded',
+        created: '2024-01-01T11:30:00Z',
+        updated: '2024-01-01T12:10:00Z',
+      },
+      'sync_item_3': {
+        id: 'sync_item_3',
+        mapping_id: 'mapping1',
+        service: 'spotify',
+        action: 'add_track',
+        status: 'error',
+        source_track_id: 'youtube_video_789',
+        source_track_title: 'Missing Song',
+        source_service: 'youtube',
+        destination_service: 'spotify',
+        payload: '',
+        attempts: 3,
+        last_error: 'Track not found on Spotify',
+        created: '2024-01-01T11:45:00Z',
+        updated: '2024-01-01T12:15:00Z',
+      },
+    }
+
+    if (syncItems[id as string]) {
+      return HttpResponse.json(syncItems[id as string])
+    }
+
+    return new HttpResponse(null, { status: 404 })
+  }),
 ];
 
 // Handler for simulating unauthorized state - can be used to override the default
