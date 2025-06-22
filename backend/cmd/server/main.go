@@ -13,6 +13,7 @@ import (
 
 	// Import migrations to register them
 	"github.com/manlikeabro/spotube/internal/jobs"
+	"github.com/manlikeabro/spotube/internal/pbext/dashboard"
 	"github.com/manlikeabro/spotube/internal/pbext/googleauth"
 	"github.com/manlikeabro/spotube/internal/pbext/mappings"
 	"github.com/manlikeabro/spotube/internal/pbext/setupwizard"
@@ -50,6 +51,9 @@ func main() {
 
 	// Register Google auth routes
 	googleauth.Register(app)
+
+	// Register dashboard routes (RFC-010 L3)
+	dashboard.Register(app)
 
 	// Register mappings hooks
 	mappings.RegisterHooks(app)

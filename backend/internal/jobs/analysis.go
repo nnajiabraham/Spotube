@@ -7,6 +7,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/manlikeabro/spotube/internal/activitylogger"
 	"github.com/manlikeabro/spotube/internal/auth"
 	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/daos"
@@ -54,7 +55,11 @@ type TrackList struct {
 
 // AnalyseMappings performs the main analysis logic for all mappings
 func AnalyseMappings(app daoProvider, ctx context.Context) error {
+	// Create activity logger
+	activityLog := activitylogger.New(app)
+
 	log.Println("Starting sync analysis job...")
+	activityLog.Record("info", "Starting sync analysis job", "", "analysis")
 
 	// Query all mapping records
 	mappings, err := app.Dao().FindRecordsByFilter(
@@ -65,10 +70,13 @@ func AnalyseMappings(app daoProvider, ctx context.Context) error {
 		0,          // no offset
 	)
 	if err != nil {
+		errMsg := fmt.Sprintf("Failed to query mappings: %v", err)
+		activityLog.Record("error", errMsg, "", "analysis")
 		return fmt.Errorf("failed to query mappings: %w", err)
 	}
 
 	log.Printf("Found %d mappings to analyze", len(mappings))
+	activityLog.Record("info", fmt.Sprintf("Found %d mappings to analyze", len(mappings)), "", "analysis")
 
 	now := time.Now()
 	processed := 0
@@ -76,7 +84,9 @@ func AnalyseMappings(app daoProvider, ctx context.Context) error {
 	for _, mapping := range mappings {
 		if shouldAnalyzeMapping(mapping, now) {
 			if err := analyzeMapping(app, mapping, now); err != nil {
-				log.Printf("Failed to analyze mapping %s: %v", mapping.Id, err)
+				errMsg := fmt.Sprintf("Failed to analyze mapping %s: %v", mapping.Id, err)
+				log.Print(errMsg)
+				activityLog.Record("error", errMsg, "", "analysis")
 				// Continue processing other mappings even if one fails
 				continue
 			}
@@ -84,7 +94,9 @@ func AnalyseMappings(app daoProvider, ctx context.Context) error {
 		}
 	}
 
-	log.Printf("Analysis job completed. Processed %d mappings", processed)
+	completionMsg := fmt.Sprintf("Analysis job completed. Processed %d mappings", processed)
+	log.Print(completionMsg)
+	activityLog.Record("info", completionMsg, "", "analysis")
 	return nil
 }
 

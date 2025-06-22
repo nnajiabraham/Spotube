@@ -17,6 +17,35 @@ export const handlers = [
     return HttpResponse.json({ required: false });
   }),
 
+  // Dashboard stats endpoint
+  http.get(`${API_BASE_URL}/api/dashboard/stats`, () => {
+    return HttpResponse.json({
+      mappings: { total: 3 },
+      queue: { 
+        pending: 8, 
+        running: 0, 
+        errors: 1, 
+        skipped: 2, 
+        done: 45 
+      },
+      recent_runs: [
+        {
+          timestamp: '2024-01-01T12:00:00Z',
+          job_type: 'analysis',
+          status: 'success',
+          message: 'Analysis completed successfully'
+        },
+        {
+          timestamp: '2024-01-01T11:30:00Z',
+          job_type: 'execution',
+          status: 'success',
+          message: 'Sync completed for mapping'
+        }
+      ],
+      youtube_quota: { used: 2500, limit: 10000 }
+    });
+  }),
+
   // Spotify auth endpoints
   http.get(`${API_BASE_URL}/api/auth/spotify/login`, () => {
     // Mock redirect to Spotify

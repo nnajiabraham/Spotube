@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/manlikeabro/spotube/internal/activitylogger"
 	"github.com/manlikeabro/spotube/internal/auth"
 	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/models"
@@ -77,6 +78,12 @@ func (q *YouTubeQuotaTracker) getCurrentUsage() (used int, limit int, resetDate 
 	return q.used, YOUTUBE_DAILY_QUOTA, q.resetDate
 }
 
+// GetYouTubeQuotaUsage returns the current YouTube quota usage for dashboard reporting
+func GetYouTubeQuotaUsage() (used int, limit int) {
+	used, limit, _ = youtubeQuota.getCurrentUsage()
+	return used, limit
+}
+
 // RegisterExecutor registers the sync executor job scheduler
 func RegisterExecutor(app *pocketbase.PocketBase) {
 	// Create a new cron instance
@@ -96,7 +103,11 @@ func RegisterExecutor(app *pocketbase.PocketBase) {
 
 // ProcessQueue processes pending sync items from the queue
 func ProcessQueue(app daoProvider, ctx context.Context) error {
+	// Create activity logger
+	activityLog := activitylogger.New(app)
+
 	log.Println("Starting sync executor job...")
+	activityLog.Record("info", "Starting sync executor job", "", "execution")
 
 	// Query pending items ready for processing
 	now := time.Now()
@@ -111,15 +122,19 @@ func ProcessQueue(app daoProvider, ctx context.Context) error {
 		0,
 	)
 	if err != nil {
+		errMsg := fmt.Sprintf("Failed to query pending sync items: %v", err)
+		activityLog.Record("error", errMsg, "", "execution")
 		return fmt.Errorf("failed to query pending sync items: %w", err)
 	}
 
 	if len(items) == 0 {
 		log.Println("No pending sync items found")
+		activityLog.Record("info", "No pending sync items found", "", "execution")
 		return nil
 	}
 
 	log.Printf("Found %d pending sync items to process", len(items))
+	activityLog.Record("info", fmt.Sprintf("Found %d pending sync items to process", len(items)), "", "execution")
 
 	// Create worker pool with semaphore for concurrency control
 	workerPool := semaphore.NewWeighted(MAX_CONCURRENCY)
@@ -150,12 +165,17 @@ func ProcessQueue(app daoProvider, ctx context.Context) error {
 	}
 	workerPool.Release(MAX_CONCURRENCY)
 
-	log.Printf("Executor job completed. Processed %d items", processed)
+	completionMsg := fmt.Sprintf("Executor job completed. Processed %d items", processed)
+	log.Print(completionMsg)
+	activityLog.Record("info", completionMsg, "", "execution")
 	return nil
 }
 
 // processSyncItem processes a single sync item
 func processSyncItem(app daoProvider, item *models.Record) error {
+	// Create activity logger
+	activityLog := activitylogger.New(app)
+
 	// Mark item as running
 	item.Set("status", "running")
 	if err := app.Dao().SaveRecord(item); err != nil {
@@ -165,8 +185,20 @@ func processSyncItem(app daoProvider, item *models.Record) error {
 	service := item.GetString("service")
 	action := item.GetString("action")
 	payloadStr := item.GetString("payload")
+	sourceTrackTitle := item.GetString("source_track_title")
+	sourceTrackID := item.GetString("source_track_id")
 
+	// Create descriptive processing message
+	var trackInfo string
+	if sourceTrackTitle != "" {
+		trackInfo = fmt.Sprintf("'%s' (ID: %s)", sourceTrackTitle, sourceTrackID)
+	} else {
+		trackInfo = fmt.Sprintf("(ID: %s)", sourceTrackID)
+	}
+
+	processMsg := fmt.Sprintf("Processing %s action for track %s on %s", action, trackInfo, service)
 	log.Printf("Processing sync item %s: service=%s, action=%s", item.Id, service, action)
+	activityLog.Record("info", processMsg, item.Id, "execution")
 
 	// RFC-010 BF3: For add_track actions, perform track search first
 	if action == "add_track" {
@@ -229,11 +261,15 @@ func processSyncItem(app daoProvider, item *models.Record) error {
 		// Handle different types of errors
 		if isRateLimitError(err) {
 			// Rate limit - back off and retry
+			rateLimitMsg := fmt.Sprintf("Rate limit hit for %s", trackInfo)
 			log.Printf("Rate limit hit for item %s: %v", item.Id, err)
+			activityLog.Record("warn", rateLimitMsg, item.Id, "execution")
 			return handleRetry(app, item, "rate_limit", err)
 		} else if isFatalError(err) {
 			// Fatal error - mark as error and don't retry
+			fatalMsg := fmt.Sprintf("Fatal error processing %s: %s", trackInfo, err.Error())
 			log.Printf("Fatal error for item %s: %v", item.Id, err)
+			activityLog.Record("error", fatalMsg, item.Id, "execution")
 
 			// Create or update blacklist entry for unrecoverable errors
 			if err := createOrUpdateBlacklistEntry(app, item, err); err != nil {
@@ -245,12 +281,16 @@ func processSyncItem(app daoProvider, item *models.Record) error {
 			item.Set("last_error", truncateError(err.Error(), 512))
 		} else {
 			// Temporary error - retry with backoff
+			tempMsg := fmt.Sprintf("Temporary error processing %s: %s", trackInfo, err.Error())
 			log.Printf("Temporary error for item %s: %v", item.Id, err)
+			activityLog.Record("warn", tempMsg, item.Id, "execution")
 			return handleRetry(app, item, "temporary", err)
 		}
 	} else {
 		// Success
+		successMsg := fmt.Sprintf("Successfully processed %s action for %s on %s", action, trackInfo, service)
 		log.Printf("Successfully processed sync item %s", item.Id)
+		activityLog.Record("info", successMsg, item.Id, "execution")
 		item.Set("status", "done")
 		item.Set("last_error", "")
 	}

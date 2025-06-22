@@ -10,6 +10,30 @@ import type {
   BlacklistResponse,
 } from './pocketbase';
 
+// Dashboard types
+export interface DashboardStats {
+  mappings: {
+    total: number;
+  };
+  queue: {
+    pending: number;
+    running: number;
+    errors: number;
+    skipped: number;
+    done: number;
+  };
+  recent_runs: Array<{
+    timestamp: string;
+    job_type: 'analysis' | 'execution' | 'system';
+    status: 'success' | 'error' | 'info';
+    message: string;
+  }>;
+  youtube_quota: {
+    used: number;
+    limit: number;
+  };
+}
+
 export class ApiError extends Error {
   status: number;
   
@@ -21,6 +45,19 @@ export class ApiError extends Error {
 }
 
 export const api = {
+  // Dashboard API
+  getDashboardStats: async (): Promise<DashboardStats> => {
+    try {
+      const response = await pb.send('/api/dashboard/stats', {
+        method: 'GET',
+      });
+      return response as DashboardStats;
+    } catch (error: unknown) {
+      const err = error as { status?: number, message?: string };
+      throw new ApiError(err.status ?? 500, err.message ?? 'Request failed');
+    }
+  },
+
   // Setup API
   getSetupStatus: async (): Promise<SetupStatus> => {
     try {
