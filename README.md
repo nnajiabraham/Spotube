@@ -2,6 +2,8 @@
 
 A lightweight self-hosted application that keeps your YouTube Music and Spotify playlists in continuous, bi-directional sync.
 
+NOTE: THIS WAS VIBE CODED WITH AI. SEE THE [RFCs](./rfcs) FOR THE PLAN USED WITH LLM TO BUILD THIS.
+
 ## Quick Start
 
 ### Prerequisites
