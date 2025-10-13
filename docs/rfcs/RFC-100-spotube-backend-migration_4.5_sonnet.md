@@ -743,34 +743,34 @@ github.com/jarcoal/httpmock (testing)
 
 ### Phase 5: Blacklist + Activity Logs
 
-- [ ] **Implement blacklist handlers (`internal/handlers/blacklist.go`)**
+- [x] **Implement blacklist handlers (`internal/handlers/blacklist.go`)**
   - **Test Cases:**
-    - [ ] `GET /api/collections/blacklist/records` returns paginated list
-    - [ ] Supports filtering by mapping_id
-    - [ ] `POST /api/collections/blacklist/records` creates blacklist entry
-    - [ ] Unique constraint enforced (mapping_id, service, track_id)
-    - [ ] `DELETE /api/collections/blacklist/records/:id` removes entry
-    - [ ] Returns 404 if entry not found
+    - [x] `GET /api/collections/blacklist/records` returns paginated list
+    - [x] Supports filtering by mapping_id
+    - [x] `POST /api/collections/blacklist/records` creates blacklist entry
+    - [x] Unique constraint enforced (mapping_id, service, track_id)
+    - [x] `DELETE /api/collections/blacklist/records/:id` removes entry
+    - [x] Returns 404 if entry not found
 
-- [ ] **Implement activity logs handler (`internal/handlers/activitylogs.go`)**
+- [x] **Implement activity logs handler (`internal/handlers/activity_logs.go`)**
   - **Test Cases:**
-    - [ ] `GET /api/collections/activity_logs/records` returns paginated list
-    - [ ] Supports filtering by: job_type, level, mapping_id
-    - [ ] Sorted by created desc by default
-    - [ ] Returns correct response shape
+    - [x] `GET /api/collections/activity_logs/records` returns paginated list
+    - [x] Supports filtering by: job_type, level, mapping_id
+    - [x] Sorted by created desc by default
+    - [x] Returns correct response shape
 
-- [ ] **Create activity logger helper (`internal/activitylogger/logger.go`)**
+- [x] **Create activity logger helper (`internal/activitylogger/logger.go`)**
   - **Test Cases:**
-    - [ ] `New(db)` creates logger instance
-    - [ ] `Record(level, message, mappingID, jobType)` inserts into activity_logs
-    - [ ] UUID generated for id
-    - [ ] created timestamp set to current time
-    - [ ] Test: record activity, query table, verify row exists
+    - [x] `New(db)` creates logger instance
+    - [x] `Record(level, message, mappingID, jobType)` inserts into activity_logs
+    - [x] UUID generated for id
+    - [x] created timestamp set to current time
+    - [x] Test: record activity, query table, verify row exists
 
-- [ ] **Wire endpoints in main.go**
+- [x] **Wire endpoints in main.go**
   - **Test Cases:**
-    - [ ] Blacklist and activity log routes registered
-    - [ ] Integration tests validate CRUD and filtering
+    - [x] Blacklist and activity log routes registered
+    - [x] Integration tests validate CRUD and filtering
     - [ ] Manual test: blacklist UI and logs page in frontend work
 
 ### Phase 6: Dashboard Stats
@@ -936,6 +936,12 @@ github.com/jarcoal/httpmock (testing)
 - `backend/internal/handlers/youtube_oauth_test.go` – comprehensive YouTube OAuth tests with httpmock
 - `backend/internal/handlers/mappings.go` – complete mappings CRUD with pagination, validation, and Jet integration
 - `backend/internal/handlers/mappings_test.go` – comprehensive mappings CRUD tests (create, list, get, update, delete)
+- `backend/internal/handlers/blacklist.go` – blacklist CRUD handlers with filtering by mapping_id
+- `backend/internal/handlers/blacklist_test.go` – comprehensive blacklist tests (create, list, delete, validation, duplicates)
+- `backend/internal/handlers/activity_logs.go` – activity logs read handler with filtering by job_type, level, mapping_id  
+- `backend/internal/handlers/activity_logs_test.go` – activity logs filtering and pagination tests
+- `backend/internal/activitylogger/logger.go` – activity logger helper for database persistence
+- `backend/internal/activitylogger/logger_test.go` – activity logger tests with convenience methods
 - `backend/internal/auth/pkce.go` & `_test.go` – PKCE helper utilities
 - `backend/internal/auth/token_repository.go` – SQLite token repository using Jet
 - `backend/cmd/server/settings_repo.go` – settings repository adapter for main server
@@ -991,6 +997,12 @@ github.com/jarcoal/httpmock (testing)
   - 17 handler tests passing including comprehensive mappings CRUD: create, list, get, update, delete with validation
 - `make backend/test` (Phase 4 complete)
   - All backend packages pass including new mappings functionality
+- `go test ./internal/activitylogger` (Activity logger complete)
+  - Activity logger tests pass with timestamp generation, convenience methods, null handling
+- `go test -v ./internal/handlers` (Phase 5 complete)
+  - 25 handler tests passing including blacklist CRUD, activity logs filtering, and comprehensive validation
+- `make backend/test` (Phase 5 complete)
+  - All backend packages pass including blacklist and activity logs functionality
 
 **Issues Encountered:**
 - Existing Makefile lacked EBJoy workflow targets; added new checklist item to cover implementation (now complete).
@@ -1004,6 +1016,8 @@ github.com/jarcoal/httpmock (testing)
 - YouTube OAuth implementation required google.golang.org/api dependency and proper handling of Google OAuth2 flows; comprehensive test coverage matching Spotify patterns ensured proper validation.
 - Mappings CRUD implementation faced Jet UPDATE query building complexity; resolved by using raw SQL for updates while keeping Jet for SELECT operations to balance type safety with query flexibility.
 - Jet queries require slice destinations rather than single struct instances; adjusted Get handler to use `[]model.Mappings` and check length for 404 responses.
+- Activity logger implementation required proper null handling for optional mapping_id field using pointer types in Jet model.
+- Blacklist and activity logs handlers followed established patterns from mappings CRUD with comprehensive test coverage including validation, filtering, and error scenarios.
 
 **Key Decisions:**
 - (pending)

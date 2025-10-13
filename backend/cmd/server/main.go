@@ -88,6 +88,16 @@ func main() {
 	mappingsGroup := srv.Group("/api/collections/mappings/records")
 	handlers.RegisterMappingsRoutes(mappingsGroup, mappingsHandler)
 
+	// Blacklist CRUD
+	blacklistHandler := handlers.NewBlacklistHandler(db)
+	blacklistGroup := srv.Group("/api/collections/blacklist/records")
+	handlers.RegisterBlacklistRoutes(blacklistGroup, blacklistHandler)
+
+	// Activity Logs (read-only)
+	activityLogsHandler := handlers.NewActivityLogsHandler(db)
+	activityLogsGroup := srv.Group("/api/collections/activity_logs/records")
+	handlers.RegisterActivityLogsRoutes(activityLogsGroup, activityLogsHandler)
+
 	address := ":" + cfg.Port
 	go func() {
 		logger.Info().Str("addr", address).Msg("starting server")
