@@ -664,10 +664,10 @@ github.com/jarcoal/httpmock (testing)
     - [ ] Returns error if neither settings nor env vars available
     - [ ] Same pattern works for "google" provider
 
-- [ ] **Wire setup endpoints in main.go**
+- [x] **Wire setup endpoints in main.go**
   - **Test Cases:**
-    - [ ] Routes registered: POST /api/setup/save, GET /api/setup/required
-    - [ ] httptest integration test for full save → retrieve flow
+    - [x] Routes registered: POST /api/setup/save, GET /api/setup/required
+    - [x] httptest integration test for full save → retrieve flow
     - [ ] Manual test: setup wizard in frontend works
 
 ### Phase 3: OAuth Routes (Spotify + YouTube)
@@ -928,6 +928,7 @@ github.com/jarcoal/httpmock (testing)
 - `backend/internal/migrate/migrate_test.go` – migration integration test suite
 - `backend/internal/handlers/setup.go` – setup handlers for settings wizard
 - `backend/internal/handlers/setup_test.go` – unit tests for setup handlers
+- `backend/internal/handlers/setup_integration_test.go` – end-to-end tests for setup routes
 
 **Files Modified:**
 - `backend/go.mod` – Dependency set updated to Echo/Goose/Jet stack (completed)
@@ -936,7 +937,7 @@ github.com/jarcoal/httpmock (testing)
 - `backend/internal/logging/logger.go` & `_test.go` – zerolog setup (completed)
 - `backend/internal/httpserver/server.go` & `_test.go` – Echo middleware stack (completed)
 - `backend/internal/handlers/health.go` & `_test.go` – health endpoint implementation (completed)
-- `backend/cmd/server/main.go` – Echo entrypoint with graceful shutdown (completed)
+- `backend/cmd/server/main.go` – Echo entrypoint with setup routes wired (completed)
 - `backend/cmd/migrate/main.go` – Goose CLI now sets sqlite dialect and resolves migrations path (completed)
 - `backend/internal/sqliteconn/sqliteconn.go` – ensures DB directory and absolute paths (completed)
 - `backend/go.sum` (completed)
@@ -945,9 +946,9 @@ github.com/jarcoal/httpmock (testing)
 - `make test`
   - Current state: passes
 - `go test ./...`
-  - Current state: passes after Jet generation
+  - Current state: passes after Jet generation and setup wiring
 - `make backend/test`
-  - Confirms backend target wraps Go tests including migration suite and handler unit tests
+  - Confirms backend target wraps Go tests including migration suite and handler integration tests
 - `make frontend/test`
   - Confirms frontend target runs Vitest suite
 - `make backend/db/gen`
@@ -967,7 +968,7 @@ github.com/jarcoal/httpmock (testing)
 - `sqlite3 backend/data/spotube.db "SELECT name FROM sqlite_master WHERE type='table';"`
   - Verifies tables during migration validation
 - `go test ./internal/handlers`
-  - Confirms setup handler tests cover success and validation paths
+  - Confirms setup handler unit + integration tests pass
 
 **Issues Encountered:**
 - Existing Makefile lacked EBJoy workflow targets; added new checklist item to cover implementation (now complete).
