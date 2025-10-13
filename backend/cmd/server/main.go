@@ -73,6 +73,16 @@ func main() {
 	spotifyGroup := srv.Group("/api/auth/spotify")
 	handlers.RegisterSpotifyRoutes(spotifyGroup, spotifyHandler)
 
+	// YouTube OAuth
+	youtubeHandler := handlers.NewYouTubeOAuthHandler(
+		settingsRepo,
+		tokenRepo,
+		sessionStore,
+		cfg.PublicURL+"/api/auth/youtube/callback",
+	)
+	youtubeGroup := srv.Group("/api/auth/youtube")
+	handlers.RegisterYouTubeRoutes(youtubeGroup, youtubeHandler)
+
 	address := ":" + cfg.Port
 	go func() {
 		logger.Info().Str("addr", address).Msg("starting server")

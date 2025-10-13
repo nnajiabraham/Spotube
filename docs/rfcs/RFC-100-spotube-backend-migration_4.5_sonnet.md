@@ -657,12 +657,12 @@ github.com/jarcoal/httpmock (testing)
     - [x] `GET /api/setup/required` returns `{ required: true }` if no settings and no env vars
     - [x] `GET /api/setup/required` returns `{ required: false }` if settings exist or env vars set
 
-- [ ] **Create credential loader helper (`internal/auth/oauth.go`)**
+- [x] **Create credential loader helper (`internal/auth/oauth.go`)**
   - **Test Cases:**
-    - [ ] `LoadCredentials(db, "spotify")` returns credentials from settings table if present
-    - [ ] Falls back to env vars (SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET) if settings empty
-    - [ ] Returns error if neither settings nor env vars available
-    - [ ] Same pattern works for "google" provider
+    - [x] `LoadCredentials(db, "spotify")` returns credentials from settings table if present
+    - [x] Falls back to env vars (SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET) if settings empty
+    - [x] Returns error if neither settings nor env vars available
+    - [x] Same pattern works for "google" provider
 
 - [x] **Wire setup endpoints in main.go**
   - **Test Cases:**
@@ -683,14 +683,14 @@ github.com/jarcoal/httpmock (testing)
     - [x] Returns 401 if state mismatch
     - [x] Returns 500 with sanitized error on token exchange failure
 
-- [ ] **Implement YouTube OAuth handlers (`internal/handlers/youtube.go`)**
+- [x] **Implement YouTube OAuth handlers (`internal/handlers/youtube_oauth.go`)**
   - **Test Cases:**
-    - [ ] `GET /api/auth/youtube/login` generates OAuth state
-    - [ ] State stored in session cookie
-    - [ ] Redirects to Google authorization URL with YouTube scopes
-    - [ ] `GET /api/auth/youtube/callback` validates state
-    - [ ] Stores tokens in oauth_tokens table (provider='google')
-    - [ ] Same error handling as Spotify
+    - [x] `GET /api/auth/youtube/login` generates OAuth state
+    - [x] State stored in session cookie
+    - [x] Redirects to Google authorization URL with YouTube scopes
+    - [x] `GET /api/auth/youtube/callback` validates state
+    - [x] Stores tokens in oauth_tokens table (provider='google')
+    - [x] Same error handling as Spotify
 
 - [x] **Implement playlist list handlers**
   - **Test Cases:**
@@ -698,9 +698,9 @@ github.com/jarcoal/httpmock (testing)
     - [x] Returns 401 if no token found
     - [x] Fetches playlists using zmb3/spotify client
     - [x] Returns array of playlists with correct shape
-    - [ ] `GET /api/youtube/playlists` requires valid YouTube token
-    - [ ] Fetches playlists using google-api-go-client
-    - [ ] Mock external APIs using httpmock for tests
+    - [x] `GET /api/youtube/playlists` requires valid YouTube token
+    - [x] Fetches playlists using google-api-go-client
+    - [x] Mock external APIs using httpmock for tests
 
 - [x] **Implement token refresh logic**
   - **Test Cases:**
@@ -709,11 +709,11 @@ github.com/jarcoal/httpmock (testing)
     - [x] Updates oauth_tokens record with new access_token and expiry (handled by oauth2)
     - [x] Test: expired token triggers refresh, subsequent call succeeds (implicit in oauth2 library)
 
-- [ ] **Wire OAuth endpoints in main.go**
+- [x] **Wire OAuth endpoints in main.go**
   - **Test Cases:**
-    - [ ] All 6 OAuth routes registered
-    - [ ] Session store configured with secure defaults
-    - [ ] Integration test for full OAuth flow (mocked external APIs)
+    - [x] All 6 OAuth routes registered
+    - [x] Session store configured with secure defaults  
+    - [x] Integration test for full OAuth flow (mocked external APIs)
     - [ ] Manual test: OAuth flows in frontend work
 
 ### Phase 4: Mappings CRUD
@@ -932,6 +932,8 @@ github.com/jarcoal/httpmock (testing)
 - `backend/internal/handlers/spotify_oauth.go` – complete Spotify OAuth flow with zmb3/spotify integration
 - `backend/internal/handlers/spotify_oauth_test.go` – unit tests for Spotify OAuth handlers  
 - `backend/internal/handlers/spotify_oauth_integration_test.go` – comprehensive OAuth tests with httpmock
+- `backend/internal/handlers/youtube_oauth.go` – complete YouTube OAuth flow with google.golang.org/api integration
+- `backend/internal/handlers/youtube_oauth_test.go` – comprehensive YouTube OAuth tests with httpmock
 - `backend/internal/auth/pkce.go` & `_test.go` – PKCE helper utilities
 - `backend/internal/auth/token_repository.go` – SQLite token repository using Jet
 - `backend/cmd/server/settings_repo.go` – settings repository adapter for main server
@@ -979,6 +981,10 @@ github.com/jarcoal/httpmock (testing)
   - Comprehensive OAuth test coverage: full flow, state mismatch, token exchange failure, playlist fetching
 - `go mod tidy`
   - Added OAuth libraries: zmb3/spotify/v2, google.golang.org/api, golang.org/x/oauth2, samber/lo, jarcoal/httpmock, stretchr/testify
+- `go get google.golang.org/api`
+  - Ensured YouTube Data API v3 dependency for playlist fetching and OAuth
+- `go test -v ./internal/handlers` (YouTube complete)
+  - 11 handler tests passing including YouTube OAuth flow, state validation, token exchange, playlists API
 
 **Issues Encountered:**
 - Existing Makefile lacked EBJoy workflow targets; added new checklist item to cover implementation (now complete).
@@ -989,6 +995,7 @@ github.com/jarcoal/httpmock (testing)
 - OAuth scope constants needed hardcoded strings instead of library constants; sessions.Save() required proper Echo response adapter.
 - Token repository integration required Jet-based SQLite implementation with proper null handling for optional fields.
 - Initial Spotify OAuth checklist items were marked complete prematurely without comprehensive test coverage; added httpmock-based integration tests covering full OAuth flow, error scenarios, and external API mocking for proper validation.
+- YouTube OAuth implementation required google.golang.org/api dependency and proper handling of Google OAuth2 flows; comprehensive test coverage matching Spotify patterns ensured proper validation.
 
 **Key Decisions:**
 - (pending)

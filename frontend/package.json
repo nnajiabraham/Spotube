@@ -6,13 +6,16 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "lint": "eslint .",
+    "lint": "eslint . --fix",
     "lint:fix": "eslint . --fix",
-    "format": "prettier --write .",
+    "format": "prettier --write \"src/**/*.{ts,tsx,js,jsx,json,css,md}\"",
     "generate-routes": "npx @tanstack/router-cli generate",
-    "test": "vitest",
+    "test": "vitest run --disable-console-intercept --silent=false",
     "test:run": "vitest run",
     "test:e2e": "playwright test",
+    "test:ui": "vitest --ui",
+    "test:coverage": "vitest run --coverage",
+    "type-check": "tsc --noEmit --project tsconfig.app.json",
     "preview": "vite preview"
   },
   "dependencies": {
