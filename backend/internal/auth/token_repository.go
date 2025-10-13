@@ -21,18 +21,21 @@ func NewSQLiteTokenRepository(db *sql.DB) TokenRepository {
 }
 
 func (r *SQLiteTokenRepository) GetToken(provider string) (*Token, error) {
-	var token model.OAuthTokens
+	var tokens []model.OAuthTokens
 	err := table.OAuthTokens.
 		SELECT(table.OAuthTokens.AllColumns).
 		WHERE(table.OAuthTokens.Provider.EQ(sqlite.String(provider))).
-		Query(r.db, &token)
+		Query(r.db, &tokens)
 
 	if err != nil {
-		if err == sql.ErrNoRows {
-			return nil, nil
-		}
 		return nil, err
 	}
+
+	if len(tokens) == 0 {
+		return nil, nil
+	}
+
+	token := tokens[0]
 
 	return &Token{
 		AccessToken:  nullableStringFromPtr(token.AccessToken),
