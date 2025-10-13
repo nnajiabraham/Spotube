@@ -11,3 +11,4 @@ backend/server
 frontend/test-results
 frontend/playwright-report
 backend/main
+*.db

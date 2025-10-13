@@ -2,76 +2,69 @@
 package main
 
 import (
-	"fmt"
+	"context"
 	"log"
+	"net/http"
 	"os"
-	"strings"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/joho/godotenv"
-	"github.com/pocketbase/pocketbase"
-	"github.com/pocketbase/pocketbase/plugins/migratecmd"
 
-	// Import migrations to register them
-	"github.com/manlikeabro/spotube/internal/jobs"
-	"github.com/manlikeabro/spotube/internal/pbext/dashboard"
-	"github.com/manlikeabro/spotube/internal/pbext/googleauth"
-	"github.com/manlikeabro/spotube/internal/pbext/mappings"
-	"github.com/manlikeabro/spotube/internal/pbext/setupwizard"
-	"github.com/manlikeabro/spotube/internal/pbext/spotifyauth"
-	_ "github.com/manlikeabro/spotube/migrations"
+	"github.com/manlikeabro/spotube/internal/config"
+	"github.com/manlikeabro/spotube/internal/handlers"
+	"github.com/manlikeabro/spotube/internal/httpserver"
+	"github.com/manlikeabro/spotube/internal/logging"
+	"github.com/manlikeabro/spotube/internal/sqliteconn"
 )
 
 func main() {
-	// Load .env file if it exists (for development convenience)
-	// This loads environment variables from .env file in the current working directory
-	// Production deployments should use actual environment variables
-	if err := godotenv.Load(); err != nil {
-		// Only log if the error is not "file not found" since .env is optional
-		if !os.IsNotExist(err) {
-			log.Printf("Warning: Error loading .env file: %v", err)
-		}
+	_ = godotenv.Load()
+
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatalf("failed to load config: %v", err)
 	}
 
-	fmt.Println("PUBLIC_URL", os.Getenv("PUBLIC_URL"))
+	logger := logging.Init(cfg.AppEnv, cfg.LogLevel, cfg.Version)
 
-	app := pocketbase.New()
-
-	// Enable debug logging if LOG_LEVEL is set to debug
-	if strings.ToLower(os.Getenv("LOG_LEVEL")) == "debug" {
-		app.Settings().Logs.MaxDays = 7
-		log.Println("Debug logging enabled")
+	db, err := sqliteconn.OpenWithPragmas(cfg.DBPath)
+	if err != nil {
+		logger.Fatal().Err(err).Msg("failed to open database")
 	}
+	defer db.Close()
 
-	// Register setup wizard routes and hooks
-	setupwizard.Register(app)
-	setupwizard.RegisterHooks(app)
+	srv := httpserver.New(cfg, logger)
 
-	// Register Spotify auth routes
-	spotifyauth.Register(app)
-
-	// Register Google auth routes
-	googleauth.Register(app)
-
-	// Register dashboard routes (RFC-010 L3)
-	dashboard.Register(app)
-
-	// Register mappings hooks
-	mappings.RegisterHooks(app)
-
-	// Register analysis job scheduler
-	jobs.RegisterAnalysis(app)
-
-	// Register executor job scheduler (RFC-008)
-	jobs.RegisterExecutor(app)
-
-	// Register `pb migrate` sub-command so we can run `go run ./cmd/server migrate up`.
-	isGoRun := strings.HasPrefix(os.Args[0], os.TempDir())
-	migratecmd.MustRegister(app, app.RootCmd, migratecmd.Config{
-		Automigrate: isGoRun, // Dev: auto-generate migrations when using Admin UI
+	handlers.RegisterHealth(srv, &handlers.HealthHandler{
+		DB:     db,
+		Logger: logger,
+		Config: cfg,
 	})
 
-	// Serve PocketBase (defaults to :8090) – production port defined via ENV PORT.
-	if err := app.Start(); err != nil {
-		log.Fatal(err)
+	setupHandler := handlers.NewSetupHandler(db)
+	apiGroup := srv.Group("/api/setup")
+	handlers.RegisterSetupRoutes(apiGroup, setupHandler)
+
+	address := ":" + cfg.Port
+	go func() {
+		logger.Info().Str("addr", address).Msg("starting server")
+		if err := srv.Start(address); err != nil && err != http.ErrServerClosed {
+			logger.Fatal().Err(err).Msg("server error")
+		}
+	}()
+
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
+	<-stop
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	if err := srv.Shutdown(ctx); err != nil {
+		logger.Error().Err(err).Msg("server shutdown failed")
 	}
+
+	logger.Info().Msg("server stopped")
 }
