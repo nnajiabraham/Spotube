@@ -11,6 +11,7 @@ require (
 	github.com/labstack/echo/v4 v4.13.4
 	github.com/pressly/goose/v3 v3.24.3
 	github.com/rs/zerolog v1.34.0
+	github.com/samber/lo v1.51.0
 	github.com/stretchr/testify v1.10.0
 	github.com/zmb3/spotify/v2 v2.4.3
 	golang.org/x/oauth2 v0.31.0

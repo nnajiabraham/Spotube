@@ -83,6 +83,11 @@ func main() {
 	youtubeGroup := srv.Group("/api/auth/youtube")
 	handlers.RegisterYouTubeRoutes(youtubeGroup, youtubeHandler)
 
+	// Mappings CRUD
+	mappingsHandler := handlers.NewMappingsHandler(db)
+	mappingsGroup := srv.Group("/api/collections/mappings/records")
+	handlers.RegisterMappingsRoutes(mappingsGroup, mappingsHandler)
+
 	address := ":" + cfg.Port
 	go func() {
 		logger.Info().Str("addr", address).Msg("starting server")
