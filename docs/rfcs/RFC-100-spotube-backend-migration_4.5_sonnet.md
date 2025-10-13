@@ -775,21 +775,21 @@ github.com/jarcoal/httpmock (testing)
 
 ### Phase 6: Dashboard Stats
 
-- [ ] **Implement dashboard handler (`internal/handlers/dashboard.go`)**
+- [x] **Implement dashboard handler (`internal/handlers/dashboard.go`)**
   - **Test Cases:**
-    - [ ] `GET /api/dashboard/stats` returns correct JSON shape
-    - [ ] mappings.total: COUNT(*) from mappings
-    - [ ] queue stats: COUNT(*) GROUP BY status from sync_items
-    - [ ] recent_runs: last 10 activity_logs sorted by created desc
-    - [ ] youtube_quota: placeholder values (actual tracking in Phase 7)
-    - [ ] Test with empty database returns zeros
-    - [ ] Test with seed data returns correct counts
-    - [ ] Unauthenticated endpoint (no session required)
+    - [x] `GET /api/dashboard/stats` returns correct JSON shape
+    - [x] mappings.total: COUNT(*) from mappings
+    - [x] queue stats: COUNT(*) GROUP BY status from sync_items
+    - [x] recent_runs: last 10 activity_logs sorted by created desc
+    - [x] youtube_quota: placeholder values (actual tracking in Phase 7)
+    - [x] Test with empty database returns zeros
+    - [x] Test with seed data returns correct counts
+    - [x] Unauthenticated endpoint (no session required)
 
-- [ ] **Wire dashboard endpoint in main.go**
+- [x] **Wire dashboard endpoint in main.go**
   - **Test Cases:**
-    - [ ] Route registered
-    - [ ] Integration test validates aggregation logic
+    - [x] Route registered
+    - [x] Integration test validates aggregation logic
     - [ ] Manual test: dashboard in frontend displays stats
 
 ### Phase 7: Background Jobs
@@ -943,6 +943,8 @@ github.com/jarcoal/httpmock (testing)
 - `backend/internal/activitylogger/logger.go` – activity logger helper for database persistence
 - `backend/internal/activitylogger/logger_test.go` – activity logger tests with convenience methods
 - `backend/internal/handlers/phase5_integration_test.go` – end-to-end validation of blacklist + activity logs integration
+- `backend/internal/handlers/dashboard.go` – dashboard stats handler with aggregation queries
+- `backend/internal/handlers/dashboard_test.go` – comprehensive dashboard stats tests (empty/seeded data, response shape, limits)
 - `backend/internal/auth/pkce.go` & `_test.go` – PKCE helper utilities
 - `backend/internal/auth/token_repository.go` – SQLite token repository using Jet
 - `backend/cmd/server/settings_repo.go` – settings repository adapter for main server
@@ -1008,6 +1010,12 @@ github.com/jarcoal/httpmock (testing)
   - All backend packages pass including blacklist and activity logs functionality
 - `make test` (Phase 5 complete)
   - Full test suite (backend + frontend) passes with Phase 5 functionality
+- `go test -v ./internal/handlers -run TestDashboard` (Phase 6 complete)
+  - 4 dashboard handler tests passing: empty database, seeded data, response shape, unauthenticated access
+- `go test -v ./internal/handlers` (Phase 6 complete)
+  - 30 handler tests passing including dashboard stats aggregation and comprehensive validation
+- `make backend/test` (Phase 6 complete)
+  - All backend packages pass including dashboard stats functionality
 
 **Issues Encountered:**
 - Existing Makefile lacked EBJoy workflow targets; added new checklist item to cover implementation (now complete).
@@ -1023,6 +1031,7 @@ github.com/jarcoal/httpmock (testing)
 - Jet queries require slice destinations rather than single struct instances; adjusted Get handler to use `[]model.Mappings` and check length for 404 responses.
 - Activity logger implementation required proper null handling for optional mapping_id field using pointer types in Jet model.
 - Blacklist and activity logs handlers followed established patterns from mappings CRUD with comprehensive test coverage including validation, filtering, and error scenarios.
+- Dashboard stats implementation initially used Jet GROUP BY queries which had complexity issues; simplified to individual status queries for better reliability and maintainability.
 
 **Key Decisions:**
 - (pending)

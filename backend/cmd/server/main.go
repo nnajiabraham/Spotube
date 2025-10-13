@@ -98,6 +98,11 @@ func main() {
 	activityLogsGroup := srv.Group("/api/collections/activity_logs/records")
 	handlers.RegisterActivityLogsRoutes(activityLogsGroup, activityLogsHandler)
 
+	// Dashboard Stats (unauthenticated)
+	dashboardHandler := handlers.NewDashboardHandler(db)
+	dashboardGroup := srv.Group("/api/dashboard")
+	handlers.RegisterDashboardRoutes(dashboardGroup, dashboardHandler)
+
 	address := ":" + cfg.Port
 	go func() {
 		logger.Info().Str("addr", address).Msg("starting server")
