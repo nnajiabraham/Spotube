@@ -72,12 +72,12 @@ func (h *ActivityLogsHandler) List(c echo.Context) error {
 		selectQuery = selectQuery.WHERE(table.ActivityLogs.JobType.EQ(sqlite.String(jobType)))
 		countQuery = countQuery.WHERE(table.ActivityLogs.JobType.EQ(sqlite.String(jobType)))
 	}
-	
+
 	if strings.TrimSpace(level) != "" {
 		selectQuery = selectQuery.WHERE(table.ActivityLogs.Level.EQ(sqlite.String(level)))
 		countQuery = countQuery.WHERE(table.ActivityLogs.Level.EQ(sqlite.String(level)))
 	}
-	
+
 	if strings.TrimSpace(mappingID) != "" {
 		selectQuery = selectQuery.WHERE(table.ActivityLogs.MappingID.EQ(sqlite.String(mappingID)))
 		countQuery = countQuery.WHERE(table.ActivityLogs.MappingID.EQ(sqlite.String(mappingID)))

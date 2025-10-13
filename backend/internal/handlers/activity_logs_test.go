@@ -40,7 +40,7 @@ func TestActivityLogsList(t *testing.T) {
 
 	// Seed test data
 	now := time.Now().Unix()
-	
+
 	// Create some activity logs
 	_, err := db.Exec(`INSERT INTO activity_logs (id, level, message, mapping_id, job_type, created) VALUES (?, ?, ?, ?, ?, ?)`,
 		"log1", "info", "Analysis started", "mapping1", "analysis", now)
@@ -74,7 +74,7 @@ func TestActivityLogsList(t *testing.T) {
 	assert.Equal(t, 10, response.PerPage)
 	assert.Equal(t, int64(3), response.TotalItems)
 	assert.Len(t, response.Items, 3)
-	
+
 	// Should be ordered by created desc
 	assert.Equal(t, "log3", response.Items[0].ID)
 	assert.Equal(t, "log2", response.Items[1].ID)
@@ -87,7 +87,7 @@ func TestActivityLogsListFiltered(t *testing.T) {
 
 	// Seed test data
 	now := time.Now().Unix()
-	
+
 	_, err := db.Exec(`INSERT INTO activity_logs (id, level, message, mapping_id, job_type, created) VALUES (?, ?, ?, ?, ?, ?)`,
 		"log1", "info", "Analysis started", "mapping1", "analysis", now)
 	require.NoError(t, err)
@@ -108,7 +108,7 @@ func TestActivityLogsListFiltered(t *testing.T) {
 		name      string
 		queryPath string
 		expected  struct {
-			count int
+			count   int
 			firstID string
 		}
 	}{
@@ -116,7 +116,7 @@ func TestActivityLogsListFiltered(t *testing.T) {
 			name:      "filter by job_type",
 			queryPath: "/api/collections/activity_logs/records?job_type=analysis",
 			expected: struct {
-				count int
+				count   int
 				firstID string
 			}{count: 1, firstID: "log1"},
 		},
@@ -124,7 +124,7 @@ func TestActivityLogsListFiltered(t *testing.T) {
 			name:      "filter by level",
 			queryPath: "/api/collections/activity_logs/records?level=error",
 			expected: struct {
-				count int
+				count   int
 				firstID string
 			}{count: 1, firstID: "log2"},
 		},
@@ -132,7 +132,7 @@ func TestActivityLogsListFiltered(t *testing.T) {
 			name:      "filter by mapping_id",
 			queryPath: "/api/collections/activity_logs/records?mapping_id=mapping1",
 			expected: struct {
-				count int
+				count   int
 				firstID string
 			}{count: 1, firstID: "log1"},
 		},

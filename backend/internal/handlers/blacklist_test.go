@@ -182,7 +182,7 @@ func TestBlacklistList(t *testing.T) {
 	e.ServeHTTP(rec, req)
 
 	assert.Equal(t, http.StatusOK, rec.Code)
-	
+
 	err = json.Unmarshal(rec.Body.Bytes(), &response)
 	require.NoError(t, err)
 

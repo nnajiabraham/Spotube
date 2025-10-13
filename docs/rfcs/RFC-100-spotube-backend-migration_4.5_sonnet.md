@@ -942,6 +942,7 @@ github.com/jarcoal/httpmock (testing)
 - `backend/internal/handlers/activity_logs_test.go` – activity logs filtering and pagination tests
 - `backend/internal/activitylogger/logger.go` – activity logger helper for database persistence
 - `backend/internal/activitylogger/logger_test.go` – activity logger tests with convenience methods
+- `backend/internal/handlers/phase5_integration_test.go` – end-to-end validation of blacklist + activity logs integration
 - `backend/internal/auth/pkce.go` & `_test.go` – PKCE helper utilities
 - `backend/internal/auth/token_repository.go` – SQLite token repository using Jet
 - `backend/cmd/server/settings_repo.go` – settings repository adapter for main server
@@ -1001,8 +1002,12 @@ github.com/jarcoal/httpmock (testing)
   - Activity logger tests pass with timestamp generation, convenience methods, null handling
 - `go test -v ./internal/handlers` (Phase 5 complete)
   - 25 handler tests passing including blacklist CRUD, activity logs filtering, and comprehensive validation
+- `go test -v ./internal/handlers -run TestPhase5EndpointIntegration`
+  - End-to-end integration test validates blacklist + activity logger coordination
 - `make backend/test` (Phase 5 complete)
   - All backend packages pass including blacklist and activity logs functionality
+- `make test` (Phase 5 complete)
+  - Full test suite (backend + frontend) passes with Phase 5 functionality
 
 **Issues Encountered:**
 - Existing Makefile lacked EBJoy workflow targets; added new checklist item to cover implementation (now complete).

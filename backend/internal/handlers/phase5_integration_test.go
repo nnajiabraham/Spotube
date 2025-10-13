@@ -31,7 +31,7 @@ func TestPhase5EndpointIntegration(t *testing.T) {
 	blacklistGroup := e.Group("/api/collections/blacklist/records")
 	RegisterBlacklistRoutes(blacklistGroup, blacklistHandler)
 
-	// Register activity logs routes  
+	// Register activity logs routes
 	activityLogsHandler := NewActivityLogsHandler(db)
 	activityLogsGroup := e.Group("/api/collections/activity_logs/records")
 	RegisterActivityLogsRoutes(activityLogsGroup, activityLogsHandler)
@@ -45,7 +45,7 @@ func TestPhase5EndpointIntegration(t *testing.T) {
 	// Test: Create blacklist entry via API
 	blacklistPayload := map[string]any{
 		"mapping_id": "integration-mapping",
-		"service":    "spotify", 
+		"service":    "spotify",
 		"track_id":   "problem-track-123",
 		"reason":     "integration test blacklist",
 	}
