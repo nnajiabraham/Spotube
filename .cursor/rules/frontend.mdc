@@ -1,0 +1,233 @@
+---
+description: Frontend development guidelines for React + TypeScript with custom HTTP client
+globs:
+  - frontend/**
+alwaysApply: false
+---
+# Spotube – Frontend Rules
+
+These rules guide agents working on the **React frontend** located in the `frontend/` folder.
+
+---
+
+## 1. Important Paths
+* `frontend/src/routes/` – File-based routing powered by TanStack Router
+* `frontend/src/components/` – Reusable React components
+* `frontend/src/lib/` – Utilities and API client
+* `frontend/src/lib/api.ts` – Custom HTTP client (replaces PocketBase SDK)
+* `frontend/src/test/` – Test setup and mocks
+* `frontend/e2e/` – Playwright E2E tests
+
+---
+
+## 2. Development Commands
+| Goal | Command |
+|------|---------|
+| Start dev server | `make frontend/dev` |
+| Build for production | `make frontend/build` |
+| Preview production build | `make frontend/preview` |
+| Run tests | `make frontend/test` |
+| Lint code | `make frontend/lint` |
+| Install dependencies | `make frontend/install` |
+| Generate route tree | `npm run routes:gen` |
+
+Always use make commands. The dev server runs on `http://localhost:5173` with Hot Module Replacement.
+Backend dev server runs on `http://localhost:8090`.
+
+---
+
+## 3. Technology Stack
+* **React 19** with TypeScript
+* **Vite** for bundling and dev server
+* **TanStack Router** for file-based routing
+* **TanStack Query** for data fetching and caching
+* **Tailwind CSS** for styling
+* **Zod** for runtime validation
+* **Custom HTTP client** for API communication (no PocketBase SDK)
+
+---
+
+## 4. API Client Patterns
+
+### HTTP Client Usage
+The application uses a custom fetch-based HTTP client instead of PocketBase SDK.
+
+**Key Features:**
+* Base URL from `VITE_API_URL` environment variable
+* Automatic `credentials: 'include'` for cookie-based sessions
+* Automatic CSRF token handling for non-GET requests
+* Standardized error parsing
+* TypeScript types for all endpoints
+
+**Example:**
+```typescript
+import { httpClient } from '@/lib/api';
+
+// GET request
+const mappings = await httpClient.get('/api/mappings', {
+  page: 1,
+  per_page: 20,
+  sort: 'created',
+  order: 'desc'
+});
+
+// POST request (CSRF token added automatically)
+const newMapping = await httpClient.post('/api/mappings', {
+  spotify_playlist_id: '...',
+  youtube_playlist_id: '...'
+});
+```
+
+### API Conventions (Option A)
+* **Pagination**: `page` (1-indexed), `per_page` (default: 20, max: 100)
+* **Sorting**: `sort=field_name`, `order=asc|desc` (default: desc)
+* **Filtering**: Flat query params (no brackets or special syntax)
+
+### Response Shapes
+* **List**: `{ items: [...], page: 1, perPage: 20, totalItems: 100, totalPages: 5 }`
+* **Single**: `{ id: "...", field: "value", ... }`
+* **Error**: `{ error: { code: "error_code", message: "Human message" } }`
+
+### Timestamp Handling
+* **From API**: Unix epoch seconds (integers) - convert to Date objects
+* **To API**: Convert Date objects to Unix epoch seconds
+
+```typescript
+// Converting timestamps
+const dateFromAPI = new Date(timestamp * 1000); // epoch seconds to Date
+const timestampForAPI = Math.floor(date.getTime() / 1000); // Date to epoch seconds
+```
+
+### CSRF Token Management
+* CSRF token automatically read from `spotube_csrf` cookie or `/api/csrf` endpoint
+* HTTP client attaches `X-CSRF-Token` header on POST/PATCH/DELETE requests
+* No manual CSRF handling needed in components
+
+---
+
+## 5. Routing Patterns
+
+### TanStack Router Structure
+* File-based routing in `src/routes/`
+* `__root.tsx` - Root layout
+* `_authenticated/` - Protected routes requiring auth
+* Lazy loading with `.lazy.tsx` suffix
+
+### Key Routes
+* `/` - Dashboard (redirects to mappings)
+* `/setup` - Initial setup wizard
+* `/mappings` - List of playlist mappings
+* `/mappings/new` - Create new mapping
+* `/mappings/$mappingId/edit` - Edit mapping
+* `/mappings/$mappingId/blacklist` - Manage blacklist
+* `/settings/spotify` - Spotify OAuth
+* `/settings/youtube` - YouTube OAuth
+* `/logs` - Activity logs viewer
+
+---
+
+## 6. Testing
+
+### Unit Tests (Vitest)
+* Test framework: Vitest
+* Run: `make frontend/test`
+* Test files: `*.test.tsx` alongside components
+* API mocking: Mock Service Worker (MSW)
+* Setup: `src/test/setup.ts`
+* Handlers: `src/test/mocks/handlers.ts`
+
+**MSW Handler Example:**
+```typescript
+http.get('/api/mappings', () => {
+  return HttpResponse.json({
+    items: [...],
+    page: 1,
+    perPage: 20,
+    totalItems: 5,
+    totalPages: 1
+  });
+});
+```
+
+### E2E Tests (Playwright)
+* Location: `e2e/`
+* Config: `playwright.config.ts`
+* Run: Only when user explicitly requests (requires backend running)
+* Test real user workflows across full application
+
+---
+
+## 7. Environment Variables
+Create `frontend/.env.local` file (copy from `.env.example`):
+```env
+VITE_API_URL=http://localhost:8090
+```
+
+All frontend env vars must be prefixed with `VITE_` to be accessible in the app.
+
+---
+
+## 8. Development Guidelines
+* **TypeScript**: Strict mode - no `any` types
+* **Routing**: Follow file-based conventions in `src/routes/`
+* **Components**: Keep small and focused, use composition
+* **Data Fetching**: Use TanStack Query for all API calls
+* **Validation**: Validate API responses with Zod schemas
+* **Never edit**: `src/routeTree.gen.ts` - it's auto-generated
+* **Path aliases**: Use `@/` for imports from src/
+* **Timestamps**: Always convert epoch seconds ↔ Date objects at API boundary
+
+---
+
+## 9. Testing & Verification
+
+### For UI Verification
+Use Playwright browser automation tools instead of curl:
+* `mcp_playwright_browser_navigate` - Open pages
+* `mcp_playwright_browser_snapshot` - Inspect page structure
+* `mcp_playwright_browser_take_screenshot` - Capture visual state
+* `mcp_playwright_browser_click` - Test interactions
+
+**Why not curl?** React apps render client-side; curl only gets the HTML shell.
+
+### API Mocking in Tests
+* Use MSW (Mock Service Worker) for all API mocks
+* Ensure mocks reflect Option A query params
+* Match new endpoint paths under `/api/*`
+* Mock responses should include proper error shapes
+
+---
+
+## 10. Common Patterns
+
+### Fetching Data with TanStack Query
+```typescript
+const { data, isLoading, error } = useQuery({
+  queryKey: ['mappings'],
+  queryFn: () => httpClient.get('/api/mappings')
+});
+```
+
+### Mutations
+```typescript
+const mutation = useMutation({
+  mutationFn: (data) => httpClient.post('/api/mappings', data),
+  onSuccess: () => {
+    queryClient.invalidateQueries({ queryKey: ['mappings'] });
+  }
+});
+```
+
+### Error Handling
+```typescript
+try {
+  const data = await httpClient.get('/api/mappings');
+} catch (error) {
+  // error.code and error.message available
+  console.error(error.code, error.message);
+}
+```
+
+---
+
+For backend API integration, see [Backend Rules](mdc:backend.mdc).

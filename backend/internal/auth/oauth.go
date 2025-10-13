@@ -12,6 +12,8 @@ type credentialProvider interface {
 	GetSettings() (*SettingsRecord, error)
 }
 
+type CredentialProvider = credentialProvider
+
 var (
 	ErrNoSpotifyCredentials = errors.New("spotify credentials not configured")
 	ErrNoGoogleCredentials  = errors.New("google credentials not configured")
@@ -56,4 +58,39 @@ func resolveCredentials(id sql.NullString, secret sql.NullString, envID, envSecr
 	}
 
 	return "", "", fallBackErr
+}
+
+// Token repository helpers
+
+type Token struct {
+	AccessToken  sql.NullString
+	RefreshToken sql.NullString
+	Expiry       sql.NullInt64
+	Scopes       sql.NullString
+}
+
+type TokenRepository interface {
+	GetToken(provider string) (*Token, error)
+	UpsertToken(provider string, token Token) error
+}
+
+// Package-level repository for handlers to access without global state.
+var tokenRepo TokenRepository
+
+func SetTokenRepository(repo TokenRepository) {
+	tokenRepo = repo
+}
+
+func LoadToken(provider string) (*Token, error) {
+	if tokenRepo == nil {
+		return nil, errors.New("token repository not configured")
+	}
+	return tokenRepo.GetToken(provider)
+}
+
+func SaveToken(provider string, token Token) error {
+	if tokenRepo == nil {
+		return errors.New("token repository not configured")
+	}
+	return tokenRepo.UpsertToken(provider, token)
 }

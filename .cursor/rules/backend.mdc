@@ -1,0 +1,146 @@
+---
+description: Backend rules for Echo + Goose + Jet + SQLite stack
+globs:
+  - backend/**
+alwaysApply: false
+---
+# Spotube – Backend Rules (Echo + Goose + Jet + SQLite)
+
+This rule file provides commands and guidelines for the Echo-based backend.
+
+---
+
+## 1. Directory Overview
+| Path | Purpose |
+|------|---------|
+| `backend/cmd/server/` | Application entry point (`main.go`) |
+| `backend/cmd/migrate/` | CLI to run Goose migrations |
+| `backend/internal/httpserver/` | Echo server setup, middleware, error handling |
+| `backend/internal/handlers/` | HTTP handlers (health, setup, OAuth, mappings, etc.) |
+| `backend/internal/config/` | Configuration loading (`APP_ENV`, `PORT`, `DB_PATH`, etc.) |
+| `backend/internal/logging/` | Zerolog setup and helpers |
+| `backend/internal/sqliteconn/` | SQLite connection with pragmas |
+| `backend/internal/auth/` | OAuth helpers for Spotify and YouTube |
+| `backend/internal/jobs/` | Background jobs (analysis, executor) |
+| `backend/migrations/` | Goose SQL migrations |
+| `backend/internal/db/` | Jet codegen output (models and tables) |
+| `backend/go.mod` | Go module dependencies |
+
+---
+
+## 2. Development Commands
+| Goal | Command |
+|------|---------|
+| Start backend dev server | `make backend/dev` |
+| Run unit tests | `make backend/test` |
+| Build production binary | `make backend/build` |
+| Format and lint code | `make backend/lint` |
+| Install/update dependencies | `make backend/install` |
+| Create migration | `make backend/db/create NAME=<description>` |
+| Apply migrations | `make backend/db/up` |
+| Roll back one migration | `make backend/db/down` |
+| Run Jet codegen | `make backend/db/gen` |
+
+**Important:** Always use make commands. Do NOT run `go run` or `go build` directly.
+
+Notes:
+- `make backend/dev` runs: `backend/db/up` → `backend/db/gen` → starts the Echo server on port 8090.
+- Jet codegen uses SQLite via a `file://` DSN; prefer `make backend/db/gen` instead of invoking the generator directly.
+- The main server uses `sqliteconn.OpenWithPragmas` to enforce WAL, foreign keys, busy timeout, and pool caps.
+
+---
+
+## 3. Environment Variables
+Create `backend/.env` file:
+```env
+APP_ENV=development
+PORT=8090
+DB_PATH=./data/spotube.db
+CORS_ALLOW_ORIGINS=http://localhost:5173
+VERSION=dev
+LOG_LEVEL=debug
+PUBLIC_URL=http://localhost:8090
+FRONTEND_URL=http://localhost:5173
+SPOTIFY_CLIENT_ID=
+SPOTIFY_CLIENT_SECRET=
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+```
+
+---
+
+## 4. Health, Security & Observability
+* Health endpoint: `GET /api/health` returns `{ status, timestamp, version, service }` and pings SQLite.
+* Structured logs via Zerolog include `request_id`, `method`, `path`, `status`, and `latency_ms`.
+* Strict error hygiene: no stack traces or raw SQL errors in JSON responses.
+* Error responses follow format: `{ error: { code: "...", message: "..." } }`
+
+---
+
+## 5. OAuth Integration Patterns
+* Spotify OAuth with PKCE flow in `internal/handlers/spotify.go`
+* YouTube OAuth flow in `internal/handlers/youtube.go`
+* Tokens stored in `oauth_tokens` table via Jet queries
+* Credential loading supports DB settings with env fallback
+* Token refresh handled automatically before API calls
+
+---
+
+## 6. Background Jobs
+* Jobs use `robfig/cron/v3` for scheduling (not PocketBase cron)
+* Analysis job (`internal/jobs/analysis.go`): Runs every minute, detects playlist differences
+* Executor job (`internal/jobs/executor.go`): Processes sync queue with rate limiting
+* Jobs access database via Jet query builders only
+
+---
+
+## 7. Testing
+* Unit and integration tests: `make backend/test`
+* Use `httptest` for handler tests with temporary SQLite DB
+* Run Goose migrations in test setup, clean up after
+* Never use mocks for database; use real SQLite with temp files
+
+---
+
+## 8. API Conventions
+* Query parameters (Option A only): `page`, `per_page`, `sort`, `order` (no `-field` syntax)
+* Timestamps in JSON are Unix epoch seconds (UTC, INTEGER type)
+* Response shapes:
+  - List: `{ items: [...], page: 1, perPage: 50, totalItems: 123, totalPages: 3 }`
+  - Single: `{ id: "...", field: "value", ... }`
+  - Error: `{ error: { code: "...", message: "..." } }`
+
+---
+
+## 9. Database Access Policy (MANDATORY)
+* Use generated Jet query builders from `backend/internal/db/table` and `backend/internal/db/model` for ALL application database reads/writes.
+* Do NOT use raw SQL via `db.Query*` / `db.Exec*` in handlers, services, or other app code.
+* Allowed exceptions:
+  - Goose SQL migrations in `backend/migrations/`
+  - Minimal raw SQL in tests strictly for bootstrapping temp DBs when Jet codegen is not part of the test setup
+* Examples:
+  - Select: `table.Mappings.SELECT(table.Mappings.AllColumns).WHERE(table.Mappings.ID.EQ(sqlite.String(id))).Query(db, &mappings)`
+  - Insert: `table.Mappings.INSERT(table.Mappings.AllColumns).MODEL(mapping).Exec(db)`
+* Review requirement: PRs introducing raw SQL in app code must be rejected and rewritten using Jet.
+
+---
+
+## 10. Handler Patterns
+* All handlers receive dependencies via explicit structs (no global state)
+* Example:
+  ```go
+  type HandlerDeps struct {
+      DB     *sql.DB
+      Logger zerolog.Logger
+      Config config.Config
+  }
+  
+  func SomeHandler(deps HandlerDeps) echo.HandlerFunc {
+      return func(c echo.Context) error {
+          // Implementation
+      }
+  }
+  ```
+* Always use request-scoped logger with request_id
+* Sanitize all errors before returning to client
+* Log detailed diagnostics server-side only

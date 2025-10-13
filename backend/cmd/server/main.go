@@ -10,8 +10,10 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/gorilla/sessions"
 	"github.com/joho/godotenv"
 
+	"github.com/manlikeabro/spotube/internal/auth"
 	"github.com/manlikeabro/spotube/internal/config"
 	"github.com/manlikeabro/spotube/internal/handlers"
 	"github.com/manlikeabro/spotube/internal/httpserver"
@@ -46,6 +48,30 @@ func main() {
 	setupHandler := handlers.NewSetupHandler(db)
 	apiGroup := srv.Group("/api/setup")
 	handlers.RegisterSetupRoutes(apiGroup, setupHandler)
+
+	// Token repository
+	tokenRepo := auth.NewSQLiteTokenRepository(db)
+	auth.SetTokenRepository(tokenRepo)
+
+	// Session store
+	sessionStore := sessions.NewCookieStore([]byte(cfg.SessionCookieName))
+	sessionStore.Options.Path = "/"
+	sessionStore.Options.MaxAge = cfg.SessionTTLSeconds
+	sessionStore.Options.HttpOnly = true
+	sessionStore.Options.Secure = cfg.SessionSecure
+
+	// Settings repository for OAuth handlers
+	settingsRepo := &sqliteSettingsRepo{db: db}
+
+	// Spotify OAuth
+	spotifyHandler := handlers.NewSpotifyOAuthHandler(
+		settingsRepo,
+		tokenRepo,
+		sessionStore,
+		cfg.PublicURL+"/api/auth/spotify/callback",
+	)
+	spotifyGroup := srv.Group("/api/auth/spotify")
+	handlers.RegisterSpotifyRoutes(spotifyGroup, spotifyHandler)
 
 	address := ":" + cfg.Port
 	go func() {

@@ -1,0 +1,118 @@
+---
+description: Important rules and guidelines for implementing RFC plans and designs
+globs: []
+alwaysApply: false
+---
+# Spotube – RFC Implementation Rules
+
+Use this file after an RFC's status switches to **`Active`**.
+
+---
+
+## 1. Sequential Workflow
+For each unchecked item in the RFC **Checklist**:
+
+1. **Plan** the minimal, test-driven change, guided by the *Test Cases* listed under that checklist item
+
+2. **Implement** code changes using appropriate tools (keep edits small and focused)
+
+3. **Run & fix** tests for that task plus the global suite:
+   ```bash
+   make backend/test
+   make frontend/test
+   make backend/lint
+   make frontend/lint
+   ```
+
+4. If DB schema changes are required, follow the steps in [Database Rules](mdc:database.mdc):
+   - Create migration: `make backend/db/create NAME=xyz`
+   - Apply migration: `make backend/db/up`
+   - Generate Jet models: `make backend/db/gen`
+   - Verify in tests
+
+5. Commit the change using conventional commit format:
+   ```
+   <type>(rfc-XXX): <message>
+   ```
+   Examples: `feat(rfc-100): add spotify OAuth handler`, `test(rfc-100): add unit tests for mappings`
+
+6. **Update the RFC file**:
+   * Mark the checklist box `[X]` **only after all test cases pass**
+   * Append a bullet to *Implementation Notes / Summary* detailing:
+     - File paths changed
+     - Config/migration commands run
+     - Environment variables added
+     - Key implementation decisions
+     - Any issues encountered and resolutions
+
+7. Push to the PR and ensure all checks pass
+
+> **Do not start the next checklist item until the current one is checked and the Implementation Notes have been updated.**
+
+Repeat until all items are complete.
+
+---
+
+## 2. Run Tests Early and Often
+Never mark a checklist item as complete until:
+* All automated tests are green (`make test` passes)
+* Linters report zero errors (`make lint` passes)
+* Manual smoke tests pass when relevant (e.g., OAuth flows)
+
+---
+
+## 3. Definition of Done
+An RFC can be moved to **`Done`** status when:
+* Every checklist item is checked `[X]`
+* `make test` and `make lint` pass for all projects
+* The *Implementation Notes / Summary* section concisely describes the major changes
+* The PR is reviewed & merged
+* No regressions in existing functionality
+
+---
+
+## 4. Safety Nets & Tips
+* **Small commits**: Scope commits to a single checklist item whenever possible
+* **Test first**: If you suspect a change may introduce regressions, add/extend tests **before** implementation
+* **Use make commands**: Always use `make` commands for consistency (never raw `go run`, `npm run`, etc.)
+* **Database access**: Always use Jet query builders (see [Backend Rules](mdc:backend.mdc) Section 9)
+* **When stuck**: Revisit [RFC Creation Rules](mdc:rfc-create.mdc) and the RFC itself for clarity
+
+---
+
+## 5. Common Implementation Patterns
+
+### Adding a New Endpoint
+1. Define handler in `backend/internal/handlers/`
+2. Add dependencies struct if needed
+3. Write httptest integration tests
+4. Register route in `cmd/server/main.go`
+5. Update API documentation in RFC
+
+### Adding a Database Table
+1. Create Goose migration: `make backend/db/create NAME=add_table_name`
+2. Write migration SQL (Up + Down)
+3. Apply migration: `make backend/db/up`
+4. Generate Jet models: `make backend/db/gen`
+5. Write migration integration tests
+6. Use Jet builders in application code
+
+### Adding a Background Job
+1. Create job file in `internal/jobs/`
+2. Implement job logic using Jet for DB access
+3. Register job with cron scheduler in `cmd/server/main.go`
+4. Write job unit tests with mocked external APIs
+5. Add activity logging for job execution
+
+---
+
+## 6. Review Checklist Before Marking RFC Done
+- [ ] All checklist items are `[X]` checked
+- [ ] All tests pass (`make test`)
+- [ ] All linters pass (`make lint`)
+- [ ] Implementation Notes updated with comprehensive details
+- [ ] No raw SQL in application code (only Jet queries)
+- [ ] Error responses are sanitized (no stack traces/SQL errors)
+- [ ] Environment variables documented if added
+- [ ] Database migrations tested (up and down)
+- [ ] Manual testing performed for user-facing features
