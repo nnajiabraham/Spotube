@@ -17,7 +17,7 @@ backend/test: ## Run backend tests
 	@cd $(BACKEND_DIR) && go test ./...
 
 backend/build: ## Build backend binary
-	@cd $(BACKEND_DIR) && go build -o ../dist/$(BINARY_NAME) ./cmd/server/main.go
+	@cd $(BACKEND_DIR) && go build -o ../dist/$(BINARY_NAME) ./cmd/server
 
 backend/lint: ## Run backend linters
 	@cd $(BACKEND_DIR) && go fmt ./...

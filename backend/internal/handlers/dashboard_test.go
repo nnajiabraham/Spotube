@@ -263,5 +263,3 @@ func TestDashboardStatsUnauthenticated(t *testing.T) {
 	assert.NotNil(t, response.RecentRuns)
 	assert.Equal(t, int64(10000), response.YouTubeQuota.Limit)
 }
-
-

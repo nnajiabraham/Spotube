@@ -8,7 +8,7 @@
 package table
 
 import (
-    "github.com/go-jet/jet/v2/sqlite"
+	"github.com/go-jet/jet/v2/sqlite"
 )
 
 var Settings = newSettingsTable("", "settings", "")
