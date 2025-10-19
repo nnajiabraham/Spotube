@@ -8,7 +8,8 @@ import (
 
 // sqliteSettingsRepo implements auth.CredentialProvider for the main server.
 type sqliteSettingsRepo struct {
-	db *sql.DB
+	db       *sql.DB
+	fallback *auth.SettingsRecord
 }
 
 func (r *sqliteSettingsRepo) GetSettings() (*auth.SettingsRecord, error) {
@@ -18,7 +19,7 @@ func (r *sqliteSettingsRepo) GetSettings() (*auth.SettingsRecord, error) {
 	err := row.Scan(&record.SpotifyClientID, &record.SpotifyClientSecret, &record.GoogleClientID, &record.GoogleClientSecret)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return nil, nil
+			return r.fallback, nil
 		}
 		return nil, err
 	}

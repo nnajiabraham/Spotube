@@ -18,6 +18,7 @@ import { Route as rootRoute } from './routes/__root'
 
 const SetupLazyImport = createFileRoute('/setup')()
 const DashboardLazyImport = createFileRoute('/dashboard')()
+const IndexLazyImport = createFileRoute('/')()
 const SetupIndexLazyImport = createFileRoute('/setup/')()
 const SetupSuccessLazyImport = createFileRoute('/setup/success')()
 const SettingsYoutubeLazyImport = createFileRoute('/settings/youtube')()
@@ -49,6 +50,12 @@ const DashboardLazyRoute = DashboardLazyImport.update({
   path: '/dashboard',
   getParentRoute: () => rootRoute,
 } as any).lazy(() => import('./routes/dashboard.lazy').then((d) => d.Route))
+
+const IndexLazyRoute = IndexLazyImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => rootRoute,
+} as any).lazy(() => import('./routes/index.lazy').then((d) => d.Route))
 
 const SetupIndexLazyRoute = SetupIndexLazyImport.update({
   id: '/',
@@ -130,6 +137,13 @@ const AuthenticatedMappingsMappingIdBlacklistLazyRoute =
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/': {
+      id: '/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof IndexLazyImport
+      parentRoute: typeof rootRoute
+    }
     '/dashboard': {
       id: '/dashboard'
       path: '/dashboard'
@@ -227,6 +241,7 @@ const SetupLazyRouteWithChildren = SetupLazyRoute._addFileChildren(
 )
 
 export interface FileRoutesByFullPath {
+  '/': typeof IndexLazyRoute
   '/dashboard': typeof DashboardLazyRoute
   '/setup': typeof SetupLazyRouteWithChildren
   '/logs': typeof AuthenticatedLogsLazyRoute
@@ -241,6 +256,7 @@ export interface FileRoutesByFullPath {
 }
 
 export interface FileRoutesByTo {
+  '/': typeof IndexLazyRoute
   '/dashboard': typeof DashboardLazyRoute
   '/logs': typeof AuthenticatedLogsLazyRoute
   '/settings/spotify': typeof SettingsSpotifyLazyRoute
@@ -255,6 +271,7 @@ export interface FileRoutesByTo {
 
 export interface FileRoutesById {
   __root__: typeof rootRoute
+  '/': typeof IndexLazyRoute
   '/dashboard': typeof DashboardLazyRoute
   '/setup': typeof SetupLazyRouteWithChildren
   '/_authenticated/logs': typeof AuthenticatedLogsLazyRoute
@@ -271,6 +288,7 @@ export interface FileRoutesById {
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
+    | '/'
     | '/dashboard'
     | '/setup'
     | '/logs'
@@ -284,6 +302,7 @@ export interface FileRouteTypes {
     | '/mappings/$mappingId/edit'
   fileRoutesByTo: FileRoutesByTo
   to:
+    | '/'
     | '/dashboard'
     | '/logs'
     | '/settings/spotify'
@@ -296,6 +315,7 @@ export interface FileRouteTypes {
     | '/mappings/$mappingId/edit'
   id:
     | '__root__'
+    | '/'
     | '/dashboard'
     | '/setup'
     | '/_authenticated/logs'
@@ -311,6 +331,7 @@ export interface FileRouteTypes {
 }
 
 export interface RootRouteChildren {
+  IndexLazyRoute: typeof IndexLazyRoute
   DashboardLazyRoute: typeof DashboardLazyRoute
   SetupLazyRoute: typeof SetupLazyRouteWithChildren
   AuthenticatedLogsLazyRoute: typeof AuthenticatedLogsLazyRoute
@@ -323,6 +344,7 @@ export interface RootRouteChildren {
 }
 
 const rootRouteChildren: RootRouteChildren = {
+  IndexLazyRoute: IndexLazyRoute,
   DashboardLazyRoute: DashboardLazyRoute,
   SetupLazyRoute: SetupLazyRouteWithChildren,
   AuthenticatedLogsLazyRoute: AuthenticatedLogsLazyRoute,
@@ -346,6 +368,7 @@ export const routeTree = rootRoute
     "__root__": {
       "filePath": "__root.tsx",
       "children": [
+        "/",
         "/dashboard",
         "/setup",
         "/_authenticated/logs",
@@ -356,6 +379,9 @@ export const routeTree = rootRoute
         "/_authenticated/mappings/$mappingId/blacklist",
         "/_authenticated/mappings/$mappingId/edit"
       ]
+    },
+    "/": {
+      "filePath": "index.lazy.tsx"
     },
     "/dashboard": {
       "filePath": "dashboard.lazy.tsx"

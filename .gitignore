@@ -12,4 +12,6 @@ frontend/test-results
 frontend/playwright-report
 backend/main
 *.db
+*.db-shm
+*.db-wal
 dist/

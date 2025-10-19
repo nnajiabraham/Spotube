@@ -11,7 +11,7 @@ backend/install: ## Install backend dependencies
 backend/dev: ## Start backend server (applies migrations + codegen first)
 	@$(MAKE) backend/db/up
 	@$(MAKE) backend/db/gen
-	@cd $(BACKEND_DIR) && go run ./cmd/server/main.go
+	@cd $(BACKEND_DIR) && go run ./cmd/server
 
 backend/test: ## Run backend tests
 	@cd $(BACKEND_DIR) && go test ./...

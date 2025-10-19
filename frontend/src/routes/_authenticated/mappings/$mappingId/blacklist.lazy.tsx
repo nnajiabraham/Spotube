@@ -45,8 +45,17 @@ function BlacklistPage() {
 
   const blacklistEntries = blacklistData?.items || []
 
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
+  const formatDate = (timestamp: number | string | null | undefined) => {
+    // Handle both epoch seconds (number) and ISO strings (string)
+    if (timestamp === null || timestamp === undefined) {
+      return '—'
+    }
+
+    const date = typeof timestamp === 'number'
+      ? new Date(timestamp * 1000)
+      : new Date(timestamp);
+      
+    return date.toLocaleDateString('en-US', {
       year: 'numeric',
       month: 'short',
       day: 'numeric',

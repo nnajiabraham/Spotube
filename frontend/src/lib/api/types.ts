@@ -7,11 +7,26 @@ export interface SetupStatus {
 export interface SpotifyPlaylist {
   id: string;
   name: string;
+  images?: Array<{
+    url: string;
+    width?: number;
+    height?: number;
+  }>;
+  description?: string | null;
+  track_count?: number;
+  public?: boolean;
+  owner?: {
+    id?: string;
+    display_name?: string;
+  };
 }
 
 export interface YouTubePlaylist {
   id: string;
   name: string;
+  title?: string;
+  description?: string | null;
+  itemCount?: number;
 }
 
 export interface Mapping {
@@ -64,6 +79,8 @@ export interface ActivityLog {
   mapping_id?: string;
   job_type: 'analysis' | 'executor' | 'system';
   created: number; // epoch seconds
+  updated?: number | null;
+  sync_item_id?: string | null;
 }
 
 export interface ActivityLogsResponse {

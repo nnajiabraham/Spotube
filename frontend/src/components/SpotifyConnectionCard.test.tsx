@@ -37,22 +37,11 @@ describe('SpotifyConnectionCard', () => {
   it('shows connected state when authenticated', async () => {
     // Override the default handler to return authenticated response
     server?.use(
-      http.get('http://localhost:8090/api/spotify/playlists', () => {
-        return HttpResponse.json({
-          items: [{
-            id: 'playlist1',
-            name: 'Test Playlist',
-            description: 'Test',
-            public: true,
-            track_count: 10,
-            owner: { id: 'user1', display_name: 'Test User' },
-            images: []
-          }],
-          total: 1,
-          limit: 20,
-          offset: 0,
-          next: ''
-        });
+      http.get('http://localhost:8090/api/auth/spotify/playlists', () => {
+        return HttpResponse.json([{
+          id: 'playlist1',
+          name: 'Test Playlist',
+        }]);
       })
     );
     
@@ -69,9 +58,9 @@ describe('SpotifyConnectionCard', () => {
   it('shows connect button when not authenticated', async () => {
     // Override with unauthorized handler
     server?.use(
-      http.get('http://localhost:8090/api/spotify/playlists', () => {
+      http.get('http://localhost:8090/api/auth/spotify/playlists', () => {
         return HttpResponse.json(
-          { error: 'Not authenticated with Spotify' },
+          { error: { code: 'unauthorized', message: 'Not authenticated with Spotify' } },
           { status: 401 }
         );
       })
@@ -80,7 +69,7 @@ describe('SpotifyConnectionCard', () => {
     renderWithProviders(<SpotifyConnectionCard />);
     
     await waitFor(() => {
-      expect(screen.getByRole('link', { name: 'Connect Spotify' })).toBeInTheDocument();
-    });
+      expect(screen.getByRole('button', { name: 'Connect Spotify' })).toBeInTheDocument()
+    })
   });
 }); 

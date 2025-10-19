@@ -7,8 +7,11 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
+
+	"database/sql"
 
 	"github.com/gorilla/sessions"
 	"github.com/joho/godotenv"
@@ -45,7 +48,13 @@ func main() {
 		Config: cfg,
 	})
 
-	setupHandler := handlers.NewSetupHandler(db)
+	setupDefaults := &handlers.SettingsRecord{
+		SpotifyClientID:     nullableString(cfg.SpotifyClientID),
+		SpotifyClientSecret: nullableString(cfg.SpotifyClientSecret),
+		GoogleClientID:      nullableString(cfg.GoogleClientID),
+		GoogleClientSecret:  nullableString(cfg.GoogleClientSecret),
+	}
+	setupHandler := handlers.NewSetupHandler(db, setupDefaults)
 	apiGroup := srv.Group("/api/setup")
 	handlers.RegisterSetupRoutes(apiGroup, setupHandler)
 
@@ -60,8 +69,14 @@ func main() {
 	sessionStore.Options.HttpOnly = true
 	sessionStore.Options.Secure = cfg.SessionSecure
 
-	// Settings repository for OAuth handlers
-	settingsRepo := &sqliteSettingsRepo{db: db}
+	// Settings repository for OAuth handlers (uses env defaults when DB empty)
+	oauthFallback := &auth.SettingsRecord{
+		SpotifyClientID:     nullableString(cfg.SpotifyClientID),
+		SpotifyClientSecret: nullableString(cfg.SpotifyClientSecret),
+		GoogleClientID:      nullableString(cfg.GoogleClientID),
+		GoogleClientSecret:  nullableString(cfg.GoogleClientSecret),
+	}
+	settingsRepo := &sqliteSettingsRepo{db: db, fallback: oauthFallback}
 
 	// Spotify OAuth
 	spotifyHandler := handlers.NewSpotifyOAuthHandler(
@@ -123,4 +138,11 @@ func main() {
 	}
 
 	logger.Info().Msg("server stopped")
+}
+
+func nullableString(value string) sql.NullString {
+	if strings.TrimSpace(value) == "" {
+		return sql.NullString{Valid: false}
+	}
+	return sql.NullString{String: strings.TrimSpace(value), Valid: true}
 }

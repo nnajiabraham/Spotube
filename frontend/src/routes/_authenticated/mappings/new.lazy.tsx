@@ -2,7 +2,7 @@ import { createLazyFileRoute, useNavigate } from '@tanstack/react-router'
 import { useState } from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { api } from '../../../lib/api'
-import type { SpotifyPlaylist, YouTubePlaylist } from '../../../lib/pocketbase'
+import type { SpotifyPlaylist, YouTubePlaylist } from '../../../lib/api'
 
 function NewMapping() {
   const navigate = useNavigate()

@@ -1,7 +1,7 @@
 import { createLazyFileRoute, useNavigate, useParams } from '@tanstack/react-router'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { api } from '../../../../lib/api'
-import type { Mapping } from '../../../../lib/pocketbase'
+import type { Mapping } from '../../../../lib/api'
 
 function EditMapping() {
   const { mappingId } = useParams({ from: '/_authenticated/mappings/$mappingId/edit' })

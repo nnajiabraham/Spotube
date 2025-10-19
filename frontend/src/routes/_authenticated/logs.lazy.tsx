@@ -229,13 +229,21 @@ function ActivityLogsPage() {
       perPage: 100,
     }),
     refetchInterval: 30000, // Refresh every 30 seconds
+    select: (data) => ({
+      ...data,
+      items: data.items.map((log) => ({
+        ...log,
+        created: log.created * 1000,
+      })),
+    }),
   })
 
   const columns = [
     columnHelper.accessor('created', {
       header: 'Time',
       cell: (info) => {
-        const date = new Date(info.getValue())
+        const timestamp = info.getValue<number>()
+        const date = new Date(timestamp)
         return (
           <div className="flex items-center space-x-2">
             <Calendar className="h-4 w-4 text-gray-400" />

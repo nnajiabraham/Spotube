@@ -2,15 +2,17 @@
 
 A lightweight self-hosted application that keeps your YouTube Music and Spotify playlists in continuous, bi-directional sync.
 
-NOTE: THIS WAS VIBE CODED WITH AI. SEE THE [RFCs](./rfcs) FOR THE PLAN USED WITH LLM TO BUILD THIS.
+**Tech Stack:** Go backend (Echo + Goose + Jet + SQLite) with React 19 frontend.
+
+NOTE: THIS WAS VIBE CODED WITH AI. SEE THE [RFCs](./docs/rfcs) FOR THE PLAN USED WITH LLM TO BUILD THIS.
 
 ## Quick Start
 
 ### Prerequisites
 
-- Go 1.24+
-- Node.js 20+ (recommended: use `.nvmrc` with `nvm use`)
-- Docker (optional)
+- Go 1.21+
+- Node.js 18+
+- Make (build orchestration)
 
 ### Development Setup
 
@@ -19,26 +21,28 @@ NOTE: THIS WAS VIBE CODED WITH AI. SEE THE [RFCs](./rfcs) FOR THE PLAN USED WITH
    git clone <repository-url>
    cd Spotube
    
-   # Install frontend dependencies
-   cd frontend && npm install && cd ..
+   # Install dependencies for both projects
+   make install
    ```
 
-2. **Start development servers:**
+2. **Environment setup (optional - can use setup wizard instead):**
+   ```bash
+   cp backend/env.example backend/.env
+   # Edit backend/.env with your OAuth credentials
+   ```
+
+3. **Start development servers:**
    ```bash
    make dev
    ```
    This will start:
-   - Backend (PocketBase) server at http://localhost:8090
+   - Backend (Echo) server at http://localhost:8090 (with auto-migrations)
    - Frontend (Vite) server at http://localhost:5173
 
-   **Or start backend only with live reload:**
+   **Or start individual services:**
    ```bash
-   make backend-dev
-   ```
-
-3. **Initialize database (first time only):**
-   ```bash
-   make migrate-up
+   make backend/dev   # Backend only
+   make frontend/dev  # Frontend only
    ```
 
 4. **First-run setup:**
@@ -67,61 +71,70 @@ NOTE: THIS WAS VIBE CODED WITH AI. SEE THE [RFCs](./rfcs) FOR THE PLAN USED WITH
    
    **Note**: If environment variables or .env file credentials are set, the setup wizard will be skipped automatically. The app loads .env files automatically on startup for development convenience.
 
-### PocketBase Development Flow
+### Backend Development Flow
 
-The backend uses **PocketBase** as the foundation, providing:
-- Built-in SQLite database with migrations
-- Admin UI at http://localhost:8090/_/ (first-time setup required)
-- REST API for collections and authentication
-- File uploads and OAuth integrations
+The backend uses **Echo framework** with modern Go stack, providing:
+- SQLite database with SQL migrations (Goose)
+- Type-safe database queries (Jet codegen)
+- RESTful API with structured logging (Zerolog)
+- OAuth integrations (Spotify + YouTube)
+- Background job scheduler (robfig/cron)
 
-**First-time setup:**
-1. Run `make backend-dev` or `make migrate-up`
-2. Visit http://localhost:8090/_/ to create admin account
-3. Explore the admin interface to see collections and settings
+**Database setup (automatic):**
+- Migrations run automatically when starting with `make backend/dev` or `make dev`
+- Database created at `backend/data/spotube.db`
+- Jet models regenerated automatically for type-safe queries
 
 ### Available Commands
 
-- `make dev` - Start development servers (backend + frontend)
-- `make backend-dev` - Start backend with Air (live reload)
-- `make backend-workers` - Start backend with continuous analysis+executor workers (dev)
-- `make migrate-up` - Run database migrations manually
-- `make test` - Run all tests
-- `make lint` - Run all linters
-- `make build-image` - Build Docker image
+Run `make help` to see all available commands. Key commands:
+
+**Development:**
+- `make dev` - Start both backend and frontend servers
+- `make backend/dev` - Start backend only (Echo server with auto-migrations)
+- `make frontend/dev` - Start frontend only (Vite dev server)
+
+**Database:**
+- `make backend/db/create NAME=xyz` - Create new migration
+- `make backend/db/up` - Apply pending migrations
+- `make backend/db/down` - Rollback one migration
+- `make backend/db/gen` - Regenerate Jet models
+
+**Testing & Building:**
+- `make test` - Run all tests (backend + frontend)
+- `make lint` - Run linters for both projects
+- `make build` - Build both projects
 - `make clean` - Clean build artifacts
-- `make help` - Show all available targets
 
 ### Development Status
 
-✅ **Completed RFCs:**
-- RFC-001: Repository initialization with Go backend and React frontend
-- RFC-002: PocketBase integration with migrations framework
-- RFC-003: Environment setup wizard for OAuth credentials
-- RFC-004: Spotify OAuth integration with PKCE flow
-- RFC-005: YouTube OAuth integration with PKCE flow
-- RFC-006: Playlist mapping collections & UI
-- RFC-007: Sync analysis job (scheduled detection)
-- RFC-008: Sync execution job (worker processing queue)
-- RFC-009: Conflict & blacklist handling system
+✅ **Migration Complete - RFC-100:**
 
-**Current Features:**
-- Monorepo structure with separate backend/frontend workspaces
-- PocketBase embedded with Admin UI (port 8090)
-- Go-based migrations system for database schema evolution  
+The application has been successfully migrated from PocketBase to a modern Go stack:
+
+**Backend Stack:**
+- **Echo v4** - HTTP framework with middleware
+- **Goose v3** - SQL-based database migrations
+- **Jet v2** - Type-safe SQL query builder with codegen
+- **SQLite** - Database with WAL mode and proper pragmas
+- **Zerolog** - Structured logging
+- **robfig/cron/v3** - Background job scheduling
+
+**Frontend Stack:**
+- **React 19** - UI framework with TypeScript
+- **TanStack Router + Query** - Routing and data fetching
+- **Custom HTTP client** - Replaces PocketBase SDK
+- **Tailwind CSS v4** - Styling
+
+**Completed Features:**
 - Environment setup wizard for first-time configuration
-- Settings collection for storing OAuth credentials
-- Spotify OAuth2 authentication with PKCE security
-- YouTube OAuth2 authentication with PKCE security
-- Spotify playlists API proxy endpoint
-- YouTube playlists API proxy endpoint
-- Frontend dashboard with connection status for both services
-- Playlist mappings management (CRUD operations)
-- Mapping creation wizard with 4-step flow
-- Configurable sync options (name, tracks, interval)
-- Two-phase sync system: analysis job (detection) + execution job (processing)
-- Worker pool with concurrent processing and rate limiting
-- Exponential backoff retry logic with error classification
+- OAuth integration for Spotify + YouTube with PKCE security
+- Playlist mappings management with full CRUD operations
+- Background job system: analysis (playlist diff detection) + executor (sync processing)
+- Activity logging and dashboard statistics
+- Blacklist system for conflict resolution
+- Full test coverage (backend + frontend)
+- Type-safe database operations with compile-time validation
 - YouTube quota tracking with daily limits
 - Automatic blacklist system for failed tracks with conflict resolution UI
 - Color-coded blacklist management with per-mapping track exclusions
@@ -475,13 +488,14 @@ Future releases may expose worker configuration via environment variables.
 ### Monitoring
 
 **Analysis Job:**
-- Check PocketBase logs for analysis job activity
-- Monitor mapping timestamps (`last_analysis_at`, `next_analysis_at`) for job health
+- Monitor structured logs for analysis job activity
+- Check mapping timestamps (`last_analysis_at`) in dashboard stats
+- View activity logs in frontend for detailed job execution
 
 **Execution Job:**
-- Check PocketBase logs for executor job activity and worker pool operations
-- View the `sync_items` collection in admin UI for work queue status
-- Monitor item status distribution (`pending`, `running`, `done`, `error`, `skipped`)
+- Monitor structured logs for executor job activity and processing
+- Use activity logs API or dashboard stats for queue status monitoring
+- Monitor sync item status distribution via dashboard statistics
 - Track retry attempts and error patterns via `last_error` fields
 - YouTube quota usage logged with daily reset notifications
 
@@ -497,10 +511,10 @@ Successfully processed sync item abc123
 
 ## Tech Stack
 
-- **Backend:** Go 1.24, PocketBase (embedded SQLite), Air (live reload)
-- **Database:** SQLite via PocketBase with Go-based migrations
-- **Frontend:** React 19, TypeScript, Vite, Tailwind CSS, TanStack Router/Query
-- **Testing:** Vitest, Playwright (planned)
+- **Backend:** Go 1.21+, Echo v4, Goose v3 (SQL migrations), Jet v2 (typed queries)
+- **Database:** SQLite with WAL mode, foreign key enforcement, and production pragmas
+- **Frontend:** React 19, TypeScript, Vite, Tailwind CSS v4, TanStack Router/Query
+- **Testing:** Go standard testing, Vitest (frontend), httpmock (API mocking)
 - **Build:** Docker, Make
 
 ## Contributing
@@ -515,11 +529,12 @@ The project includes a comprehensive testing infrastructure with shared helpers 
 
 #### Available Test Helpers
 
-**Backend Helpers (`backend/internal/testhelpers/`):**
+**Backend Test Patterns:**
 
-- **`testhelpers.SetupTestApp(t)`** - Creates a PocketBase test instance with all standard collections
-- **`testhelpers.SetupOAuthTokens(t, testApp)`** - Creates fake OAuth tokens for Spotify and Google
-- **`testhelpers.CreateTestMapping(testApp, properties)`** - Helper to easily create mapping records with defaults
+- **Temporary SQLite databases** - Each test uses isolated in-memory database with full migrations
+- **httptest integration** - Tests full HTTP request/response cycle through Echo handlers  
+- **httpmock for external APIs** - Mock Spotify/YouTube API calls for reliable testing
+- **Real database operations** - No mocking of SQL operations, test against actual SQLite
 - **`testhelpers.SetupAPIHttpMocks(t)`** - Configures HTTP mocks for Spotify and YouTube APIs
 - **`testhelpers.SetupIdenticalPlaylistMocks(t)`** - Special mocks for testing no-change scenarios
 
@@ -552,11 +567,11 @@ func TestYourFeature(t *testing.T) {
 
 #### Key Testing Principles
 
-- **Test Real Implementation:** All unit tests call actual implementation functions with PocketBase integration
-- **No Mocked Logic:** Tests validate real behavior, not simulated logic
-- **Consistent Setup:** Shared helpers ensure all tests use the same database schema and OAuth patterns
-- **Proper Isolation:** Each test runs with a clean database and HTTP mock environment
-- **PocketBase Integration:** Tests use real PocketBase operations, not isolated database mocking
+- **Test Real Implementation:** All unit tests call actual implementation functions with SQLite integration
+- **No Database Mocking:** Tests validate real SQL operations against actual SQLite databases
+- **Consistent Setup:** Each test creates temporary database with full migration stack
+- **Proper Isolation:** Each test runs with clean in-memory database and HTTP mock environment
+- **Type Safety Validation:** Tests ensure Jet codegen and typed queries work correctly
 
 #### Running Tests
 

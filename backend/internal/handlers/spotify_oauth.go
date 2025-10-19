@@ -134,6 +134,10 @@ func (h *SpotifyOAuthHandler) ListPlaylists(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusUnauthorized, err.Error())
 	}
 
+	if token == nil || !token.AccessToken.Valid {
+		return echo.NewHTTPError(http.StatusUnauthorized, "spotify account not connected")
+	}
+
 	playlists, err := fetchSpotifyPlaylists(c.Request().Context(), token, h.Repo, h.TokenRepo)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadGateway, "failed to fetch playlists")

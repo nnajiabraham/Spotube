@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { api, ApiError } from '../lib/api';
+import { api, ApiError, oauthAPI } from '../lib/api';
 
 export function SpotifyConnectionCard() {
   // Check if user is connected by trying to fetch playlists
@@ -64,12 +64,15 @@ export function SpotifyConnectionCard() {
           <p>Connect your Spotify account to start syncing your playlists.</p>
         </div>
         <div className="mt-5">
-          <a
-            href="/api/auth/spotify/login"
+          <button
+            type="button"
+            onClick={() => {
+              window.location.href = oauthAPI.spotify.getLoginURL();
+            }}
             className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
           >
             Connect Spotify
-          </a>
+          </button>
         </div>
       </div>
     </div>

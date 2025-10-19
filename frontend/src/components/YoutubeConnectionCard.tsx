@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { api, ApiError } from '../lib/api';
+import { api, ApiError, oauthAPI } from '../lib/api';
 import { YoutubeLogo } from './YoutubeLogo';
 
 // YouTube Connection Card Component
@@ -68,12 +68,15 @@ export function YoutubeConnectionCard() {
           <p>Connect your YouTube account to start syncing your playlists.</p>
         </div>
         <div className="mt-5">
-          <a
-            href="/api/auth/google/login"
+          <button
+            type="button"
+            onClick={() => {
+              window.location.href = oauthAPI.youtube.getLoginURL();
+            }}
             className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
           >
             Connect YouTube
-          </a>
+          </button>
         </div>
       </>
     );

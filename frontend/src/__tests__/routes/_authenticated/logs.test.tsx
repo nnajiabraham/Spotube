@@ -6,7 +6,7 @@ import { http, HttpResponse } from 'msw';
 import { Route } from '../../../routes/_authenticated/logs.lazy';
 
 // Extract the component from the Route
-const ActivityLogsPage = Route.options.component as React.ComponentType;
+const ActivityLogsPage = (Route.options.component ?? (() => null)) as React.ComponentType;
 
 const renderWithProviders = (ui: React.ReactElement) => {
   const queryClient = new QueryClient({
@@ -34,26 +34,23 @@ const mockActivityLogs = {
       message: 'Starting sync analysis job',
       sync_item_id: '',
       job_type: 'analysis' as const,
-      created: '2024-01-01T12:00:00Z',
-      updated: '2024-01-01T12:00:00Z',
+      created: 1704110400,
     },
     {
       id: 'log2',
       level: 'warn' as const,
       message: 'Rate limit encountered, retrying in 30 seconds',
       sync_item_id: 'sync_item_1',
-      job_type: 'execution' as const,
-      created: '2024-01-01T12:05:00Z',
-      updated: '2024-01-01T12:05:00Z',
+      job_type: 'executor' as const,
+      created: 1704110700,
     },
     {
       id: 'log3',
       level: 'error' as const,
       message: 'Failed to add track: Track not found',
       sync_item_id: 'sync_item_2',
-      job_type: 'execution' as const,
-      created: '2024-01-01T12:10:00Z',
-      updated: '2024-01-01T12:10:00Z',
+      job_type: 'executor' as const,
+      created: 1704111000,
     },
   ],
 };
@@ -62,17 +59,16 @@ const mockSyncItem = {
   id: 'sync_item_1',
   mapping_id: 'mapping1',
   service: 'spotify',
-  action: 'add_track',
+  action: 'add',
   status: 'running',
-  source_track_id: 'youtube_video_456',
-  source_track_title: 'Test Song',
-  source_service: 'youtube',
-  destination_service: 'spotify',
-  payload: '',
-  attempts: 2,
-  last_error: 'Rate limit exceeded',
-  created: '2024-01-01T11:30:00Z',
-  updated: '2024-01-01T12:10:00Z',
+  track_id: 'youtube_video_456',
+  track_title: 'Test Song',
+  track_artist: 'Test Artist',
+  error_message: 'Rate limit exceeded',
+  attempt_count: 2,
+  last_attempt_at: 1704111000,
+  created: 1704109000,
+  updated: 1704111000,
 };
 
 describe('Activity Logs Page', () => {
@@ -110,7 +106,7 @@ describe('Activity Logs Page', () => {
 
     // Check that job types are displayed
     expect(screen.getByText('ANALYSIS')).toBeInTheDocument();
-    expect(screen.getAllByText('EXECUTION')).toHaveLength(2);
+    expect(screen.getAllByText('EXECUTOR')).toHaveLength(2);
   });
 
   it('filters logs by level correctly', async () => {
@@ -119,16 +115,16 @@ describe('Activity Logs Page', () => {
     server?.use(
       http.get('*/api/collections/activity_logs/records', ({ request }) => {
         const url = new URL(request.url);
-        const filter = url.searchParams.get('filter');
-        
-        if (filter?.includes('level = "error"')) {
+        const level = url.searchParams.get('level');
+
+        if (level === 'error') {
           return HttpResponse.json({
             ...mockActivityLogs,
             totalItems: 1,
             items: [mockActivityLogs.items[2]], // Only error log
           });
         }
-        
+
         return HttpResponse.json(mockActivityLogs);
       })
     );
@@ -158,16 +154,16 @@ describe('Activity Logs Page', () => {
     server?.use(
       http.get('*/api/collections/activity_logs/records', ({ request }) => {
         const url = new URL(request.url);
-        const filter = url.searchParams.get('filter');
-        
-        if (filter?.includes('job_type = "analysis"')) {
+        const jobType = url.searchParams.get('job_type');
+
+        if (jobType === 'analysis') {
           return HttpResponse.json({
             ...mockActivityLogs,
             totalItems: 1,
             items: [mockActivityLogs.items[0]], // Only analysis log
           });
         }
-        
+
         return HttpResponse.json(mockActivityLogs);
       })
     );
@@ -203,7 +199,7 @@ describe('Activity Logs Page', () => {
       })
     );
 
-    renderWithProviders(<Route.options.component />);
+    renderWithProviders(<ActivityLogsPage />);
 
     // Wait for data to load
     await waitFor(() => {
@@ -223,7 +219,7 @@ describe('Activity Logs Page', () => {
     expect(screen.getByText('Test Song')).toBeInTheDocument();
     expect(screen.getByText('running')).toBeInTheDocument();
     expect(screen.getByText('Rate limit exceeded')).toBeInTheDocument();
-    expect(screen.getByText('youtube → spotify')).toBeInTheDocument();
+    expect(screen.getAllByText(/Spotify/i).length).toBeGreaterThan(0);
   });
 
   it('closes sync item modal when clicking close button', async () => {
@@ -238,7 +234,7 @@ describe('Activity Logs Page', () => {
       })
     );
 
-    renderWithProviders(<Route.options.component />);
+    renderWithProviders(<ActivityLogsPage />);
 
     // Wait for data and open modal
     await waitFor(() => {
@@ -270,7 +266,7 @@ describe('Activity Logs Page', () => {
       })
     );
 
-    renderWithProviders(<Route.options.component />);
+    renderWithProviders(<ActivityLogsPage />);
 
     // Check for loading state (shimmer effects)
     const loadingElements = screen.getAllByRole('status', { hidden: true });
@@ -287,7 +283,7 @@ describe('Activity Logs Page', () => {
       })
     );
 
-    renderWithProviders(<Route.options.component />);
+    renderWithProviders(<ActivityLogsPage />);
 
     await waitFor(() => {
       expect(screen.getByText('Error loading activity logs')).toBeInTheDocument();
@@ -309,7 +305,7 @@ describe('Activity Logs Page', () => {
       })
     );
 
-    renderWithProviders(<Route.options.component />);
+    renderWithProviders(<ActivityLogsPage />);
 
     await waitFor(() => {
       expect(screen.getByText('No activity logs found')).toBeInTheDocument();
@@ -329,7 +325,7 @@ describe('Activity Logs Page', () => {
       })
     );
 
-    renderWithProviders(<Route.options.component />);
+    renderWithProviders(<ActivityLogsPage />);
 
     // Wait for initial load
     await waitFor(() => {

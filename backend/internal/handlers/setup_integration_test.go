@@ -25,7 +25,7 @@ func TestSetupRoutesEndToEnd(t *testing.T) {
 	defer migrate.Down(db)
 
 	e := echo.New()
-	handler := NewSetupHandler(db)
+	handler := NewSetupHandler(db, nil)
 	RegisterSetupRoutes(e.Group("/api/setup"), handler)
 
 	// initial state should require setup

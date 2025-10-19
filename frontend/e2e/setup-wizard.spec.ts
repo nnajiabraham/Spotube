@@ -12,7 +12,7 @@ interface SetupRequestBody {
 // Setup MSW server
 const server = setupServer(
   // Mock GET /api/setup/status - setup required
-  http.get('/api/setup/status', () => {
+  http.get('/api/setup/required', () => {
     return HttpResponse.json({ required: true })
   }),
 
@@ -124,7 +124,7 @@ test.describe('Setup Wizard E2E', () => {
   test('should redirect to dashboard when setup is not required', async ({ page }) => {
     // Mock API to return setup not required
     server.use(
-      http.get('/api/setup/status', () => {
+      http.get('/api/setup/required', () => {
         return HttpResponse.json({ required: false })
       })
     )

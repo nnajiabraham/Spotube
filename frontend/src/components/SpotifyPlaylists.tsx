@@ -44,9 +44,9 @@ export function SpotifyPlaylists() {
           className="bg-white overflow-hidden shadow rounded-lg hover:shadow-lg transition-shadow"
         >
           <div className="p-5">
-            {playlist.images[0] && (
+            {playlist.images?.[0] && (
               <img
-                src={playlist.images[0].url}
+                src={playlist.images[0]?.url ?? ''}
                 alt={playlist.name}
                 className="w-full h-40 object-cover rounded-md mb-4"
               />
@@ -61,7 +61,7 @@ export function SpotifyPlaylists() {
             )}
             <div className="mt-3 flex items-center justify-between text-sm">
               <span className="text-gray-500">
-                {playlist.track_count} tracks
+                {playlist.track_count ?? 0} tracks
               </span>
               <span className={`px-2 py-1 rounded-full text-xs font-medium ${
                 playlist.public 

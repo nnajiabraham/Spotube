@@ -52,9 +52,8 @@ describe('YoutubeConnectionCard', () => {
       expect(screen.getByRole('heading', { name: /connect youtube/i })).toBeInTheDocument()
     })
 
-    const connectLink = screen.getByRole('link', { name: /connect youtube/i })
-    expect(connectLink).toBeInTheDocument()
-    expect(connectLink).toHaveAttribute('href', '/api/auth/google/login')
+    const connectButton = screen.getByRole('button', { name: /connect youtube/i })
+    expect(connectButton).toBeInTheDocument()
   })
 
   it('shows view playlists button when connected', async () => {
@@ -62,6 +61,7 @@ describe('YoutubeConnectionCard', () => {
       items: [
         {
           id: 'PLxxxxxxxxxxxxxxxxxxxx',
+          name: 'Test Playlist',
           title: 'Test Playlist',
           itemCount: 42,
           description: 'A test playlist'

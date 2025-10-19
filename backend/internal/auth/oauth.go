@@ -32,6 +32,17 @@ func LoadCredentials(repo credentialProvider, provider string) (clientID, client
 		return "", "", fmt.Errorf("load settings: %w", err)
 	}
 
+	if settings == nil {
+		switch strings.ToLower(provider) {
+		case "spotify":
+			return resolveCredentials(sql.NullString{}, sql.NullString{}, "SPOTIFY_CLIENT_ID", "SPOTIFY_CLIENT_SECRET", ErrNoSpotifyCredentials)
+		case "google":
+			return resolveCredentials(sql.NullString{}, sql.NullString{}, "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", ErrNoGoogleCredentials)
+		default:
+			return "", "", fmt.Errorf("unknown provider: %s", provider)
+		}
+	}
+
 	switch strings.ToLower(provider) {
 	case "spotify":
 		return resolveCredentials(settings.SpotifyClientID, settings.SpotifyClientSecret, "SPOTIFY_CLIENT_ID", "SPOTIFY_CLIENT_SECRET", ErrNoSpotifyCredentials)

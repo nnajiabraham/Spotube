@@ -138,6 +138,10 @@ func (h *YouTubeOAuthHandler) ListPlaylists(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusUnauthorized, err.Error())
 	}
 
+	if token == nil || !token.AccessToken.Valid {
+		return echo.NewHTTPError(http.StatusUnauthorized, "youtube account not connected")
+	}
+
 	playlists, err := fetchYouTubePlaylists(c.Request().Context(), token, h.Repo, h.TokenRepo)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadGateway, "failed to fetch playlists")

@@ -3,6 +3,7 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { useState } from 'react'
+import { api, ApiError } from '../../lib/api'
 
 // Zod schema for form validation
 const SetupSchema = z.object({
@@ -32,28 +33,23 @@ function SetupWizard() {
     setError(null)
 
     try {
-      const response = await fetch('/api/setup', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          spotify_id: data.spotifyId,
-          spotify_secret: data.spotifySecret,
-          google_client_id: data.googleClientId,
-          google_client_secret: data.googleClientSecret,
-        }),
+      await api.saveSetupCredentials({
+        spotify_client_id: data.spotifyId,
+        spotify_client_secret: data.spotifySecret,
+        google_client_id: data.googleClientId,
+        google_client_secret: data.googleClientSecret,
       })
-
-      if (!response.ok) {
-        const errorText = await response.text()
-        throw new Error(errorText || 'Failed to save credentials')
-      }
 
       // Navigate to success page
       navigate({ to: '/setup/success' })
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'An error occurred')
+      if (err instanceof ApiError) {
+        setError(err.message)
+      } else if (err instanceof Error) {
+        setError(err.message)
+      } else {
+        setError('An unknown error occurred')
+      }
     } finally {
       setIsSubmitting(false)
     }

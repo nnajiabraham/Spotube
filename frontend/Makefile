@@ -1,6 +1,6 @@
 FRONTEND_DIR := frontend
 
-.PHONY: frontend/install frontend/dev frontend/test frontend/build frontend/lint frontend/clean
+.PHONY: frontend/install frontend/dev frontend/test frontend/build frontend/lint frontend/type-check frontend/clean
 
 frontend/install: ## Install frontend dependencies
 	@cd $(FRONTEND_DIR) && npm install
@@ -16,6 +16,9 @@ frontend/build: ## Build frontend for production
 
 frontend/lint: ## Run frontend lint checks
 	@cd $(FRONTEND_DIR) && npm run lint
+
+frontend/type-check: ## Run TypeScript type checking
+	@cd $(FRONTEND_DIR) && npm run type-check
 
 frontend/clean: ## Clean frontend build artifacts
 	@rm -rf $(FRONTEND_DIR)/dist

@@ -6,6 +6,7 @@ export { mappingsAPI } from './mappings';
 export { blacklistAPI } from './blacklist';
 export { activityLogsAPI } from './activity-logs';
 export { dashboardAPI } from './dashboard';
+export { syncItemsAPI } from './sync-items';
 
 // Import for legacy interface
 import { mappingsAPI } from './mappings';

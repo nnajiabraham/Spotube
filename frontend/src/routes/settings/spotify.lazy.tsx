@@ -73,9 +73,9 @@ function SpotifyPlaylistsComponent() {
                 className="bg-white overflow-hidden shadow rounded-lg hover:shadow-lg transition-shadow"
               >
                 <div className="p-6">
-                  {playlist.images[0] && (
+                  {playlist.images?.[0] && (
                     <img
-                      src={playlist.images[0].url}
+                      src={playlist.images?.[0]?.url ?? ''}
                       alt={playlist.name}
                       className="w-full h-48 object-cover rounded-md mb-4"
                     />
@@ -90,7 +90,7 @@ function SpotifyPlaylistsComponent() {
                   )}
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-gray-600">
-                      {playlist.track_count} tracks
+                      {playlist.track_count ?? 0} tracks
                     </span>
                     <span className={`px-2 py-1 rounded-full text-xs font-medium ${
                       playlist.public 
@@ -100,8 +100,8 @@ function SpotifyPlaylistsComponent() {
                       {playlist.public ? 'Public' : 'Private'}
                     </span>
                   </div>
-                  <div className="mt-3 text-xs text-gray-500">
-                    by {playlist.owner.display_name}
+                    <div className="mt-3 text-xs text-gray-500">
+                    by {playlist.owner?.display_name ?? 'Unknown'}
                   </div>
                 </div>
               </div>

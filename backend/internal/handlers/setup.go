@@ -11,9 +11,10 @@ import (
 
 const settingsSingletonID = "1"
 
-// NewSetupHandler constructs a setup handler backed by SQLite.
-func NewSetupHandler(db *sql.DB) *SetupHandler {
-	return &SetupHandler{Repo: &sqliteSettingsRepo{db: db}}
+// NewSetupHandler constructs a setup handler backed by SQLite and optional env-fallback credentials.
+func NewSetupHandler(db *sql.DB, defaults *SettingsRecord) *SetupHandler {
+	repo := &sqliteSettingsRepo{db: db, defaults: defaults}
+	return &SetupHandler{Repo: repo}
 }
 
 // SettingsRepository defines persistence operations required by setup handlers.
@@ -110,7 +111,8 @@ func currentTimestamp() int64 {
 
 // sqliteSettingsRepo implements SettingsRepository against SQLite.
 type sqliteSettingsRepo struct {
-	db *sql.DB
+	db       *sql.DB
+	defaults *SettingsRecord
 }
 
 func (r *sqliteSettingsRepo) GetSettings() (*SettingsRecord, error) {
@@ -118,6 +120,12 @@ func (r *sqliteSettingsRepo) GetSettings() (*SettingsRecord, error) {
 	var record SettingsRecord
 	if err := row.Scan(&record.SpotifyClientID, &record.SpotifyClientSecret, &record.GoogleClientID, &record.GoogleClientSecret, &record.Created, &record.Updated); err != nil {
 		if err == sql.ErrNoRows {
+			if r.defaults != nil {
+				now := currentTimestamp()
+				r.defaults.Created = now
+				r.defaults.Updated = now
+				return r.defaults, nil
+			}
 			return nil, nil
 		}
 		return nil, err

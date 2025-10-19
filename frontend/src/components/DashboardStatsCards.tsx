@@ -209,7 +209,7 @@ export function DashboardStatsCards({ isPaused, onTogglePause, onRefresh }: Dash
       {/* Queue - Errors */}
       <StatCard
         title="Error Items"
-        value={stats?.queue.errors ?? 0}
+        value={stats?.queue.error ?? 0}
         icon={XCircle}
         isLoading={isLoading}
         color="red"
