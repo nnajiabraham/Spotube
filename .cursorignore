@@ -1,0 +1,11 @@
+# Large or generated paths (Cursor indexing)
+node_modules/
+frontend/node_modules/
+backend/data/
+dist/
+frontend/dist/
+frontend/playwright-report/
+frontend/test-results/
+
+# Template: optional RFC export trees if present
+docs/rfcs/opus_version/*

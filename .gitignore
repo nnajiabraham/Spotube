@@ -1,17 +1,48 @@
+# Spotube / repo-specific
 tmp
 .env
+.env.*
 client_secret.json
 ytmusic_get_playlistItem_response_sample.json
 ytmusic_get_user_playlist_response_sample.json
-.DS_Store
 sample/
 backend/pb_data/
 backend/tmp/
 backend/server
+backend/main
 frontend/test-results
 frontend/playwright-report
-backend/main
 *.db
 *.db-shm
 *.db-wal
 dist/
+
+# macOS artifacts
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Editor files
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# Node / JavaScript (root-level safety; frontend/.gitignore also applies)
+node_modules/
+build/
+.npm/
+.pnpm-store/
+
+# Python / virtual envs
+.venv/
+__pycache__/
+
+# Misc
+coverage/
+
+# Rust (if ever added)
+target/
+Cargo.lock
+*.rs.bk
