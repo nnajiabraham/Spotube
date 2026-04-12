@@ -1,31 +1,37 @@
-# AGENTS.md
+# Agent guide (start here)
 
-## Cursor Cloud specific instructions
+## Spotube quick reference
 
-### Services overview
-
-| Service | Port | Start command |
-|---|---|---|
+| Service | Port | Start |
+|---------|------|--------|
 | Go backend (Echo + SQLite) | 8090 | `make backend/dev` |
 | React frontend (Vite) | 5173 | `make frontend/dev` |
 | Both (parallel) | 8090 + 5173 | `make dev` |
 
-All available commands are documented in the root `Makefile` and per-project Makefiles (`backend/Makefile`, `frontend/Makefile`). Run `make help` for a full list.
+- **Install:** `make install` (root orchestrates `backend/` and `frontend/`).
+- **Tests / lint / build:** `make test`, `make lint`, `make build`.
+- **Env (local, not committed):** `backend/.env` from `backend/env.example`; `frontend/.env` with `VITE_API_URL=http://localhost:8090`. OAuth keys can be empty at first; the app can guide setup via the UI.
 
-### Runtime requirements
+### Cursor Cloud / VM notes
 
-- **Go 1.24.2** — required by `backend/go.mod`. The VM has it at `/usr/local/go/bin/go`; ensure `PATH` includes `/usr/local/go/bin` before `/usr/bin`.
-- **Node 20.12.2** — specified in `.nvmrc`. Activate with `nvm use` (nvm is pre-installed).
-- **No Docker, no external databases** — SQLite is embedded; the DB file is created automatically at `backend/data/spotube.db` on first `make backend/dev`.
+- **Go:** `backend/go.mod` requires Go **1.24.2**. If the default `go` on PATH is older, prepend `/usr/local/go/bin` to `PATH`.
+- **Node:** Use the version in `.nvmrc` (e.g. `nvm use`).
+- **SQLite:** Created automatically at `backend/data/spotube.db` when the backend runs; no separate DB service.
+- **Config test gotcha:** `internal/config.TestLoadDefaults` expects default `LOG_LEVEL` when the variable is unset. If `LOG_LEVEL` is set from `backend/.env`, that test can fail; use `LOG_LEVEL= make backend/test` or run tests without loading `.env`.
+- **Jet first run:** `make backend/dev` / `make backend/db/gen` may download extra Go modules on first codegen; that is normal.
 
-### Environment files (not committed)
+### MCP configuration
 
-- `backend/.env` — copy from `backend/env.example`. OAuth credentials can be left blank; the app's setup wizard handles first-time configuration.
-- `frontend/.env` — only needs `VITE_API_URL=http://localhost:8090`.
+`.cursor/mcp.json` configures optional MCP servers (e.g. shadcn, chrome-devtools). Adjust or remove entries to match your environment.
 
-### Gotchas
+## Essentials (applies to almost every task)
 
-- **Backend config test leaks from `.env`**: `TestLoadDefaults` in `internal/config` will fail if `LOG_LEVEL` is set in the environment (the `.env` sets it to `debug`, but the test expects the default `info`). The test does not clear `LOG_LEVEL` via `t.Setenv`. Running `LOG_LEVEL= make backend/test` works around this, or run tests from a shell without `.env` loaded.
-- **Jet codegen downloads extra Go modules** the first time (`mysql`, `postgres` drivers) — this is expected and takes ~20 s on the first `make backend/dev` / `make backend/db/gen`.
-- **`make backend/dev`** automatically runs migrations (`backend/db/up`) and Jet codegen (`backend/db/gen`) before starting the server, so no separate migration step is needed.
-- **Frontend uses npm** (lockfile is `package-lock.json`), not pnpm or yarn.
+- Prefer **make** targets from the repo root over raw `go run` / ad hoc npm scripts (see [Development workflow](docs/agents/dev-workflow.md)).
+- Read surrounding code before changing it; keep edits minimal and consistent with the file’s style.
+
+## More detailed guidance (progressive disclosure)
+
+- [Project orientation](docs/agents/project.md)
+- [Development workflow](docs/agents/dev-workflow.md)
+- [Coding conventions](docs/agents/coding-conventions.md)
+- **Always follow:** [Communication style (incl. “banter mode”)](docs/agents/communication-style.md)
