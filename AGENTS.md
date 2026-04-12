@@ -22,7 +22,7 @@
 
 ### MCP configuration
 
-`.cursor/mcp.json` may reference `YOUR_GITHUB_PAT` for the GitHub MCP server. Replace with a token or remove that server entry if you do not use it.
+`.cursor/mcp.json` configures optional MCP servers (e.g. shadcn, chrome-devtools). Adjust or remove entries to match your environment.
 
 ## Essentials (applies to almost every task)
 
