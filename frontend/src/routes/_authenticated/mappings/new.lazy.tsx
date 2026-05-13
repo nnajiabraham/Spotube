@@ -148,10 +148,12 @@ function NewMapping() {
                         className="mr-3"
                       />
                       <div className="flex-1">
-                        <div className="font-medium">{playlist.title}</div>
-                        <div className="text-sm text-gray-500">
-                          {playlist.itemCount} items
-                        </div>
+                        <div className="font-medium">{playlist.name || playlist.title}</div>
+                        {typeof playlist.itemCount === 'number' && (
+                          <div className="text-sm text-gray-500">
+                            {playlist.itemCount} items
+                          </div>
+                        )}
                       </div>
                     </label>
                   ))}
@@ -243,7 +245,7 @@ function NewMapping() {
 
                 <div>
                   <h3 className="font-medium text-gray-900">YouTube Playlist</h3>
-                  <p className="text-gray-600">{selectedYouTubePlaylist?.title || formData.youtube_playlist_id}</p>
+                  <p className="text-gray-600">{selectedYouTubePlaylist?.name || selectedYouTubePlaylist?.title || formData.youtube_playlist_id}</p>
                 </div>
 
                 <div>

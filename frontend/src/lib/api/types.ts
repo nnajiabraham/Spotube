@@ -1,4 +1,4 @@
-// Type definitions for the new API (migrated from pocketbase.ts)
+// Type definitions for the HTTP API
 
 export interface SetupStatus {
   required: boolean;

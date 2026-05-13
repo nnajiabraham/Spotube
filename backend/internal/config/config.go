@@ -23,6 +23,7 @@ type Config struct {
 	GoogleClientID      string
 	GoogleClientSecret  string
 	SessionCookieName   string
+	SessionSecret       string
 	SessionTTLSeconds   int
 	SessionSecure       bool
 }
@@ -35,6 +36,7 @@ const (
 	defaultAppEnv        = "development"
 	defaultVersion       = "dev"
 	defaultSessionCookie = "spotube_session"
+	defaultSessionSecret = "spotube-dev-session-secret-change-me"
 	defaultSessionTTL    = 30 * 24 * 60 * 60 // 30 days
 )
 
@@ -54,6 +56,7 @@ func Load() (*Config, error) {
 		GoogleClientID:      os.Getenv("GOOGLE_CLIENT_ID"),
 		GoogleClientSecret:  os.Getenv("GOOGLE_CLIENT_SECRET"),
 		SessionCookieName:   getEnv("SESSION_COOKIE_NAME", defaultSessionCookie),
+		SessionSecret:       getEnv("SESSION_SECRET", defaultSessionSecret),
 	}
 
 	ttl, err := parseIntEnv("SESSION_TTL_SECONDS", defaultSessionTTL)

@@ -63,11 +63,12 @@ func main() {
 	auth.SetTokenRepository(tokenRepo)
 
 	// Session store
-	sessionStore := sessions.NewCookieStore([]byte(cfg.SessionCookieName))
+	sessionStore := sessions.NewCookieStore([]byte(cfg.SessionSecret))
 	sessionStore.Options.Path = "/"
 	sessionStore.Options.MaxAge = cfg.SessionTTLSeconds
 	sessionStore.Options.HttpOnly = true
 	sessionStore.Options.Secure = cfg.SessionSecure
+	sessionStore.Options.SameSite = http.SameSiteLaxMode
 
 	// Settings repository for OAuth handlers (uses env defaults when DB empty)
 	oauthFallback := &auth.SettingsRecord{
@@ -112,6 +113,11 @@ func main() {
 	activityLogsHandler := handlers.NewActivityLogsHandler(db)
 	activityLogsGroup := srv.Group("/api/collections/activity_logs/records")
 	handlers.RegisterActivityLogsRoutes(activityLogsGroup, activityLogsHandler)
+
+	// Sync Items (read-only details for logs modal)
+	syncItemsHandler := handlers.NewSyncItemsHandler(db)
+	syncItemsGroup := srv.Group("/api/collections/sync_items/records")
+	handlers.RegisterSyncItemsRoutes(syncItemsGroup, syncItemsHandler)
 
 	// Dashboard Stats (unauthenticated)
 	dashboardHandler := handlers.NewDashboardHandler(db)

@@ -1,5 +1,4 @@
 // API client for making requests to the backend
-// Migrated from PocketBase to new HTTP client
 
 import { 
   setupAPI, 
@@ -53,6 +52,19 @@ export interface SyncItem {
   last_error?: string;
   created: string;
   updated: string;
+}
+
+function mapOperationToAction(operation: 'add' | 'remove' | 'rename'): SyncItem['action'] {
+  switch (operation) {
+    case 'add':
+      return 'add_track';
+    case 'remove':
+      return 'remove_track';
+    case 'rename':
+      return 'rename_playlist';
+    default:
+      return 'add_track';
+  }
 }
 
 // Backward-compatible error class
@@ -261,7 +273,7 @@ export const api = {
         id: details.id,
         mapping_id: details.mapping_id,
         service: details.service,
-        action: `${details.operation}_track` as SyncItem['action'],
+        action: mapOperationToAction(details.operation),
         status: details.status,
         source_track_id: details.track_id || '',
         source_track_title: details.track_title || '',

@@ -125,7 +125,7 @@ func (h *SpotifyOAuthHandler) Callback(c echo.Context) error {
 	session.Options.MaxAge = -1
 	_ = session.Save(c.Request(), c.Response())
 
-	return c.Redirect(http.StatusFound, "/setup")
+	return c.Redirect(http.StatusFound, "/dashboard")
 }
 
 func (h *SpotifyOAuthHandler) ListPlaylists(c echo.Context) error {

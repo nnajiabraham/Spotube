@@ -1,5 +1,5 @@
-// Custom HTTP client to replace PocketBase SDK
-// Provides similar interface with typed methods for API communication
+// Custom HTTP client for API communication
+// Provides typed methods with shared error handling
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8090';
 
@@ -23,30 +23,11 @@ export class APIClient {
     if (this.csrfToken) {
       return this.csrfToken;
     }
-
-    try {
-      // Try to get from cookie first
-      const cookieToken = this.getCSRFFromCookie();
-      if (cookieToken) {
-        this.csrfToken = cookieToken;
-        return cookieToken;
-      }
-
-      // Fallback: fetch from API
-      const response = await this.fetch('/api/csrf', {
-        method: 'GET',
-        credentials: 'include',
-      });
-      
-      if (response.ok) {
-        const data = await response.json();
-        this.csrfToken = data.csrf || '';
-        return this.csrfToken || '';
-      }
-    } catch (error) {
-      console.warn('Failed to get CSRF token:', error);
+    const cookieToken = this.getCSRFFromCookie();
+    if (cookieToken) {
+      this.csrfToken = cookieToken;
+      return cookieToken;
     }
-
     return '';
   }
 
