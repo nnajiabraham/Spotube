@@ -63,11 +63,12 @@ func main() {
 	auth.SetTokenRepository(tokenRepo)
 
 	// Session store
-	sessionStore := sessions.NewCookieStore([]byte(cfg.SessionCookieName))
+	sessionStore := sessions.NewCookieStore([]byte(cfg.SessionSecret))
 	sessionStore.Options.Path = "/"
 	sessionStore.Options.MaxAge = cfg.SessionTTLSeconds
 	sessionStore.Options.HttpOnly = true
 	sessionStore.Options.Secure = cfg.SessionSecure
+	sessionStore.Options.SameSite = http.SameSiteLaxMode
 
 	// Settings repository for OAuth handlers (uses env defaults when DB empty)
 	oauthFallback := &auth.SettingsRecord{
@@ -84,6 +85,7 @@ func main() {
 		tokenRepo,
 		sessionStore,
 		cfg.PublicURL+"/api/auth/spotify/callback",
+		cfg.FrontendURL,
 	)
 	spotifyGroup := srv.Group("/api/auth/spotify")
 	handlers.RegisterSpotifyRoutes(spotifyGroup, spotifyHandler)
@@ -94,6 +96,7 @@ func main() {
 		tokenRepo,
 		sessionStore,
 		cfg.PublicURL+"/api/auth/youtube/callback",
+		cfg.FrontendURL,
 	)
 	youtubeGroup := srv.Group("/api/auth/youtube")
 	handlers.RegisterYouTubeRoutes(youtubeGroup, youtubeHandler)

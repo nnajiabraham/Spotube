@@ -42,7 +42,11 @@ function NewMapping() {
   }
 
   const handleSubmit = () => {
-    createMutation.mutate(formData)
+    createMutation.mutate({
+      ...formData,
+      spotify_playlist_name: selectedSpotifyPlaylist?.name,
+      youtube_playlist_name: selectedYouTubePlaylist?.title || selectedYouTubePlaylist?.name,
+    })
   }
 
   const selectedSpotifyPlaylist = spotifyPlaylists?.items.find(p => p.id === formData.spotify_playlist_id)
@@ -148,9 +152,9 @@ function NewMapping() {
                         className="mr-3"
                       />
                       <div className="flex-1">
-                        <div className="font-medium">{playlist.title}</div>
+                        <div className="font-medium">{playlist.title || playlist.name}</div>
                         <div className="text-sm text-gray-500">
-                          {playlist.itemCount} items
+                          {playlist.itemCount ?? 0} items
                         </div>
                       </div>
                     </label>
@@ -243,7 +247,7 @@ function NewMapping() {
 
                 <div>
                   <h3 className="font-medium text-gray-900">YouTube Playlist</h3>
-                  <p className="text-gray-600">{selectedYouTubePlaylist?.title || formData.youtube_playlist_id}</p>
+                  <p className="text-gray-600">{selectedYouTubePlaylist?.title || selectedYouTubePlaylist?.name || formData.youtube_playlist_id}</p>
                 </div>
 
                 <div>

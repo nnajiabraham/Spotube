@@ -3,6 +3,7 @@ package jobs
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"strings"
 	"time"
 
@@ -123,7 +124,7 @@ func (j *AnalysisJob) analyzeMapping(ctx context.Context, mapping model.Mappings
 		return err
 	}
 
-	j.activityLogger.RecordInfo("Analysis completed, found "+string(rune(len(syncItems)))+" differences", mappingID, "analysis")
+	j.activityLogger.RecordInfo(fmt.Sprintf("Analysis completed, found %d differences", len(syncItems)), mappingID, "analysis")
 	j.logger.Info().Str("mapping_id", mappingID).Int("sync_items", len(syncItems)).Msg("mapping analysis completed")
 
 	return nil

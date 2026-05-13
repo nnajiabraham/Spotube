@@ -1,4 +1,4 @@
-// Type definitions for the new API (migrated from pocketbase.ts)
+// Type definitions for the Spotube backend API
 
 export interface SetupStatus {
   required: boolean;

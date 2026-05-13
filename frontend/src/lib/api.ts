@@ -1,5 +1,4 @@
-// API client for making requests to the backend
-// Migrated from PocketBase to new HTTP client
+// API client facade for the Spotube backend
 
 import { 
   setupAPI, 
@@ -25,13 +24,9 @@ import type {
 // Re-export types from new API (for backward compatibility)
 export type { DashboardStats, ActivityLog, ActivityLogsResponse, SpotifyPlaylist, YouTubePlaylist, Mapping } from './api/types';
 
-// Legacy response types for backward compatibility
 export interface PlaylistsResponse {
   items: SpotifyPlaylist[];
   total: number;
-  limit: number;
-  offset: number;
-  next: string;
 }
 
 export interface YouTubePlaylistsResponse {
@@ -122,16 +117,12 @@ export const api = {
   },
   
   // Spotify API  
-  getSpotifyPlaylists: async (params?: { limit?: number; offset?: number }): Promise<PlaylistsResponse> => {
+  getSpotifyPlaylists: async (_params?: { limit?: number; offset?: number }): Promise<PlaylistsResponse> => {
     try {
       const playlists = await oauthAPI.spotify.getPlaylists();
-      // Convert to legacy format
       return {
         items: playlists,
         total: playlists.length,
-        limit: params?.limit ?? 50,
-        offset: params?.offset ?? 0,
-        next: '', // Not supported in new API
       };
     } catch (error) {
       throw convertError(error);

@@ -1,6 +1,8 @@
 package config
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -23,6 +25,7 @@ type Config struct {
 	GoogleClientID      string
 	GoogleClientSecret  string
 	SessionCookieName   string
+	SessionSecret       string
 	SessionTTLSeconds   int
 	SessionSecure       bool
 }
@@ -54,6 +57,7 @@ func Load() (*Config, error) {
 		GoogleClientID:      os.Getenv("GOOGLE_CLIENT_ID"),
 		GoogleClientSecret:  os.Getenv("GOOGLE_CLIENT_SECRET"),
 		SessionCookieName:   getEnv("SESSION_COOKIE_NAME", defaultSessionCookie),
+		SessionSecret:       getEnvOrGenerate("SESSION_SECRET", 32),
 	}
 
 	ttl, err := parseIntEnv("SESSION_TTL_SECONDS", defaultSessionTTL)
@@ -73,6 +77,17 @@ func Load() (*Config, error) {
 	}
 
 	return cfg, nil
+}
+
+func getEnvOrGenerate(key string, nBytes int) string {
+	if value, ok := os.LookupEnv(key); ok && value != "" {
+		return value
+	}
+	b := make([]byte, nBytes)
+	if _, err := rand.Read(b); err != nil {
+		return strings.Repeat("x", nBytes*2)
+	}
+	return hex.EncodeToString(b)
 }
 
 func getEnv(key, fallback string) string {

@@ -61,7 +61,7 @@ func TestYouTubeOAuthFullFlow(t *testing.T) {
 	tokenRepo := auth.NewSQLiteTokenRepository(db)
 	settingsRepo := &testYouTubeSettingsRepo{db: db}
 
-	handler := NewYouTubeOAuthHandler(settingsRepo, tokenRepo, store, "http://localhost:8090/youtube/callback")
+	handler := NewYouTubeOAuthHandler(settingsRepo, tokenRepo, store, "http://localhost:8090/youtube/callback", "http://localhost:5173")
 
 	e := echo.New()
 	RegisterYouTubeRoutes(e.Group("/api/auth/youtube"), handler)

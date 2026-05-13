@@ -54,7 +54,7 @@ function getJobTypeBadgeClass(jobType: string) {
   switch (jobType) {
     case 'analysis':
       return 'bg-purple-100 text-purple-800'
-    case 'execution':
+    case 'executor':
       return 'bg-green-100 text-green-800'
     case 'system':
     default:
@@ -342,7 +342,7 @@ function ActivityLogsPage() {
             >
               <option value="">All Job Types</option>
               <option value="analysis">Analysis</option>
-              <option value="execution">Execution</option>
+              <option value="executor">Executor</option>
               <option value="system">System</option>
             </select>
           </div>

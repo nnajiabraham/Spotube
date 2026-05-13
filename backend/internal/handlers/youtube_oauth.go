@@ -25,15 +25,17 @@ type YouTubeOAuthHandler struct {
 	TokenRepo    localauth.TokenRepository
 	SessionStore sessions.Store
 	RedirectURI  string
+	FrontendURL  string
 	Scopes       []string
 }
 
-func NewYouTubeOAuthHandler(repo localauth.CredentialProvider, tokenRepo localauth.TokenRepository, store sessions.Store, redirectURI string) *YouTubeOAuthHandler {
+func NewYouTubeOAuthHandler(repo localauth.CredentialProvider, tokenRepo localauth.TokenRepository, store sessions.Store, redirectURI, frontendURL string) *YouTubeOAuthHandler {
 	return &YouTubeOAuthHandler{
 		Repo:         repo,
 		TokenRepo:    tokenRepo,
 		SessionStore: store,
 		RedirectURI:  redirectURI,
+		FrontendURL:  frontendURL,
 		Scopes: []string{
 			youtube.YoutubeScope,
 			youtube.YoutubeReadonlyScope,
@@ -129,7 +131,7 @@ func (h *YouTubeOAuthHandler) Callback(c echo.Context) error {
 	session.Options.MaxAge = -1
 	_ = session.Save(c.Request(), c.Response())
 
-	return c.Redirect(http.StatusFound, "/setup")
+	return c.Redirect(http.StatusFound, h.FrontendURL+"/dashboard?youtube=connected")
 }
 
 func (h *YouTubeOAuthHandler) ListPlaylists(c echo.Context) error {
@@ -178,7 +180,7 @@ func fetchYouTubePlaylists(ctx context.Context, token *localauth.Token, creds lo
 		return nil, err
 	}
 
-	call := service.Playlists.List([]string{"id", "snippet"}).Mine(true).MaxResults(50)
+	call := service.Playlists.List([]string{"id", "snippet", "contentDetails"}).Mine(true).MaxResults(50)
 	response, err := call.Do()
 	if err != nil {
 		return nil, err
@@ -186,9 +188,20 @@ func fetchYouTubePlaylists(ctx context.Context, token *localauth.Token, creds lo
 
 	result := make([]YouTubePlaylist, len(response.Items))
 	for i, item := range response.Items {
+		var itemCount int64
+		if item.ContentDetails != nil {
+			itemCount = item.ContentDetails.ItemCount
+		}
+		var description string
+		if item.Snippet != nil {
+			description = item.Snippet.Description
+		}
 		result[i] = YouTubePlaylist{
-			ID:   item.Id,
-			Name: item.Snippet.Title,
+			ID:          item.Id,
+			Name:        item.Snippet.Title,
+			Title:       item.Snippet.Title,
+			Description: description,
+			ItemCount:   itemCount,
 		}
 	}
 
@@ -196,6 +209,9 @@ func fetchYouTubePlaylists(ctx context.Context, token *localauth.Token, creds lo
 }
 
 type YouTubePlaylist struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	ItemCount   int64  `json:"itemCount"`
 }

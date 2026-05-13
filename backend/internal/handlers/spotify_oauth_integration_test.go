@@ -72,7 +72,7 @@ func TestSpotifyOAuthFullFlow(t *testing.T) {
 	tokenRepo := auth.NewSQLiteTokenRepository(db)
 	settingsRepo := &testSettingsRepo{db: db}
 
-	handler := NewSpotifyOAuthHandler(settingsRepo, tokenRepo, store, "http://localhost:8090/callback")
+	handler := NewSpotifyOAuthHandler(settingsRepo, tokenRepo, store, "http://localhost:8090/callback", "http://localhost:5173")
 
 	e := echo.New()
 	RegisterSpotifyRoutes(e.Group("/api/auth/spotify"), handler)
@@ -121,7 +121,7 @@ func TestSpotifyOAuthFullFlow(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, rec.Code)
 
-	var playlists []SpotifyPlaylist
+	var playlists []SpotifyPlaylistResponse
 	err = json.Unmarshal(rec.Body.Bytes(), &playlists)
 	require.NoError(t, err)
 	assert.Len(t, playlists, 2)
