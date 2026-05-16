@@ -116,6 +116,11 @@ func main() {
 	activityLogsGroup := srv.Group("/api/collections/activity_logs/records")
 	handlers.RegisterActivityLogsRoutes(activityLogsGroup, activityLogsHandler)
 
+	// Sync Items (read-only, for logs modal)
+	syncItemsHandler := handlers.NewSyncItemsHandler(db)
+	syncItemsGroup := srv.Group("/api/collections/sync_items/records")
+	handlers.RegisterSyncItemsRoutes(syncItemsGroup, syncItemsHandler)
+
 	// Dashboard Stats (unauthenticated)
 	dashboardHandler := handlers.NewDashboardHandler(db)
 	dashboardGroup := srv.Group("/api/dashboard")
