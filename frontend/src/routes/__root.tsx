@@ -1,33 +1,36 @@
-import { createRootRoute, Outlet, redirect } from '@tanstack/react-router'
-import { TanStackRouterDevtools } from '@tanstack/react-router-devtools'
+import { createRootRoute, Outlet, redirect, useRouterState } from '@tanstack/react-router'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { ReactQueryDevtools } from '@tanstack/react-query-devtools'
 import { api } from '../lib/api'
+import { AppNav } from '../components/AppNav'
 
-// Check if setup is required by calling the backend
 async function checkSetupStatus() {
   try {
     const { required } = await api.getSetupStatus()
     return required
   } catch (error) {
     console.error('Error checking setup status:', error)
-    // Default to requiring setup if we can't check
     return true
   }
 }
 
 const queryClient = new QueryClient()
 
-export const Route = createRootRoute({
-  component: () => (
+function RootLayout() {
+  const routerState = useRouterState()
+  const isSetupRoute = routerState.location.pathname.startsWith('/setup')
+
+  return (
     <QueryClientProvider client={queryClient}>
       <div className="min-h-screen bg-gray-50 font-sans antialiased">
+        {!isSetupRoute && <AppNav />}
         <Outlet />
-        <TanStackRouterDevtools />
-        <ReactQueryDevtools />
       </div>
     </QueryClientProvider>
-  ),
+  )
+}
+
+export const Route = createRootRoute({
+  component: RootLayout,
   beforeLoad: async ({ location }) => {
     const setupRequired = await checkSetupStatus()
 
@@ -39,4 +42,4 @@ export const Route = createRootRoute({
       throw redirect({ to: '/dashboard' })
     }
   },
-}) 
+})

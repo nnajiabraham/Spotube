@@ -7,26 +7,26 @@ export interface SetupStatus {
 export interface SpotifyPlaylist {
   id: string;
   name: string;
-  images?: Array<{
-    url: string;
-    width?: number;
-    height?: number;
-  }>;
-  description?: string | null;
-  track_count?: number;
-  public?: boolean;
-  owner?: {
-    id?: string;
-    display_name?: string;
+  description: string;
+  public: boolean;
+  track_count: number;
+  owner: {
+    id: string;
+    display_name: string;
   };
+  images: Array<{
+    url: string;
+    width: number;
+    height: number;
+  }>;
 }
 
 export interface YouTubePlaylist {
   id: string;
   name: string;
-  title?: string;
-  description?: string | null;
-  itemCount?: number;
+  title: string;
+  description: string;
+  itemCount: number;
 }
 
 export interface Mapping {
@@ -38,10 +38,10 @@ export interface Mapping {
   sync_name: boolean;
   sync_tracks: boolean;
   interval_minutes: number;
-  last_analysis_at: number | null; // epoch seconds
+  last_analysis_at: number | null;
   tracks_count: number;
-  created: number; // epoch seconds
-  updated: number; // epoch seconds
+  created: number;
+  updated: number;
 }
 
 export interface MappingsResponse {
@@ -59,9 +59,9 @@ export interface BlacklistEntry {
   track_id: string;
   reason: string;
   skip_counter: number;
-  last_skipped_at: number | null; // epoch seconds
-  created: number; // epoch seconds
-  updated: number; // epoch seconds
+  last_skipped_at: number | null;
+  created: number;
+  updated: number;
 }
 
 export interface BlacklistResponse {
@@ -78,8 +78,7 @@ export interface ActivityLog {
   message: string;
   mapping_id?: string;
   job_type: 'analysis' | 'executor' | 'system';
-  created: number; // epoch seconds
-  updated?: number | null;
+  created: number;
   sync_item_id?: string | null;
 }
 
@@ -115,7 +114,6 @@ export interface DashboardStats {
   };
 }
 
-// Request types
 export interface SaveSettingsRequest {
   spotify_client_id: string;
   spotify_client_secret: string;

@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { Route } from '../../../../../routes/_authenticated/mappings/$mappingId/blacklist.lazy';
+import { Route } from '../../../../../routes/mappings/$mappingId/blacklist.lazy';
 import { http, HttpResponse } from 'msw';
 
 // Mock TanStack Router - partial mock to preserve createLazyFileRoute

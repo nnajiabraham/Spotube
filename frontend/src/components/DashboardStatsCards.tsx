@@ -10,7 +10,6 @@ import {
   RefreshCw,
   Play,
   Pause,
-  Youtube
 } from 'lucide-react';
 
 interface DashboardStatsCardsProps {
@@ -231,15 +230,6 @@ export function DashboardStatsCards({ isPaused, onTogglePause, onRefresh }: Dash
         icon={CheckCircle}
         isLoading={isLoading}
         color="green"
-      />
-
-      {/* YouTube Quota */}
-      <StatCard
-        title="YouTube Quota"
-        value={stats ? `${stats.youtube_quota.used}/${stats.youtube_quota.limit}` : '0/10000'}
-        icon={Youtube}
-        isLoading={isLoading}
-        color="purple"
       />
     </div>
   );

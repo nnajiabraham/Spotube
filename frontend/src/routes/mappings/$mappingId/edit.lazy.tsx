@@ -1,10 +1,10 @@
 import { createLazyFileRoute, useNavigate, useParams } from '@tanstack/react-router'
 import { useQuery, useMutation } from '@tanstack/react-query'
-import { api } from '../../../../lib/api'
-import type { Mapping } from '../../../../lib/api'
+import { api } from '../../../lib/api'
+import type { Mapping } from '../../../lib/api'
 
 function EditMapping() {
-  const { mappingId } = useParams({ from: '/_authenticated/mappings/$mappingId/edit' })
+  const { mappingId } = useParams({ from: '/mappings/$mappingId/edit' })
   const navigate = useNavigate()
 
   const { data: mapping, isLoading } = useQuery({
@@ -46,7 +46,7 @@ function EditMapping() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
+    <div className="py-8 px-4 sm:px-6 lg:px-8">
       <div className="max-w-3xl mx-auto">
         <h1 className="text-2xl font-semibold text-gray-900 mb-8">Edit Mapping</h1>
 
@@ -147,6 +147,6 @@ function EditMapping() {
   )
 }
 
-export const Route = createLazyFileRoute('/_authenticated/mappings/$mappingId/edit')({
+export const Route = createLazyFileRoute('/mappings/$mappingId/edit')({
   component: EditMapping,
 }) 

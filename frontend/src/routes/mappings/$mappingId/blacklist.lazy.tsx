@@ -1,6 +1,6 @@
 import { createLazyFileRoute, useParams } from '@tanstack/react-router'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { api } from '../../../../lib/api'
+import { api } from '../../../lib/api'
 import { Trash2, ArrowLeft } from 'lucide-react'
 import { Link } from '@tanstack/react-router'
 
@@ -82,7 +82,7 @@ function BlacklistPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
+    <div className="py-8 px-4 sm:px-6 lg:px-8">
       <div className="max-w-7xl mx-auto">
         <div className="mb-8">
           <Link
@@ -202,6 +202,6 @@ function BlacklistPage() {
   )
 }
 
-export const Route = createLazyFileRoute('/_authenticated/mappings/$mappingId/blacklist')({
+export const Route = createLazyFileRoute('/mappings/$mappingId/blacklist')({
   component: BlacklistPage,
 }) 

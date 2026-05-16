@@ -57,17 +57,15 @@ describe('YoutubeConnectionCard', () => {
   })
 
   it('shows view playlists button when connected', async () => {
-    vi.mocked(api.getYouTubePlaylists).mockResolvedValueOnce({
-      items: [
-        {
-          id: 'PLxxxxxxxxxxxxxxxxxxxx',
-          name: 'Test Playlist',
-          title: 'Test Playlist',
-          itemCount: 42,
-          description: 'A test playlist'
-        }
-      ]
-    })
+    vi.mocked(api.getYouTubePlaylists).mockResolvedValueOnce([
+      {
+        id: 'PLxxxxxxxxxxxxxxxxxxxx',
+        name: 'Test Playlist',
+        title: 'Test Playlist',
+        itemCount: 42,
+        description: 'A test playlist'
+      }
+    ])
 
     render(<YoutubeConnectionCard />, { wrapper: createWrapper() })
 

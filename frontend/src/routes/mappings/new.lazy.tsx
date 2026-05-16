@@ -1,8 +1,8 @@
 import { createLazyFileRoute, useNavigate } from '@tanstack/react-router'
 import { useState } from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
-import { api } from '../../../lib/api'
-import type { SpotifyPlaylist, YouTubePlaylist } from '../../../lib/api'
+import { api } from '../../lib/api'
+import type { SpotifyPlaylist, YouTubePlaylist } from '../../lib/api'
 
 function NewMapping() {
   const navigate = useNavigate()
@@ -18,7 +18,7 @@ function NewMapping() {
   // Fetch playlists
   const { data: spotifyPlaylists, isLoading: spotifyLoading } = useQuery({
     queryKey: ['spotify-playlists'],
-    queryFn: () => api.getSpotifyPlaylists({ limit: 50 }),
+    queryFn: () => api.getSpotifyPlaylists(),
   })
 
   const { data: youtubePlaylists, isLoading: youtubeLoading } = useQuery({
@@ -49,11 +49,11 @@ function NewMapping() {
     })
   }
 
-  const selectedSpotifyPlaylist = spotifyPlaylists?.items.find(p => p.id === formData.spotify_playlist_id)
-  const selectedYouTubePlaylist = youtubePlaylists?.items.find(p => p.id === formData.youtube_playlist_id)
+  const selectedSpotifyPlaylist = spotifyPlaylists?.find(p => p.id === formData.spotify_playlist_id)
+  const selectedYouTubePlaylist = youtubePlaylists?.find(p => p.id === formData.youtube_playlist_id)
 
   return (
-    <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
+    <div className="py-8 px-4 sm:px-6 lg:px-8">
       <div className="max-w-3xl mx-auto">
         <h1 className="text-2xl font-semibold text-gray-900 mb-8">Create New Mapping</h1>
 
@@ -93,7 +93,7 @@ function NewMapping() {
                 <div className="text-center py-4">Loading playlists...</div>
               ) : (
                 <div className="space-y-2">
-                  {spotifyPlaylists?.items.map((playlist: SpotifyPlaylist) => (
+                  {spotifyPlaylists?.map((playlist: SpotifyPlaylist) => (
                     <label
                       key={playlist.id}
                       className={`flex items-center p-4 border rounded-lg cursor-pointer hover:bg-gray-50 ${
@@ -132,7 +132,7 @@ function NewMapping() {
                 <div className="text-center py-4">Loading playlists...</div>
               ) : (
                 <div className="space-y-2">
-                  {youtubePlaylists?.items.map((playlist: YouTubePlaylist) => (
+                  {youtubePlaylists?.map((playlist: YouTubePlaylist) => (
                     <label
                       key={playlist.id}
                       className={`flex items-center p-4 border rounded-lg cursor-pointer hover:bg-gray-50 ${
@@ -301,6 +301,6 @@ function NewMapping() {
   )
 }
 
-export const Route = createLazyFileRoute('/_authenticated/mappings/new')({
+export const Route = createLazyFileRoute('/mappings/new')({
   component: NewMapping,
 }) 

@@ -7,7 +7,7 @@ import {
   flexRender,
   createColumnHelper,
 } from '@tanstack/react-table'
-import { api, type ActivityLog } from '../../lib/api'
+import { api, type ActivityLog, type SyncItemDetails } from '../lib/api'
 import { 
   AlertCircle, 
   Info, 
@@ -133,7 +133,6 @@ function SyncItemModal({
           
           {syncItem && (
             <div className="space-y-6">
-              {/* Status */}
               <div>
                 <h3 className="text-sm font-medium text-gray-500 mb-2">Status</h3>
                 <div className="flex items-center space-x-2">
@@ -142,70 +141,65 @@ function SyncItemModal({
                 </div>
               </div>
 
-              {/* Action & Services */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <h3 className="text-sm font-medium text-gray-500 mb-2">Action</h3>
-                  <p className="text-sm text-gray-900 capitalize">{syncItem.action.replace('_', ' ')}</p>
+                  <h3 className="text-sm font-medium text-gray-500 mb-2">Operation</h3>
+                  <p className="text-sm text-gray-900 capitalize">{syncItem.operation}</p>
                 </div>
                 <div>
-                  <h3 className="text-sm font-medium text-gray-500 mb-2">Service</h3>
+                  <h3 className="text-sm font-medium text-gray-500 mb-2">Target Service</h3>
                   <p className="text-sm text-gray-900 capitalize">{syncItem.service}</p>
                 </div>
               </div>
 
-              {/* Track Details */}
-              {syncItem.source_track_title && (
+              {(syncItem.track_title || syncItem.track_id) && (
                 <div>
                   <h3 className="text-sm font-medium text-gray-500 mb-2">Track Details</h3>
                   <div className="bg-gray-50 rounded-md p-3 space-y-2">
-                    <div>
-                      <span className="text-xs font-medium text-gray-600">Title:</span>
-                      <p className="text-sm text-gray-900">{syncItem.source_track_title}</p>
-                    </div>
-                    {syncItem.source_track_id && (
+                    {syncItem.track_title && (
+                      <div>
+                        <span className="text-xs font-medium text-gray-600">Title:</span>
+                        <p className="text-sm text-gray-900">{syncItem.track_title}</p>
+                      </div>
+                    )}
+                    {syncItem.track_artist && (
+                      <div>
+                        <span className="text-xs font-medium text-gray-600">Artist:</span>
+                        <p className="text-sm text-gray-900">{syncItem.track_artist}</p>
+                      </div>
+                    )}
+                    {syncItem.track_id && (
                       <div>
                         <span className="text-xs font-medium text-gray-600">Track ID:</span>
-                        <p className="text-sm text-gray-900 font-mono">{syncItem.source_track_id}</p>
-                      </div>
-                    )}
-                    {syncItem.source_service && syncItem.destination_service && (
-                      <div>
-                        <span className="text-xs font-medium text-gray-600">Direction:</span>
-                        <p className="text-sm text-gray-900 capitalize">
-                          {syncItem.source_service} → {syncItem.destination_service}
-                        </p>
+                        <p className="text-sm text-gray-900 font-mono">{syncItem.track_id}</p>
                       </div>
                     )}
                   </div>
                 </div>
               )}
 
-              {/* Error Details */}
-              {syncItem.last_error && (
+              {syncItem.error_message && (
                 <div>
-                  <h3 className="text-sm font-medium text-gray-500 mb-2">Last Error</h3>
+                  <h3 className="text-sm font-medium text-gray-500 mb-2">Error</h3>
                   <div className="bg-red-50 border border-red-200 rounded-md p-3">
-                    <p className="text-sm text-red-700">{syncItem.last_error}</p>
+                    <p className="text-sm text-red-700">{syncItem.error_message}</p>
                   </div>
                 </div>
               )}
 
-              {/* Attempts */}
               <div>
                 <h3 className="text-sm font-medium text-gray-500 mb-2">Attempts</h3>
-                <p className="text-sm text-gray-900">{syncItem.attempts}</p>
+                <p className="text-sm text-gray-900">{syncItem.attempt_count}</p>
               </div>
 
-              {/* Timestamps */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <h3 className="text-sm font-medium text-gray-500 mb-2">Created</h3>
-                  <p className="text-sm text-gray-900">{new Date(syncItem.created).toLocaleString()}</p>
+                  <p className="text-sm text-gray-900">{new Date(syncItem.created * 1000).toLocaleString()}</p>
                 </div>
                 <div>
                   <h3 className="text-sm font-medium text-gray-500 mb-2">Updated</h3>
-                  <p className="text-sm text-gray-900">{new Date(syncItem.updated).toLocaleString()}</p>
+                  <p className="text-sm text-gray-900">{new Date(syncItem.updated * 1000).toLocaleString()}</p>
                 </div>
               </div>
             </div>
@@ -309,7 +303,7 @@ function ActivityLogsPage() {
   })
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8 px-4 sm:px-6 lg:px-8">
+    <div className="py-8 px-4 sm:px-6 lg:px-8">
       <div className="max-w-7xl mx-auto">
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-gray-900">Activity Logs</h1>
@@ -460,6 +454,6 @@ function ActivityLogsPage() {
   )
 }
 
-export const Route = createLazyFileRoute('/_authenticated/logs')({
+export const Route = createLazyFileRoute('/logs')({
   component: ActivityLogsPage,
 }) 

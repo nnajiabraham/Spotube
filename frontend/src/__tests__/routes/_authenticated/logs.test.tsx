@@ -3,7 +3,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { http, HttpResponse } from 'msw';
-import { Route } from '../../../routes/_authenticated/logs.lazy';
+import { Route } from '../../../routes/logs.lazy';
 
 // Extract the component from the Route
 const ActivityLogsPage = (Route.options.component ?? (() => null)) as React.ComponentType;

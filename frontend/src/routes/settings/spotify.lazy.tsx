@@ -5,12 +5,12 @@ import { api } from '../../lib/api';
 function SpotifyPlaylistsComponent() {
   const { data, isLoading, error } = useQuery({
     queryKey: ['spotify-playlists'],
-    queryFn: () => api.getSpotifyPlaylists({ limit: 50 }),
+    queryFn: () => api.getSpotifyPlaylists(),
   });
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
+      <div className="py-8 px-4 sm:px-6 lg:px-8">
         <div className="max-w-7xl mx-auto">
           <h1 className="text-2xl font-semibold text-gray-900 mb-8">Your Spotify Playlists</h1>
           <div className="text-center py-12">
@@ -24,7 +24,7 @@ function SpotifyPlaylistsComponent() {
 
   if (error) {
     return (
-      <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
+      <div className="py-8 px-4 sm:px-6 lg:px-8">
         <div className="max-w-7xl mx-auto">
           <h1 className="text-2xl font-semibold text-gray-900 mb-8">Your Spotify Playlists</h1>
           <div className="text-center py-12">
@@ -41,16 +41,16 @@ function SpotifyPlaylistsComponent() {
     );
   }
 
-  const playlists = data?.items || [];
+  const playlists = data || [];
 
   return (
-    <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
+    <div className="py-8 px-4 sm:px-6 lg:px-8">
       <div className="max-w-7xl mx-auto">
         <div className="sm:flex sm:items-center">
           <div className="sm:flex-auto">
             <h1 className="text-2xl font-semibold text-gray-900">Your Spotify Playlists</h1>
             <p className="mt-2 text-sm text-gray-700">
-              Manage and view your Spotify playlists ({data?.total || 0} total)
+              {playlists.length} playlists
             </p>
           </div>
         </div>
@@ -73,9 +73,9 @@ function SpotifyPlaylistsComponent() {
                 className="bg-white overflow-hidden shadow rounded-lg hover:shadow-lg transition-shadow"
               >
                 <div className="p-6">
-                  {playlist.images?.[0] && (
+                  {playlist.images[0] && (
                     <img
-                      src={playlist.images?.[0]?.url ?? ''}
+                      src={playlist.images[0].url}
                       alt={playlist.name}
                       className="w-full h-48 object-cover rounded-md mb-4"
                     />
@@ -90,7 +90,7 @@ function SpotifyPlaylistsComponent() {
                   )}
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-gray-600">
-                      {playlist.track_count ?? 0} tracks
+                      {playlist.track_count} tracks
                     </span>
                     <span className={`px-2 py-1 rounded-full text-xs font-medium ${
                       playlist.public 
@@ -100,8 +100,8 @@ function SpotifyPlaylistsComponent() {
                       {playlist.public ? 'Public' : 'Private'}
                     </span>
                   </div>
-                    <div className="mt-3 text-xs text-gray-500">
-                    by {playlist.owner?.display_name ?? 'Unknown'}
+                  <div className="mt-3 text-xs text-gray-500">
+                    by {playlist.owner.display_name || 'Unknown'}
                   </div>
                 </div>
               </div>

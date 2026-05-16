@@ -1,6 +1,6 @@
 import { createLazyFileRoute, Link } from '@tanstack/react-router'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { api } from '../../../lib/api'
+import { api } from '../../lib/api'
 import { Trash2, Edit } from 'lucide-react'
 
 function MappingsList() {
@@ -37,7 +37,7 @@ function MappingsList() {
   const mappings = data?.items || []
 
   return (
-    <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
+    <div className="py-8 px-4 sm:px-6 lg:px-8">
       <div className="max-w-7xl mx-auto">
         <div className="sm:flex sm:items-center">
           <div className="sm:flex-auto">
@@ -136,6 +136,6 @@ function MappingsList() {
   )
 }
 
-export const Route = createLazyFileRoute('/_authenticated/mappings/')({
+export const Route = createLazyFileRoute('/mappings/')({
   component: MappingsList,
 }) 

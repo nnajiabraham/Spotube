@@ -70,7 +70,7 @@ describe('DashboardStatsCards', () => {
     expect(screen.getByText('Error Items')).toBeInTheDocument();
     expect(screen.getByText('Skipped Items')).toBeInTheDocument();
     expect(screen.getByText('Completed Items')).toBeInTheDocument();
-    expect(screen.getByText('YouTube Quota')).toBeInTheDocument();
+
     expect(screen.getByText('Auto-refresh')).toBeInTheDocument();
   });
 
@@ -226,7 +226,7 @@ describe('DashboardStatsCards', () => {
     expect(screen.getByText('Error Items')).toBeInTheDocument();
     expect(screen.getByText('Skipped Items')).toBeInTheDocument();
     expect(screen.getByText('Completed Items')).toBeInTheDocument();
-    expect(screen.getByText('YouTube Quota')).toBeInTheDocument();
+
     expect(screen.getByText('Auto-refresh')).toBeInTheDocument();
   });
 }); 

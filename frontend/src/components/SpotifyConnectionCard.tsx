@@ -6,7 +6,7 @@ export function SpotifyConnectionCard() {
   // Check if user is connected by trying to fetch playlists
   const { isLoading, error } = useQuery({
     queryKey: ['spotify-connection'],
-    queryFn: () => api.getSpotifyPlaylists({ limit: 1 }),
+    queryFn: () => api.getSpotifyPlaylists(),
     retry: (failureCount, error) => {
       // Don't retry 401 errors (not authenticated)
       if (error instanceof ApiError && error.status === 401) {

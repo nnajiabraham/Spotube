@@ -7,7 +7,8 @@ import {
   blacklistAPI, 
   activityLogsAPI, 
   dashboardAPI,
-  syncItemsAPI
+  syncItemsAPI,
+  APIClientError,
 } from './api/index';
 import type {
   SetupStatus,
@@ -19,38 +20,18 @@ import type {
   DashboardStats,
   ActivityLogsResponse,
   SaveSettingsRequest,
+  CreateMappingRequest,
+  UpdateMappingRequest,
 } from './api/types';
+import type { SyncItemDetails } from './api/sync-items';
 
-// Re-export types from new API (for backward compatibility)
-export type { DashboardStats, ActivityLog, ActivityLogsResponse, SpotifyPlaylist, YouTubePlaylist, Mapping } from './api/types';
+export type { 
+  DashboardStats, ActivityLog, ActivityLogsResponse, 
+  SpotifyPlaylist, YouTubePlaylist, Mapping,
+  CreateMappingRequest, UpdateMappingRequest,
+} from './api/types';
+export type { SyncItemDetails } from './api/sync-items';
 
-export interface PlaylistsResponse {
-  items: SpotifyPlaylist[];
-  total: number;
-}
-
-export interface YouTubePlaylistsResponse {
-  items: YouTubePlaylist[];
-}
-
-export interface SyncItem {
-  id: string;
-  mapping_id: string;
-  service: 'spotify' | 'youtube';
-  action: 'add_track' | 'remove_track' | 'rename_playlist';
-  status: 'pending' | 'running' | 'done' | 'error' | 'skipped';
-  source_track_id?: string;
-  source_track_title?: string;
-  source_service?: 'spotify' | 'youtube';
-  destination_service?: 'spotify' | 'youtube';
-  payload: string;
-  attempts: number;
-  last_error?: string;
-  created: string;
-  updated: string;
-}
-
-// Backward-compatible error class
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
     super(message);
@@ -58,214 +39,77 @@ export class ApiError extends Error {
   }
 }
 
-// Helper to convert APIClientError to ApiError for backward compatibility
-type APIErrorPayload = { error?: { code?: string; message?: string } };
-type APIClientErrorShape = { code?: string; message?: string } & Record<string, unknown>;
-
-function convertError(error: unknown): ApiError {
-  if (error instanceof ApiError) {
-    return error;
+function toApiError(error: unknown): ApiError {
+  if (error instanceof ApiError) return error;
+  if (error instanceof APIClientError) {
+    const statusMap: Record<string, number> = {
+      unauthorized: 401, not_found: 404, validation_failed: 422, conflict: 409,
+    };
+    return new ApiError(statusMap[error.code] ?? 500, error.message);
   }
+  return new ApiError(500, String(error));
+}
 
-  const payload: APIErrorPayload | APIClientErrorShape | undefined =
-    typeof error === 'object' && error !== null ? (error as APIClientErrorShape) : undefined;
-
-  const code = (payload?.error as APIClientErrorShape | undefined)?.code ?? payload?.code;
-  const message = (payload?.error as APIClientErrorShape | undefined)?.message ?? payload?.message ?? String(error);
-
-  switch (code) {
-    case 'unauthorized':
-      return new ApiError(401, message ?? 'Unauthorized');
-    case 'not_found':
-      return new ApiError(404, message ?? 'Not found');
-    case 'validation_failed':
-      return new ApiError(422, message ?? 'Validation failed');
-    case 'conflict':
-      return new ApiError(409, message ?? 'Conflict');
-    default:
-      return new ApiError(500, message ?? 'Request failed');
-  }
+function wrap<T>(fn: () => Promise<T>): Promise<T> {
+  return fn().catch((e) => { throw toApiError(e); });
 }
 
 export { oauthAPI };
 
 export const api = {
-  // Dashboard API
-  getDashboardStats: async (): Promise<DashboardStats> => {
-    try {
-      return await dashboardAPI.getStats();
-    } catch (error) {
-      throw convertError(error);
-    }
-  },
+  getDashboardStats: (): Promise<DashboardStats> =>
+    wrap(() => dashboardAPI.getStats()),
 
-  // Setup API
-  getSetupStatus: async (): Promise<SetupStatus> => {
-    try {
-      return await setupAPI.isRequired();
-    } catch (error) {
-      throw convertError(error);
-    }
-  },
+  getSetupStatus: (): Promise<SetupStatus> =>
+    wrap(() => setupAPI.isRequired()),
 
-  saveSetupCredentials: async (payload: SaveSettingsRequest): Promise<void> => {
-    try {
-      await setupAPI.save(payload);
-    } catch (error) {
-      throw convertError(error);
-    }
-  },
-  
-  // Spotify API  
-  getSpotifyPlaylists: async (_params?: { limit?: number; offset?: number }): Promise<PlaylistsResponse> => {
-    try {
-      const playlists = await oauthAPI.spotify.getPlaylists();
-      return {
-        items: playlists,
-        total: playlists.length,
-      };
-    } catch (error) {
-      throw convertError(error);
-    }
-  },
+  saveSetupCredentials: (payload: SaveSettingsRequest): Promise<void> =>
+    wrap(() => setupAPI.save(payload)),
 
-  // YouTube API
-  getYouTubePlaylists: async (): Promise<YouTubePlaylistsResponse> => {
-    try {
-      const playlists = await oauthAPI.youtube.getPlaylists();
-      return {
-        items: playlists,
-      };
-    } catch (error) {
-      throw convertError(error);
-    }
-  },
+  getSpotifyPlaylists: (): Promise<SpotifyPlaylist[]> =>
+    wrap(() => oauthAPI.spotify.getPlaylists()),
 
-  // Mappings API
-  getMappings: async (params?: { page?: number; perPage?: number }): Promise<MappingsResponse> => {
-    try {
-      return await mappingsAPI.getList({
-        page: params?.page ?? 1,
-        per_page: params?.perPage ?? 30,
-      });
-    } catch (error) {
-      throw convertError(error);
-    }
-  },
+  getYouTubePlaylists: (): Promise<YouTubePlaylist[]> =>
+    wrap(() => oauthAPI.youtube.getPlaylists()),
 
-  getMapping: async (id: string): Promise<Mapping> => {
-    try {
-      return await mappingsAPI.getOne(id);
-    } catch (error) {
-      throw convertError(error);
-    }
-  },
+  getMappings: (params?: { page?: number; perPage?: number }): Promise<MappingsResponse> =>
+    wrap(() => mappingsAPI.getList({
+      page: params?.page ?? 1,
+      per_page: params?.perPage ?? 30,
+    })),
 
-  createMapping: async (data: Partial<Mapping>): Promise<Mapping> => {
-    try {
-      // Convert to new API format
-      const createData = {
-        spotify_playlist_id: data.spotify_playlist_id!,
-        youtube_playlist_id: data.youtube_playlist_id!,
-        spotify_playlist_name: data.spotify_playlist_name,
-        youtube_playlist_name: data.youtube_playlist_name,
-        sync_name: data.sync_name,
-        sync_tracks: data.sync_tracks,
-        interval_minutes: data.interval_minutes,
-      };
-      return await mappingsAPI.create(createData);
-    } catch (error) {
-      throw convertError(error);
-    }
-  },
+  getMapping: (id: string): Promise<Mapping> =>
+    wrap(() => mappingsAPI.getOne(id)),
 
-  updateMapping: async (id: string, data: Partial<Mapping>): Promise<Mapping> => {
-    try {
-      return await mappingsAPI.update(id, {
-        spotify_playlist_name: data.spotify_playlist_name,
-        youtube_playlist_name: data.youtube_playlist_name,
-        sync_name: data.sync_name,
-        sync_tracks: data.sync_tracks,
-        interval_minutes: data.interval_minutes,
-      });
-    } catch (error) {
-      throw convertError(error);
-    }
-  },
+  createMapping: (data: CreateMappingRequest): Promise<Mapping> =>
+    wrap(() => mappingsAPI.create(data)),
 
-  deleteMapping: async (id: string): Promise<boolean> => {
-    try {
-      await mappingsAPI.delete(id);
-      return true;
-    } catch (error) {
-      throw convertError(error);
-    }
-  },
+  updateMapping: (id: string, data: UpdateMappingRequest): Promise<Mapping> =>
+    wrap(() => mappingsAPI.update(id, data)),
 
-  // Blacklist API
-  getBlacklist: async (mappingId?: string, params?: { page?: number; perPage?: number }): Promise<BlacklistResponse> => {
-    try {
-      return await blacklistAPI.getList({
-        page: params?.page ?? 1,
-        per_page: params?.perPage ?? 30,
-        mapping_id: mappingId,
-      });
-    } catch (error) {
-      throw convertError(error);
-    }
-  },
+  deleteMapping: (id: string): Promise<void> =>
+    wrap(() => mappingsAPI.delete(id)),
 
-  deleteBlacklistEntry: async (id: string): Promise<boolean> => {
-    try {
-      await blacklistAPI.delete(id);
-      return true;
-    } catch (error) {
-      throw convertError(error);
-    }
-  },
+  getBlacklist: (mappingId?: string, params?: { page?: number; perPage?: number }): Promise<BlacklistResponse> =>
+    wrap(() => blacklistAPI.getList({
+      page: params?.page ?? 1,
+      per_page: params?.perPage ?? 30,
+      mapping_id: mappingId,
+    })),
 
-  // Activity Logs API
-  getActivityLogs: async (params?: {
-    page?: number;
-    perPage?: number;
-    level?: string;
-    job_type?: string;
-  }): Promise<ActivityLogsResponse> => {
-    try {
-      return await activityLogsAPI.getList({
-        page: params?.page ?? 1,
-        per_page: params?.perPage ?? 50,
-        level: params?.level as 'info' | 'warn' | 'error' | undefined,
-        job_type: params?.job_type as 'analysis' | 'executor' | 'system' | undefined,
-      });
-    } catch (error) {
-      throw convertError(error);
-    }
-  },
+  deleteBlacklistEntry: (id: string): Promise<void> =>
+    wrap(() => blacklistAPI.delete(id)),
 
-  // Get sync item details for modal display
-  getSyncItem: async (id: string): Promise<SyncItem> => {
-    try {
-      const details = await syncItemsAPI.getOne(id);
-      // Convert to legacy format expected by the component
-      return {
-        id: details.id,
-        mapping_id: details.mapping_id,
-        service: details.service,
-        action: `${details.operation}_track` as SyncItem['action'],
-        status: details.status,
-        source_track_id: details.track_id || '',
-        source_track_title: details.track_title || '',
-        source_service: details.service,
-        destination_service: details.service === 'spotify' ? 'youtube' : 'spotify',
-        payload: '',
-        attempts: details.attempt_count,
-        last_error: details.error_message || '',
-        created: new Date(details.created * 1000).toISOString(),
-        updated: new Date(details.updated * 1000).toISOString(),
-      };
-    } catch (error) {
-      throw convertError(error);
-    }
-  },
-}; 
+  getActivityLogs: (params?: {
+    page?: number; perPage?: number; level?: string; job_type?: string;
+  }): Promise<ActivityLogsResponse> =>
+    wrap(() => activityLogsAPI.getList({
+      page: params?.page ?? 1,
+      per_page: params?.perPage ?? 50,
+      level: params?.level as 'info' | 'warn' | 'error' | undefined,
+      job_type: params?.job_type as 'analysis' | 'executor' | 'system' | undefined,
+    })),
+
+  getSyncItem: (id: string): Promise<SyncItemDetails> =>
+    wrap(() => syncItemsAPI.getOne(id)),
+};
