@@ -1,4 +1,4 @@
-import { createLazyFileRoute, useSearch } from '@tanstack/react-router'
+import { Link, createLazyFileRoute, useSearch } from '@tanstack/react-router'
 import { SpotifyConnectionCard } from '../components/SpotifyConnectionCard'
 import { YoutubeConnectionCard } from '../components/YoutubeConnectionCard'
 import { DashboardStatsCards } from '../components/DashboardStatsCards'
@@ -90,12 +90,12 @@ function Dashboard() {
                   </div>
                 </div>
                 <div className="mt-5">
-                  <a
-                    href="/mappings"
+                  <Link
+                    to="/mappings"
                     className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
                   >
                     View Mappings
-                  </a>
+                  </Link>
                 </div>
               </div>
             </div>

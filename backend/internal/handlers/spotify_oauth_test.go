@@ -34,6 +34,7 @@ func TestSpotifyLoginRedirects(t *testing.T) {
 		Repo:         &fakeCredentialProvider{id: "spotify-id", secret: "secret"},
 		SessionStore: store,
 		RedirectURI:  "http://localhost:8090/callback",
+		FrontendURL:  "http://localhost:5173",
 		Scopes:       []string{"playlist-read-private"},
 	}
 

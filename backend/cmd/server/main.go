@@ -85,6 +85,7 @@ func main() {
 		tokenRepo,
 		sessionStore,
 		cfg.PublicURL+"/api/auth/spotify/callback",
+		cfg.FrontendURL,
 	)
 	spotifyGroup := srv.Group("/api/auth/spotify")
 	handlers.RegisterSpotifyRoutes(spotifyGroup, spotifyHandler)
@@ -95,6 +96,7 @@ func main() {
 		tokenRepo,
 		sessionStore,
 		cfg.PublicURL+"/api/auth/youtube/callback",
+		cfg.FrontendURL,
 	)
 	youtubeGroup := srv.Group("/api/auth/youtube")
 	handlers.RegisterYouTubeRoutes(youtubeGroup, youtubeHandler)

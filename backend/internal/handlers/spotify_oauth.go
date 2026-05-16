@@ -32,15 +32,17 @@ type SpotifyOAuthHandler struct {
 	TokenRepo    localauth.TokenRepository
 	SessionStore sessions.Store
 	RedirectURI  string
+	FrontendURL  string
 	Scopes       []string
 }
 
-func NewSpotifyOAuthHandler(repo localauth.CredentialProvider, tokenRepo localauth.TokenRepository, store sessions.Store, redirectURI string) *SpotifyOAuthHandler {
+func NewSpotifyOAuthHandler(repo localauth.CredentialProvider, tokenRepo localauth.TokenRepository, store sessions.Store, redirectURI, frontendURL string) *SpotifyOAuthHandler {
 	return &SpotifyOAuthHandler{
 		Repo:         repo,
 		TokenRepo:    tokenRepo,
 		SessionStore: store,
 		RedirectURI:  redirectURI,
+		FrontendURL:  frontendURL,
 		Scopes: []string{
 			"playlist-read-private",
 			"playlist-modify-private",
@@ -125,7 +127,7 @@ func (h *SpotifyOAuthHandler) Callback(c echo.Context) error {
 	session.Options.MaxAge = -1
 	_ = session.Save(c.Request(), c.Response())
 
-	return c.Redirect(http.StatusFound, "/dashboard")
+	return c.Redirect(http.StatusFound, buildFrontendDashboardRedirect(h.FrontendURL, "spotify", "connected", ""))
 }
 
 func (h *SpotifyOAuthHandler) ListPlaylists(c echo.Context) error {
@@ -236,9 +238,26 @@ func fetchSpotifyPlaylists(ctx context.Context, token *localauth.Token, creds lo
 
 	result := make([]SpotifyPlaylist, len(playlists.Playlists))
 	for i, p := range playlists.Playlists {
+		images := make([]SpotifyPlaylistImage, 0, len(p.Images))
+		for _, image := range p.Images {
+			images = append(images, SpotifyPlaylistImage{
+				URL:    image.URL,
+				Width:  int(image.Width),
+				Height: int(image.Height),
+			})
+		}
+
 		result[i] = SpotifyPlaylist{
-			ID:   p.ID.String(),
-			Name: p.Name,
+			ID:          p.ID.String(),
+			Name:        p.Name,
+			Description: p.Description,
+			Images:      images,
+			TrackCount:  int(p.Tracks.Total),
+			Public:      p.IsPublic,
+			Owner: SpotifyPlaylistOwner{
+				ID:          p.Owner.ID,
+				DisplayName: p.Owner.DisplayName,
+			},
 		}
 	}
 
@@ -246,8 +265,24 @@ func fetchSpotifyPlaylists(ctx context.Context, token *localauth.Token, creds lo
 }
 
 type SpotifyPlaylist struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
+	ID          string                 `json:"id"`
+	Name        string                 `json:"name"`
+	Description string                 `json:"description,omitempty"`
+	Images      []SpotifyPlaylistImage `json:"images,omitempty"`
+	TrackCount  int                    `json:"track_count"`
+	Public      bool                   `json:"public"`
+	Owner       SpotifyPlaylistOwner   `json:"owner"`
+}
+
+type SpotifyPlaylistImage struct {
+	URL    string `json:"url"`
+	Width  int    `json:"width"`
+	Height int    `json:"height"`
+}
+
+type SpotifyPlaylistOwner struct {
+	ID          string `json:"id"`
+	DisplayName string `json:"display_name"`
 }
 
 func sqlNullString(value string) sql.NullString {

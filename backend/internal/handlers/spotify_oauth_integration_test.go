@@ -72,7 +72,7 @@ func TestSpotifyOAuthFullFlow(t *testing.T) {
 	tokenRepo := auth.NewSQLiteTokenRepository(db)
 	settingsRepo := &testSettingsRepo{db: db}
 
-	handler := NewSpotifyOAuthHandler(settingsRepo, tokenRepo, store, "http://localhost:8090/callback")
+	handler := NewSpotifyOAuthHandler(settingsRepo, tokenRepo, store, "http://localhost:8090/callback", "http://localhost:5173")
 
 	e := echo.New()
 	RegisterSpotifyRoutes(e.Group("/api/auth/spotify"), handler)
@@ -107,6 +107,8 @@ func TestSpotifyOAuthFullFlow(t *testing.T) {
 	e.ServeHTTP(rec, req)
 
 	assert.Equal(t, http.StatusFound, rec.Code)
+	assert.Contains(t, rec.Header().Get("Location"), "http://localhost:5173/dashboard")
+	assert.Contains(t, rec.Header().Get("Location"), "spotify=connected")
 
 	// Verify token was stored in database
 	var tokenCount int
@@ -139,6 +141,7 @@ func TestSpotifyCallbackStateMismatch(t *testing.T) {
 		TokenRepo:    auth.NewSQLiteTokenRepository(db),
 		SessionStore: store,
 		RedirectURI:  "http://localhost:8090/callback",
+		FrontendURL:  "http://localhost:5173",
 	}
 
 	e := echo.New()
@@ -171,6 +174,7 @@ func TestSpotifyTokenExchangeFailure(t *testing.T) {
 		TokenRepo:    tokenRepo,
 		SessionStore: store,
 		RedirectURI:  "http://localhost:8090/callback",
+		FrontendURL:  "http://localhost:5173",
 	}
 
 	e := echo.New()
