@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react'
 
 function Dashboard() {
   const search = useSearch({ from: '/dashboard' })
-  const [isPaused, setIsPaused] = useState(false)
+  const [isPaused, setIsPaused] = useState(true)
   
   const [authNotice, setAuthNotice] = useState<{ type: 'success' | 'error'; service: string; message: string } | null>(null)
 

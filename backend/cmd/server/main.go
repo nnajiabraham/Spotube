@@ -16,10 +16,12 @@ import (
 	"github.com/gorilla/sessions"
 	"github.com/joho/godotenv"
 
+	"github.com/manlikeabro/spotube/internal/activitylogger"
 	"github.com/manlikeabro/spotube/internal/auth"
 	"github.com/manlikeabro/spotube/internal/config"
 	"github.com/manlikeabro/spotube/internal/handlers"
 	"github.com/manlikeabro/spotube/internal/httpserver"
+	"github.com/manlikeabro/spotube/internal/jobs"
 	"github.com/manlikeabro/spotube/internal/logging"
 	"github.com/manlikeabro/spotube/internal/sqliteconn"
 )
@@ -126,6 +128,25 @@ func main() {
 	dashboardGroup := srv.Group("/api/dashboard")
 	handlers.RegisterDashboardRoutes(dashboardGroup, dashboardHandler)
 
+	var jobScheduler *jobs.Scheduler
+	if cfg.SyncWorkersEnabled {
+		activityLogger := activitylogger.New(db)
+		clientFactory := auth.NewClientFactory(db, settingsRepo, tokenRepo)
+		jobScheduler = jobs.New(jobs.JobDeps{
+			DB:             db,
+			Logger:         logger,
+			ActivityLogger: activityLogger,
+		}, clientFactory)
+		if err := jobScheduler.Start(); err != nil {
+			logger.Fatal().Err(err).Msg("failed to start sync workers")
+		}
+		logger.Info().
+			Msg("mapping sync workers enabled: analysis job scheduled every minute; executor job not implemented yet")
+	} else {
+		logger.Info().
+			Msg("mapping sync workers disabled (set SYNC_WORKERS_ENABLED=true in backend/.env to enable)")
+	}
+
 	address := ":" + cfg.Port
 	go func() {
 		logger.Info().Str("addr", address).Msg("starting server")
@@ -137,6 +158,12 @@ func main() {
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 	<-stop
+
+	if jobScheduler != nil {
+		if err := jobScheduler.Stop(); err != nil {
+			logger.Error().Err(err).Msg("sync worker shutdown failed")
+		}
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

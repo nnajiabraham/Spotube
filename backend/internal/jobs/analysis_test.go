@@ -13,6 +13,7 @@ import (
 
 	"github.com/manlikeabro/spotube/internal/activitylogger"
 	"github.com/manlikeabro/spotube/internal/auth"
+	"github.com/manlikeabro/spotube/internal/db/model"
 	"github.com/manlikeabro/spotube/internal/migrate"
 	"github.com/manlikeabro/spotube/internal/sqliteconn"
 )
@@ -114,7 +115,13 @@ func TestAnalysisJobGenerateSyncItems(t *testing.T) {
 		{ID: "youtube3", Title: "Song E", Artist: "Artist 5"}, // Different
 	}
 
-	syncItems := job.generateSyncItems("mapping1", spotifyTracks, youtubeTracks)
+	mapping := model.Mappings{
+		ID:                stringPtr("mapping1"),
+		SyncName:          0,
+		SyncTracks:        1,
+		YoutubePlaylistID: "youtube-playlist",
+	}
+	syncItems := job.generateSyncItems(mapping, spotifyTracks, youtubeTracks)
 
 	// Should generate sync items:
 	// - spotify2, spotify3 -> add to youtube (2 items)
@@ -131,6 +138,40 @@ func TestAnalysisJobGenerateSyncItems(t *testing.T) {
 		assert.Equal(t, "pending", item.Status)
 		assert.Equal(t, int32(0), item.AttemptCount)
 	}
+}
+
+func TestAnalysisJobGenerateSyncItemsRename(t *testing.T) {
+	db, cleanup := setupAnalysisTestDB(t)
+	defer cleanup()
+
+	logger := zerolog.Nop()
+	activityLogger := activitylogger.New(db)
+	tokenRepo := auth.NewSQLiteTokenRepository(db)
+	credsRepo := &testAnalysisCredentialsRepo{}
+	clientFactory := auth.NewClientFactory(db, credsRepo, tokenRepo)
+
+	job := NewAnalysisJob(JobDeps{
+		DB:             db,
+		Logger:         logger,
+		ActivityLogger: activityLogger,
+	}, clientFactory)
+
+	spotifyName := "Spotify Title"
+	youtubeName := "YouTube Title"
+	mapping := model.Mappings{
+		ID:                  stringPtr("mapping-rename"),
+		SyncName:            1,
+		SyncTracks:          0,
+		YoutubePlaylistID:   "yt-playlist",
+		SpotifyPlaylistName: &spotifyName,
+		YoutubePlaylistName: &youtubeName,
+	}
+
+	syncItems := job.generateSyncItems(mapping, nil, nil)
+	require.Len(t, syncItems, 1)
+	assert.Equal(t, "rename", syncItems[0].Operation)
+	assert.Equal(t, "youtube", syncItems[0].Service)
+	assert.Equal(t, "Spotify Title", *syncItems[0].TrackTitle)
 }
 
 func TestAnalysisJobContainsTrack(t *testing.T) {
@@ -189,7 +230,7 @@ func TestAnalysisJobUpdateMappingTimestamp(t *testing.T) {
 	require.NoError(t, err)
 
 	// Update timestamp
-	err = job.updateMappingAnalysisTimestamp(context.Background(), "test-mapping")
+	err = job.updateMappingAnalysisTimestamp(context.Background(), "test-mapping", 3, 5)
 	require.NoError(t, err)
 
 	// Verify timestamp was updated

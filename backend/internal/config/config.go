@@ -26,6 +26,7 @@ type Config struct {
 	SessionSecret       string
 	SessionTTLSeconds   int
 	SessionSecure       bool
+	SyncWorkersEnabled  bool
 }
 
 const (
@@ -70,6 +71,12 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("invalid SESSION_SECURE: %w", err)
 	}
 	cfg.SessionSecure = secure
+
+	syncWorkers, err := parseBoolEnv("SYNC_WORKERS_ENABLED", false)
+	if err != nil {
+		return nil, fmt.Errorf("invalid SYNC_WORKERS_ENABLED: %w", err)
+	}
+	cfg.SyncWorkersEnabled = syncWorkers
 
 	if err := validate(cfg); err != nil {
 		return nil, err

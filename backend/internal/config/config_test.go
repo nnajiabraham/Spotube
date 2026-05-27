@@ -15,6 +15,7 @@ func TestLoadDefaults(t *testing.T) {
 	t.Setenv("SESSION_SECRET", "")
 	t.Setenv("SESSION_TTL_SECONDS", "")
 	t.Setenv("SESSION_SECURE", "")
+	t.Setenv("SYNC_WORKERS_ENABLED", "")
 
 	cfg, err := Load()
 	if err != nil {
@@ -47,6 +48,9 @@ func TestLoadDefaults(t *testing.T) {
 	}
 	if cfg.SessionSecure {
 		t.Errorf("expected SessionSecure default false")
+	}
+	if cfg.SyncWorkersEnabled {
+		t.Errorf("expected SyncWorkersEnabled default false")
 	}
 	if len(cfg.CORSAllowOrigins) != 1 || cfg.CORSAllowOrigins[0] != "http://localhost:5173" {
 		t.Errorf("expected default CORS origin 'http://localhost:5173', got %v", cfg.CORSAllowOrigins)

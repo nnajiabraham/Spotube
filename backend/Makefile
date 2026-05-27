@@ -1,6 +1,7 @@
 BACKEND_DIR := backend
 DB_PATH := ./data/spotube.db
 BINARY_NAME := spotube-server
+DEV_LOGS := dev.logs
 
 .PHONY: backend/install backend/dev backend/test backend/build backend/lint backend/clean
 .PHONY: backend/db/create backend/db/up backend/db/down backend/db/gen
@@ -8,10 +9,11 @@ BINARY_NAME := spotube-server
 backend/install: ## Install backend dependencies
 	@cd $(BACKEND_DIR) && go mod download
 
-backend/dev: ## Start backend server (applies migrations + codegen first)
-	@$(MAKE) backend/db/up
-	@$(MAKE) backend/db/gen
-	@cd $(BACKEND_DIR) && go run ./cmd/server
+backend/dev: ## Start backend server (logs append to ../dev.logs; no terminal output)
+	@printf '\n[backend] starting at %s\n' "$$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> ../$(DEV_LOGS)
+	@$(MAKE) backend/db/up >> ../$(DEV_LOGS) 2>&1
+	@$(MAKE) backend/db/gen >> ../$(DEV_LOGS) 2>&1
+	@cd $(BACKEND_DIR) && go run ./cmd/server >> ../$(DEV_LOGS) 2>&1
 
 backend/test: ## Run backend tests
 	@cd $(BACKEND_DIR) && go test ./...

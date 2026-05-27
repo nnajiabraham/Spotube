@@ -80,8 +80,8 @@ func (s *Scheduler) Start() error {
 	s.cron.Start()
 	s.started = true
 
-	s.logger.Info().Msg("job scheduler started")
-	s.activityLogger.RecordInfo("Job scheduler started", "", "system")
+	s.logger.Info().Msg("job scheduler started (analysis every minute; executor stub every 10s)")
+	s.activityLogger.RecordInfo("Job scheduler started (executor not implemented)", "", "system")
 
 	return nil
 }
@@ -146,7 +146,6 @@ func (s *Scheduler) runExecutorJob() {
 	case <-s.ctx.Done():
 		return
 	default:
-		// TODO: Implement executor logic in next task
-		s.logger.Debug().Msg("executor job triggered (placeholder)")
+		s.logger.Debug().Msg("executor job skipped: execution worker not implemented yet")
 	}
 }
