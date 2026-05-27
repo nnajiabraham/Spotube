@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { api, ApiError, oauthAPI } from '../lib/api';
+import { api, oauthAPI } from '../lib/api';
+import { shouldRetryConnectionCheck } from '../lib/connectionCheckQuery';
 import { YoutubeLogo } from './YoutubeLogo';
 
 // YouTube Connection Card Component
@@ -8,20 +9,8 @@ export function YoutubeConnectionCard() {
   const { isLoading, error } = useQuery({
     queryKey: ['youtube-connection'],
     queryFn: () => api.getYouTubePlaylists(),
-    retry: (failureCount, error) => {
-      // Don't retry 401 errors (not authenticated)
-      if (error instanceof ApiError && error.status === 401) {
-        return false;
-      }
-      // Don't retry server errors (500) more than once
-      if (error instanceof ApiError && error.status >= 500) {
-        return failureCount < 1;
-      }
-      // Retry other errors up to 3 times
-      return failureCount < 3;
-    },
-    // Add some delay between retries
-    retryDelay: attemptIndex => Math.min(1000 * 2 ** attemptIndex, 30000),
+    retry: shouldRetryConnectionCheck,
+    retryDelay: (attemptIndex) => Math.min(500 * 2 ** attemptIndex, 2000),
   });
 
   const isConnected = !error;

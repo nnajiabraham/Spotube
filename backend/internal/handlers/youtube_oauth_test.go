@@ -135,9 +135,11 @@ func TestYouTubeCallbackStateMismatch(t *testing.T) {
 	ctx := e.NewContext(req, rec)
 
 	err := handler.Callback(ctx)
-	httpErr, ok := err.(*echo.HTTPError)
-	require.True(t, ok)
-	assert.Equal(t, http.StatusUnauthorized, httpErr.Code)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusFound, rec.Code)
+	assert.Contains(t, rec.Header().Get("Location"), "http://localhost:5173/dashboard")
+	assert.Contains(t, rec.Header().Get("Location"), "youtube=error")
+	assert.Contains(t, rec.Header().Get("Location"), "message=state+mismatch")
 }
 
 func TestYouTubeTokenExchangeFailure(t *testing.T) {

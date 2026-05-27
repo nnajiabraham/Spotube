@@ -57,6 +57,10 @@ func RegisterSpotifyRoutes(group *echo.Group, handler *SpotifyOAuthHandler) {
 }
 
 func (h *SpotifyOAuthHandler) Login(c echo.Context) error {
+	if err := redirectIfOAuthHostMismatch(c, publicURLFromRedirectURI(h.RedirectURI)); err != nil {
+		return err
+	}
+
 	verifier, err := localauth.GenerateCodeVerifier()
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to create verifier")
@@ -97,7 +101,7 @@ func (h *SpotifyOAuthHandler) Callback(c echo.Context) error {
 
 	expectedState, _ := session.Values[sessionStateKey].(string)
 	if expectedState == "" || expectedState != c.QueryParam("state") {
-		return echo.NewHTTPError(http.StatusUnauthorized, "state mismatch")
+		return c.Redirect(http.StatusFound, buildFrontendDashboardRedirect(h.FrontendURL, "spotify", "error", "state mismatch"))
 	}
 
 	code := c.QueryParam("code")

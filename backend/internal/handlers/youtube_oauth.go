@@ -50,6 +50,10 @@ func RegisterYouTubeRoutes(group *echo.Group, handler *YouTubeOAuthHandler) {
 }
 
 func (h *YouTubeOAuthHandler) Login(c echo.Context) error {
+	if err := redirectIfOAuthHostMismatch(c, publicURLFromRedirectURI(h.RedirectURI)); err != nil {
+		return err
+	}
+
 	state, err := generateState()
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to create state")
@@ -91,7 +95,7 @@ func (h *YouTubeOAuthHandler) Callback(c echo.Context) error {
 
 	expectedState, _ := session.Values[sessionStateKey].(string)
 	if expectedState == "" || expectedState != c.QueryParam("state") {
-		return echo.NewHTTPError(http.StatusUnauthorized, "state mismatch")
+		return c.Redirect(http.StatusFound, buildFrontendDashboardRedirect(h.FrontendURL, "youtube", "error", "state mismatch"))
 	}
 
 	code := c.QueryParam("code")

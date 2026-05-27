@@ -1,7 +1,11 @@
 import { apiClient } from './client';
 import type { SpotifyPlaylist, YouTubePlaylist } from './types';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8090';
+// OAuth login must hit the same host as backend PUBLIC_URL (cookie + provider redirect_uri).
+const API_BASE_URL =
+  import.meta.env.VITE_PUBLIC_URL ||
+  import.meta.env.VITE_API_URL ||
+  'http://localhost:8090';
 
 export const oauthAPI = {
   spotify: {

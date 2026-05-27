@@ -17,6 +17,8 @@ export default defineConfig({
     react(),
   ],
   server: {
+    // Accept both localhost:5173 and 127.0.0.1:5173 (OAuth post-callback redirects).
+    host: true,
     proxy: {
       '/api': {
         target: 'http://localhost:8090',

@@ -17,7 +17,11 @@ Use **Make** from the repo root (see root `Makefile`). Run `make help` for all t
 
 **Backend database:** `make backend/dev` applies migrations (`make backend/db/up`) and regenerates Jet models (`make backend/db/gen`) before starting Echo on **:8090**.
 
-**Frontend dev server:** Vite on **:5173**. Set `VITE_API_URL=http://localhost:8090` in `frontend/.env` (or `.env.local`).
+**Frontend dev server:** Vite on **:5173**. In `frontend/.env` (or `.env.local`):
+
+- `VITE_API_URL` — backend origin for API calls (host must match `PUBLIC_URL`: both `localhost` or both `127.0.0.1`).
+- `VITE_PUBLIC_URL` — optional; same host as `PUBLIC_URL` for OAuth login links.
+- `FRONTEND_URL` (backend) — where you open the UI (`http://localhost:5173`). Do **not** set this to `127.0.0.1:5173` unless Vite is bound to that host.
 
 **Formatting:** There is no root `make format`. The frontend can use `npm run format` inside `frontend/` when needed; backend uses `make backend/lint` (`go fmt`, `go vet`).
 

@@ -134,5 +134,8 @@ func validate(cfg *Config) error {
 	if len(cfg.CORSAllowOrigins) == 0 {
 		return errors.New("at least one CORS origin required")
 	}
+	if cfg.AppEnv == "development" && strings.Contains(cfg.FrontendURL, "127.0.0.1") {
+		fmt.Fprintf(os.Stderr, "warning: FRONTEND_URL uses 127.0.0.1; prefer http://localhost:5173 where Vite listens (OAuth redirects will normalize to localhost)\n")
+	}
 	return nil
 }

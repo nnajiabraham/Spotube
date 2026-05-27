@@ -1,13 +1,35 @@
 package handlers
 
 import (
+	"net"
 	"net/url"
 	"path"
 	"strings"
 )
 
+// normalizeLoopbackFrontendHost rewrites 127.0.0.1 to localhost for UI redirects.
+// Vite's dev server often accepts localhost:5173 but not 127.0.0.1:5173 on macOS.
+func normalizeLoopbackFrontendHost(frontendURL string) string {
+	parsed, err := url.Parse(strings.TrimSpace(frontendURL))
+	if err != nil || parsed.Host == "" {
+		return frontendURL
+	}
+
+	host, port, err := net.SplitHostPort(parsed.Host)
+	if err != nil {
+		return frontendURL
+	}
+
+	if host != "127.0.0.1" {
+		return frontendURL
+	}
+
+	parsed.Host = net.JoinHostPort("localhost", port)
+	return parsed.String()
+}
+
 func buildFrontendDashboardRedirect(frontendURL, provider, status, message string) string {
-	base := strings.TrimSpace(frontendURL)
+	base := normalizeLoopbackFrontendHost(strings.TrimSpace(frontendURL))
 	if base == "" {
 		return buildRelativeDashboardRedirect(provider, status, message)
 	}

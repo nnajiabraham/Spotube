@@ -8,26 +8,33 @@ function Dashboard() {
   const search = useSearch({ from: '/dashboard' })
   const [isPaused, setIsPaused] = useState(false)
   
-  // Show toast notification based on query params
+  const [authNotice, setAuthNotice] = useState<{ type: 'success' | 'error'; service: string; message: string } | null>(null)
+
   useEffect(() => {
-    if (search && typeof search === 'object' && 'spotify' in search) {
-      const spotifyStatus = (search as { spotify?: string }).spotify;
-      if (spotifyStatus === 'connected') {
-        // In a real app, you'd use a proper toast library
-        console.log('Spotify connected successfully!');
-      } else if (spotifyStatus === 'error') {
-        const message = (search as { message?: string }).message || 'Connection failed';
-        console.error('Spotify connection error:', message);
-      }
+    if (!search || typeof search !== 'object') {
+      return
     }
-    if (search && typeof search === 'object' && 'youtube' in search) {
-      const youtubeStatus = (search as { youtube?: string }).youtube;
-      if (youtubeStatus === 'connected') {
-        console.log('YouTube connected successfully!');
-      } else if (youtubeStatus === 'error') {
-        const message = (search as { message?: string }).message || 'Connection failed';
-        console.error('YouTube connection error:', message);
-      }
+
+    const params = search as { spotify?: string; youtube?: string; message?: string }
+
+    if (params.spotify === 'connected') {
+      setAuthNotice({ type: 'success', service: 'Spotify', message: 'Connected successfully.' })
+    } else if (params.spotify === 'error') {
+      setAuthNotice({
+        type: 'error',
+        service: 'Spotify',
+        message: params.message || 'Connection failed. Try again.',
+      })
+    }
+
+    if (params.youtube === 'connected') {
+      setAuthNotice({ type: 'success', service: 'YouTube', message: 'Connected successfully.' })
+    } else if (params.youtube === 'error') {
+      setAuthNotice({
+        type: 'error',
+        service: 'YouTube',
+        message: params.message || 'Connection failed. Try again.',
+      })
     }
   }, [search]);
 
@@ -43,6 +50,26 @@ function Dashboard() {
   return (
     <div className="min-h-screen bg-gray-50 py-8 px-4 sm:px-6 lg:px-8">
       <div className="max-w-7xl mx-auto">
+        {authNotice && (
+          <div
+            className={`mb-6 rounded-md p-4 ${
+              authNotice.type === 'success'
+                ? 'bg-green-50 text-green-800 border border-green-200'
+                : 'bg-red-50 text-red-800 border border-red-200'
+            }`}
+            role="status"
+          >
+            <p className="font-medium">
+              {authNotice.service}: {authNotice.message}
+            </p>
+            {authNotice.type === 'error' && authNotice.message.includes('state mismatch') && (
+              <p className="mt-2 text-sm">
+                Use the same host for frontend API calls and OAuth (e.g. both localhost or both 127.0.0.1).
+              </p>
+            )}
+          </div>
+        )}
+
         <div className="text-center mb-8">
           <h1 className="text-4xl font-extrabold text-gray-900">
             Spotube Dashboard

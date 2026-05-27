@@ -19,6 +19,13 @@ func TestBuildFrontendDashboardRedirect(t *testing.T) {
 			expected:    "http://localhost:5173/dashboard?spotify=connected",
 		},
 		{
+			name:        "127.0.0.1 frontend URL uses localhost for dev redirect",
+			frontendURL: "http://127.0.0.1:5173",
+			provider:    "spotify",
+			status:      "connected",
+			expected:    "http://localhost:5173/dashboard?spotify=connected",
+		},
+		{
 			name:        "frontend URL with base path",
 			frontendURL: "https://example.com/app",
 			provider:    "youtube",

@@ -63,11 +63,18 @@ export class APIClient {
 
     // Handle error responses
     if (!response.ok) {
-      const errorData = await response.json().catch(() => null);
-      if (errorData && errorData.error) {
-        throw new APIClientError(errorData.error.code, errorData.error.message);
+      const errorData = await response.json().catch(() => null) as {
+        error?: { code?: string; message?: string };
+        message?: string;
+      } | null;
+
+      if (errorData?.error?.code) {
+        throw new APIClientError(errorData.error.code, errorData.error.message ?? response.statusText);
       }
-      throw new APIClientError('http_error', `HTTP ${response.status}: ${response.statusText}`);
+
+      const message = errorData?.message ?? response.statusText;
+      const code = httpStatusToErrorCode(response.status);
+      throw new APIClientError(code, message);
     }
 
     return response;
@@ -125,6 +132,21 @@ export class APIClientError extends Error {
   constructor(public code: string, message: string) {
     super(message);
     this.name = 'APIClientError';
+  }
+}
+
+function httpStatusToErrorCode(status: number): string {
+  switch (status) {
+    case 401:
+      return 'unauthorized';
+    case 404:
+      return 'not_found';
+    case 409:
+      return 'conflict';
+    case 422:
+      return 'validation_failed';
+    default:
+      return 'http_error';
   }
 }
 
