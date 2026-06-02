@@ -23,17 +23,19 @@ Today:
 
 RFC-008 assumed:
 
-| Step | Design |
-|------|--------|
-| Dequeue | `status=pending` AND `next_attempt_at <= now`, batch 50, order by `created` |
-| Dispatch | By `service` + `operation` (`add`, `rename`, `remove` later) |
-| Spotify add | Add track to mapped playlist |
-| YouTube add | `playlistItems.insert` |
-| Rename | Update playlist title on target service |
-| Success | `status=done`, bump `attempt_count` |
-| 429 | Stay `pending`, exponential backoff on `next_attempt_at` |
-| Other errors | `status=error`, `error_message` (≤512 chars) |
-| Idempotency | 400/409 “already exists” → treat as `done` |
+
+| Step         | Design                                                                      |
+| ------------ | --------------------------------------------------------------------------- |
+| Dequeue      | `status=pending` AND `next_attempt_at <= now`, batch 50, order by `created` |
+| Dispatch     | By `service` + `operation` (`add`, `rename`, `remove` later)                |
+| Spotify add  | Add track to mapped playlist                                                |
+| YouTube add  | `playlistItems.insert`                                                      |
+| Rename       | Update playlist title on target service                                     |
+| Success      | `status=done`, bump `attempt_count`                                         |
+| 429          | Stay `pending`, exponential backoff on `next_attempt_at`                    |
+| Other errors | `status=error`, `error_message` (≤512 chars)                                |
+| Idempotency  | 400/409 “already exists” → treat as `done`                                  |
+
 
 **Echo schema today:** `operation` in DB (`add` / `remove` / `rename`), not `action`. No `next_attempt_at` column yet (RFC-008 migration not applied). V1 can use `last_attempt_at` + `attempt_count` only.
 
@@ -62,6 +64,8 @@ flowchart LR
   end
 ```
 
+
+
 ---
 
 ## 4. Backend patches
@@ -86,11 +90,13 @@ Reuse `auth.ClientFactory` (same as analysis).
 
 Extend group `/api/collections/sync_items/records`:
 
-| Method | Path | Purpose |
-|--------|------|---------|
-| GET | `` | Paginated list + filters |
-| GET | `/:id` | Detail (exists) |
-| POST | `/:id/execute` | Run executor for one item |
+
+| Method | Path           | Purpose                   |
+| ------ | -------------- | ------------------------- |
+| GET    | ``             | Paginated list + filters  |
+| GET    | `/:id`         | Detail (exists)           |
+| POST   | `/:id/execute` | Run executor for one item |
+
 
 **List query params:** `page`, `per_page`, `status`, `service`, `operation`, `mapping_id`, `sort` (`created`), `order` (`asc`/`desc`).
 
@@ -128,16 +134,18 @@ Not required for manual single-shot execute.
 
 ### 5.2 Columns
 
-| Column | Source |
-|--------|--------|
-| Status | `status` badge |
-| Operation | `operation` |
-| Service | `service` |
-| Track | `track_title` / `track_artist` |
-| Mapping | `mapping_id` (link to mapping edit) |
-| Attempts | `attempt_count` |
-| Updated | `updated` |
-| Actions | **Execute** (if `pending` or `error`), **View** detail |
+
+| Column    | Source                                                 |
+| --------- | ------------------------------------------------------ |
+| Status    | `status` badge                                         |
+| Operation | `operation`                                            |
+| Service   | `service`                                              |
+| Track     | `track_title` / `track_artist`                         |
+| Mapping   | `mapping_id` (link to mapping edit)                    |
+| Attempts  | `attempt_count`                                        |
+| Updated   | `updated`                                              |
+| Actions   | **Execute** (if `pending` or `error`), **View** detail |
+
 
 ### 5.3 Filters
 
@@ -173,12 +181,14 @@ Use browser tools on `localhost:5173/sync-queue` after implementation.
 
 ## 7. Phased delivery
 
-| PR slice | Scope |
-|----------|--------|
-| **A** | `executor.go` + POST execute + tests |
-| **B** | GET list + filters + tests |
-| **C** | Sync Queue page + API wiring |
-| **D** | E2E + docs update RFC-101 |
+
+| PR slice | Scope                                |
+| -------- | ------------------------------------ |
+| **A**    | `executor.go` + POST execute + tests |
+| **B**    | GET list + filters + tests           |
+| **C**    | Sync Queue page + API wiring         |
+| **D**    | E2E + docs update RFC-101            |
+
 
 ---
 
