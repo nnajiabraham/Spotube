@@ -1,6 +1,5 @@
 FRONTEND_DIR := frontend
 REPO_ROOT := ..
-DEV_LOGS := $(REPO_ROOT)/dev.logs
 FRONTEND_PID := $(REPO_ROOT)/.frontend-dev.pid
 
 .PHONY: frontend/install frontend/dev frontend/dev-bg frontend/dev-stop frontend/test frontend/build frontend/lint frontend/type-check frontend/clean
@@ -8,14 +7,12 @@ FRONTEND_PID := $(REPO_ROOT)/.frontend-dev.pid
 frontend/install: ## Install frontend dependencies
 	@cd $(FRONTEND_DIR) && npm install
 
-frontend/dev-bg: ## Start Vite in background (append logs to dev.logs only)
-	@touch $(DEV_LOGS)
-	@printf '\n[frontend] starting at %s\n' "$$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $(DEV_LOGS)
-	@(cd $(FRONTEND_DIR) && npm run dev >> $(DEV_LOGS) 2>&1 & echo $$! > $(FRONTEND_PID))
-	@printf '[frontend] pid %s (logs: dev.logs)\n' "$$(cat $(FRONTEND_PID))" >> $(DEV_LOGS)
+# Background Vite for "make dev" only — does not write to dev.logs (use frontend/dev for Vite output).
+frontend/dev-bg:
+	@(cd $(FRONTEND_DIR) && npm run dev >/dev/null 2>&1 & echo $$! > $(FRONTEND_PID))
 
-frontend/dev: frontend/dev-bg ## Start frontend and follow dev.logs (Vite stdout not on terminal)
-	@tail -f $(DEV_LOGS)
+frontend/dev: ## Start Vite dev server (logs in this terminal only)
+	@cd $(FRONTEND_DIR) && npm run dev
 
 frontend/dev-stop: ## Stop background frontend started by frontend/dev-bg
 	@if [ -f $(FRONTEND_PID) ]; then kill $$(cat $(FRONTEND_PID)) 2>/dev/null || true; rm -f $(FRONTEND_PID); fi

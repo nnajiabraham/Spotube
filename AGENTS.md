@@ -11,7 +11,7 @@
 - **Install:** `make install` (root orchestrates `backend/` and `frontend/`).
 - **Tests / lint / build:** `make test`, `make lint`, `make build`.
 - **Env (local, not committed):** `backend/.env` from `backend/env.example`; `frontend/.env` with `VITE_API_URL=http://localhost:8090`. OAuth keys can be empty at first; the app can guide setup via the UI.
-- **Dev logs:** `make backend/dev` / `make frontend/dev` append to `dev.logs` (not the terminal). Use `tail -f dev.logs`.
+- **Dev logs:** `make backend/dev` appends API logs to `dev.logs` and tails them. `make frontend/dev` prints Vite output in the terminal only (not `dev.logs`).
 - **Sync workers:** `SYNC_WORKERS_ENABLED=false` by default in `backend/.env`. Analysis cron only runs when `true`; executor is still a stub.
 
 ### Cursor Cloud / VM notes

@@ -14,9 +14,10 @@ install: ## Install dependencies for both projects
 	@$(MAKE) backend/install
 	@$(MAKE) frontend/install
 
-dev: ## Start backend+frontend in background, then follow dev.logs (no server stdout on terminal)
+dev: ## Start both apps; tail backend dev.logs only (run make frontend/dev in another terminal for Vite output)
 	@touch dev.logs
 	@$(MAKE) backend/dev-bg frontend/dev-bg
+	@printf '\n--- following backend logs in dev.logs (frontend: http://localhost:5173; Vite logs → make frontend/dev) ---\n\n'
 	@tail -f dev.logs
 
 dev-stop: ## Stop background dev servers
