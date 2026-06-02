@@ -328,12 +328,20 @@ func (j *AnalysisJob) insertSyncItems(ctx context.Context, syncItems []model.Syn
 	inserted := 0
 	for _, item := range syncItems {
 		if item.Operation == "rename" {
-			_, err := j.db.Exec(
-				`DELETE FROM sync_items WHERE mapping_id = ? AND operation = 'rename' AND service = ?`,
-				item.MappingID, item.Service,
+			now := time.Now().Unix()
+			title := lo.FromPtr(item.TrackTitle)
+			result, err := j.db.Exec(
+				`UPDATE sync_items SET track_title = ?, status = 'pending', error_message = NULL, updated = ?, attempt_count = 0
+				 WHERE mapping_id = ? AND operation = 'rename' AND service = ? AND track_id = ?`,
+				title, now, item.MappingID, item.Service, renameTrackIDKey,
 			)
 			if err != nil {
 				return inserted, err
+			}
+			rows, _ := result.RowsAffected()
+			if rows > 0 {
+				inserted++
+				continue
 			}
 		}
 

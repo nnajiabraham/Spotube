@@ -196,6 +196,8 @@ function SyncQueuePage() {
         operation: operationFilter || undefined,
         order: 'desc',
       }),
+    // Analysis may refresh rename rows in place; always load current IDs when opening the page.
+    refetchOnMount: 'always',
   })
 
   const executeMutation = useMutation({
@@ -425,7 +427,8 @@ function SyncQueuePage() {
         )}
 
         <p className="mt-4 text-xs text-gray-500">
-          Scroll horizontally if needed — Execute and View are in the Actions column.
+          Scroll horizontally if needed — Execute and View are in the Actions column. After analysis
+          runs, refresh this page if Execute returns &quot;not found&quot; for a visible row.
         </p>
 
         <div className="mt-2 overflow-x-auto rounded-lg shadow ring-1 ring-black/5">

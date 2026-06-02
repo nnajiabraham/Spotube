@@ -175,7 +175,7 @@ func TestAnalysisJobGenerateSyncItemsRename(t *testing.T) {
 	assert.Equal(t, renameTrackIDKey, *syncItems[0].TrackID)
 }
 
-func TestAnalysisJobInsertSyncItemsRenameReplacesStale(t *testing.T) {
+func TestAnalysisJobInsertSyncItemsRenamePreservesID(t *testing.T) {
 	db, cleanup := setupAnalysisTestDB(t)
 	defer cleanup()
 
@@ -185,12 +185,12 @@ func TestAnalysisJobInsertSyncItemsRenameReplacesStale(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = db.Exec(`INSERT INTO sync_items (id, mapping_id, operation, service, track_id, track_title, status, attempt_count, created, updated) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		"old-rename", "map-r", "rename", "youtube", "PLold", "Old Title", "done", 1, now, now)
+		"rename-stable-id", "map-r", "rename", "youtube", renameTrackIDKey, "Old Title", "done", 1, now, now)
 	require.NoError(t, err)
 
 	job := NewAnalysisJob(JobDeps{DB: db, Logger: zerolog.Nop(), ActivityLogger: activitylogger.New(db)}, nil)
 	item := model.SyncItems{
-		ID:           stringPtr("new-rename"),
+		ID:           stringPtr("would-be-new-id"),
 		MappingID:    "map-r",
 		Operation:    "rename",
 		Service:      "youtube",
@@ -206,13 +206,14 @@ func TestAnalysisJobInsertSyncItemsRenameReplacesStale(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, inserted)
 
-	var count int
-	require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM sync_items WHERE mapping_id = ? AND operation = 'rename'`, "map-r").Scan(&count))
-	assert.Equal(t, 1, count)
-
-	var title string
-	require.NoError(t, db.QueryRow(`SELECT track_title FROM sync_items WHERE mapping_id = ? AND operation = 'rename'`, "map-r").Scan(&title))
+	var id, title, status string
+	require.NoError(t, db.QueryRow(
+		`SELECT id, track_title, status FROM sync_items WHERE mapping_id = ? AND operation = 'rename'`,
+		"map-r",
+	).Scan(&id, &title, &status))
+	assert.Equal(t, "rename-stable-id", id)
 	assert.Equal(t, "New Title", title)
+	assert.Equal(t, "pending", status)
 }
 
 func TestAnalysisJobContainsTrack(t *testing.T) {
