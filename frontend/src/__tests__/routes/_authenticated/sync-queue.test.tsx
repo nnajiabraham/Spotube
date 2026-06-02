@@ -153,6 +153,67 @@ describe('Sync Queue Page', () => {
     });
   });
 
+  it('shows View button and opens detail modal', async () => {
+    const user = userEvent.setup()
+
+    server?.use(
+      http.get('*/api/collections/sync_items/records', () => {
+        return HttpResponse.json({
+          page: 1,
+          perPage: 50,
+          totalItems: 1,
+          totalPages: 1,
+          items: [
+            {
+              id: 'sync-view-1',
+              mapping_id: 'mapping1',
+              operation: 'add',
+              service: 'youtube',
+              track_title: 'Song',
+              status: 'pending',
+              attempt_count: 0,
+              created: 1704107200,
+              updated: 1704107200,
+              source_service: 'spotify',
+              destination_service: 'youtube',
+            },
+          ],
+        })
+      }),
+      http.get('*/api/collections/sync_items/records/sync-view-1', () => {
+        return HttpResponse.json({
+          id: 'sync-view-1',
+          mapping_id: 'mapping1',
+          operation: 'add',
+          service: 'youtube',
+          track_title: 'Song',
+          status: 'pending',
+          attempt_count: 0,
+          created: 1704107200,
+          updated: 1704107200,
+          source_service: 'spotify',
+          destination_service: 'youtube',
+        })
+      }),
+      http.get('*/api/collections/activity_logs/records', () => {
+        return HttpResponse.json({ page: 1, perPage: 10, totalItems: 0, totalPages: 0, items: [] })
+      }),
+    )
+
+    renderWithProviders(<SyncQueuePage />)
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /view/i })).toBeInTheDocument()
+    })
+
+    await user.click(screen.getByRole('button', { name: /view/i }))
+
+    await waitFor(() => {
+      expect(screen.getByRole('dialog')).toBeInTheDocument()
+      expect(screen.getByText('Sync item details')).toBeInTheDocument()
+    })
+  })
+
   it('disables execute for done items', async () => {
     server?.use(
       http.get('*/api/collections/sync_items/records', () => {

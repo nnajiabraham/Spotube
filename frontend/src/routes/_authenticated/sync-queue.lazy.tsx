@@ -15,7 +15,8 @@ import {
   type SyncItemService,
   type SyncItemStatus,
 } from '../../lib/api/sync-items'
-import { Play, ExternalLink, Loader2 } from 'lucide-react'
+import { activityLogsAPI } from '../../lib/api/activity-logs'
+import { Play, ExternalLink, Loader2, Eye, X } from 'lucide-react'
 
 const columnHelper = createColumnHelper<SyncItemDetails>()
 
@@ -36,13 +37,154 @@ function statusBadgeClass(status: SyncItemStatus): string {
   }
 }
 
+function SyncItemDetailModal({
+  itemId,
+  onClose,
+}: {
+  itemId: string
+  onClose: () => void
+}) {
+  const { data: item, isLoading, error } = useQuery({
+    queryKey: ['sync-item', itemId],
+    queryFn: () => syncItemsAPI.getOne(itemId),
+    enabled: !!itemId,
+  })
+
+  const mappingId = item?.mapping_id ?? ''
+  const { data: executorLogs } = useQuery({
+    queryKey: ['executor-logs', mappingId],
+    queryFn: () =>
+      activityLogsAPI.getList({
+        mapping_id: mappingId,
+        job_type: 'executor',
+        per_page: 10,
+      }),
+    enabled: !!mappingId,
+  })
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div
+        className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-lg bg-white shadow-xl"
+        role="dialog"
+        aria-labelledby="sync-item-detail-title"
+      >
+        <div className="flex items-center justify-between border-b px-6 py-4">
+          <h2 id="sync-item-detail-title" className="text-lg font-semibold text-gray-900">
+            Sync item details
+          </h2>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-gray-400 hover:text-gray-600"
+            aria-label="Close"
+          >
+            <X className="h-6 w-6" />
+          </button>
+        </div>
+
+        <div className="overflow-y-auto px-6 py-4">
+          {isLoading && <p className="text-sm text-gray-500">Loading…</p>}
+          {error && (
+            <p className="text-sm text-red-600">Failed to load sync item: {error.message}</p>
+          )}
+          {item && (
+            <div className="space-y-4 text-sm">
+              <DetailRow label="ID" value={item.id} mono />
+              <DetailRow label="Status" value={item.status} />
+              <DetailRow label="Operation" value={item.operation} />
+              <DetailRow
+                label="Route"
+                value={`${item.source_service} → ${item.destination_service}`}
+              />
+              <DetailRow
+                label="Playlists"
+                value={`${item.source_playlist_name || '—'} → ${item.destination_playlist_name || '—'}`}
+              />
+              <DetailRow
+                label="Track / target"
+                value={
+                  item.track_artist
+                    ? `${item.track_title || '—'} — ${item.track_artist}`
+                    : item.track_title || '—'
+                }
+              />
+              <DetailRow label="Mapping" value={item.mapping_id} mono />
+              <DetailRow label="Attempts" value={String(item.attempt_count)} />
+              {item.error_message ? (
+                <DetailRow label="Error" value={item.error_message} error />
+              ) : null}
+              <DetailRow
+                label="Updated"
+                value={new Date(item.updated * 1000).toLocaleString()}
+              />
+
+              <div className="border-t pt-4">
+                <h3 className="mb-2 font-medium text-gray-900">Recent executor logs</h3>
+                {executorLogs?.items?.length ? (
+                  <ul className="max-h-40 space-y-2 overflow-y-auto rounded-md bg-gray-50 p-3 text-xs">
+                    {executorLogs.items.map((log) => (
+                      <li key={log.id} className="text-gray-700">
+                        <span className="text-gray-500">
+                          {new Date(log.created * 1000).toLocaleString()} —
+                        </span>{' '}
+                        {log.message}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-xs text-gray-500">
+                    No executor logs for this mapping yet. Run Execute to generate entries.
+                  </p>
+                )}
+                <Link
+                  to="/logs"
+                  className="mt-2 inline-block text-xs text-indigo-600 hover:text-indigo-800"
+                >
+                  Open full activity logs →
+                </Link>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function DetailRow({
+  label,
+  value,
+  mono,
+  error: isError,
+}: {
+  label: string
+  value: string
+  mono?: boolean
+  error?: boolean
+}) {
+  return (
+    <div>
+      <dt className="text-xs font-medium text-gray-500">{label}</dt>
+      <dd
+        className={`mt-0.5 ${mono ? 'font-mono text-xs' : ''} ${isError ? 'text-red-700' : 'text-gray-900'}`}
+      >
+        {value}
+      </dd>
+    </div>
+  )
+}
+
 function SyncQueuePage() {
   const queryClient = useQueryClient()
   const [statusFilter, setStatusFilter] = useState<SyncItemStatus | ''>('')
   const [serviceFilter, setServiceFilter] = useState<SyncItemService | ''>('')
   const [operationFilter, setOperationFilter] = useState<SyncItemOperation | ''>('')
   const [executingId, setExecutingId] = useState<string | null>(null)
-  const [lastMessage, setLastMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const [detailItemId, setDetailItemId] = useState<string | null>(null)
+  const [lastMessage, setLastMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(
+    null,
+  )
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['sync-items', statusFilter, serviceFilter, operationFilter],
@@ -64,9 +206,12 @@ function SyncQueuePage() {
     },
     onSuccess: (result) => {
       if (result.status === 'done') {
-        setLastMessage({ type: 'success', text: `Item ${result.id} completed successfully.` })
+        setLastMessage({ type: 'success', text: `Item ${result.id.slice(0, 8)}… completed successfully.` })
       } else if (result.status === 'skipped') {
-        setLastMessage({ type: 'error', text: result.error_message || 'Track was skipped (blacklisted).' })
+        setLastMessage({
+          type: 'error',
+          text: result.error_message || 'Track was skipped (blacklisted).',
+        })
       } else {
         setLastMessage({
           type: 'error',
@@ -74,6 +219,9 @@ function SyncQueuePage() {
         })
       }
       queryClient.invalidateQueries({ queryKey: ['sync-items'] })
+      if (result.mapping_id) {
+        queryClient.invalidateQueries({ queryKey: ['executor-logs', result.mapping_id] })
+      }
     },
     onError: (err: Error) => {
       setLastMessage({ type: 'error', text: err.message })
@@ -87,7 +235,9 @@ function SyncQueuePage() {
     columnHelper.accessor('status', {
       header: 'Status',
       cell: (info) => (
-        <span className={`inline-flex rounded-full px-2 py-1 text-xs font-semibold ${statusBadgeClass(info.getValue())}`}>
+        <span
+          className={`inline-flex rounded-full px-2 py-1 text-xs font-semibold ${statusBadgeClass(info.getValue())}`}
+        >
           {info.getValue()}
         </span>
       ),
@@ -100,19 +250,9 @@ function SyncQueuePage() {
       id: 'route',
       header: 'Source → Dest',
       cell: ({ row }) => (
-        <span className="text-sm text-gray-900 capitalize">
+        <span className="text-sm capitalize text-gray-900">
           {row.original.source_service} → {row.original.destination_service}
         </span>
-      ),
-    }),
-    columnHelper.display({
-      id: 'playlists',
-      header: 'Playlists',
-      cell: ({ row }) => (
-        <div className="text-xs text-gray-600 max-w-xs">
-          <div>{row.original.source_playlist_name || '—'}</div>
-          <div className="text-gray-400">→ {row.original.destination_playlist_name || '—'}</div>
-        </div>
       ),
     }),
     columnHelper.display({
@@ -122,12 +262,57 @@ function SyncQueuePage() {
         const title = row.original.track_title || '—'
         const artist = row.original.track_artist
         return (
-          <div className="text-sm text-gray-900">
-            <div>{title}</div>
-            {artist ? <div className="text-xs text-gray-500">{artist}</div> : null}
+          <div className="max-w-[12rem] text-sm text-gray-900">
+            <div className="truncate">{title}</div>
+            {artist ? <div className="truncate text-xs text-gray-500">{artist}</div> : null}
           </div>
         )
       },
+    }),
+    columnHelper.display({
+      id: 'actions',
+      header: 'Actions',
+      cell: ({ row }) => {
+        const item = row.original
+        const canExecute = isSyncItemExecutable(item.status)
+        const isRunning = executingId === item.id
+
+        return (
+          <div className="flex flex-shrink-0 items-center gap-2">
+            <button
+              type="button"
+              disabled={!canExecute || isRunning || executeMutation.isPending}
+              onClick={() => executeMutation.mutate(item.id)}
+              className="inline-flex items-center gap-1 rounded-md bg-indigo-600 px-2.5 py-1.5 text-xs font-medium text-white shadow-sm hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-gray-300"
+            >
+              {isRunning ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+              ) : (
+                <Play className="h-3.5 w-3.5" aria-hidden />
+              )}
+              Execute
+            </button>
+            <button
+              type="button"
+              onClick={() => setDetailItemId(item.id)}
+              className="inline-flex items-center gap-1 rounded-md border border-gray-300 bg-white px-2.5 py-1.5 text-xs font-medium text-gray-700 shadow-sm hover:bg-gray-50"
+            >
+              <Eye className="h-3.5 w-3.5" aria-hidden />
+              View
+            </button>
+          </div>
+        )
+      },
+    }),
+    columnHelper.display({
+      id: 'playlists',
+      header: 'Playlists',
+      cell: ({ row }) => (
+        <div className="max-w-[10rem] text-xs text-gray-600">
+          <div className="truncate">{row.original.source_playlist_name || '—'}</div>
+          <div className="truncate text-gray-400">→ {row.original.destination_playlist_name || '—'}</div>
+        </div>
+      ),
     }),
     columnHelper.accessor('mapping_id', {
       header: 'Mapping',
@@ -135,7 +320,7 @@ function SyncQueuePage() {
         <Link
           to="/mappings/$mappingId/edit"
           params={{ mappingId: info.getValue() }}
-          className="text-indigo-600 hover:text-indigo-900 text-sm inline-flex items-center gap-1"
+          className="inline-flex items-center gap-1 text-sm text-indigo-600 hover:text-indigo-900"
         >
           {info.getValue().slice(0, 8)}…
           <ExternalLink className="h-3 w-3" />
@@ -149,31 +334,10 @@ function SyncQueuePage() {
     columnHelper.accessor('updated', {
       header: 'Updated',
       cell: (info) => (
-        <span className="text-xs text-gray-500">
+        <span className="whitespace-nowrap text-xs text-gray-500">
           {new Date(info.getValue() * 1000).toLocaleString()}
         </span>
       ),
-    }),
-    columnHelper.display({
-      id: 'actions',
-      header: 'Actions',
-      cell: ({ row }) => {
-        const item = row.original
-        const canExecute = isSyncItemExecutable(item.status)
-        const isRunning = executingId === item.id
-
-        return (
-          <button
-            type="button"
-            disabled={!canExecute || isRunning || executeMutation.isPending}
-            onClick={() => executeMutation.mutate(item.id)}
-            className="inline-flex items-center gap-1 rounded-md border border-transparent bg-indigo-600 px-2 py-1 text-xs font-medium text-white shadow-sm hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-gray-300"
-          >
-            {isRunning ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
-            Execute
-          </button>
-        )
-      },
     }),
   ]
 
@@ -185,7 +349,7 @@ function SyncQueuePage() {
 
   return (
     <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-7xl mx-auto">
+      <div className="mx-auto max-w-7xl">
         <div className="sm:flex sm:items-center sm:justify-between">
           <div>
             <h1 className="text-2xl font-semibold text-gray-900">Sync Queue</h1>
@@ -200,10 +364,10 @@ function SyncQueuePage() {
 
         {lastMessage && (
           <div
-            className={`mt-4 rounded-md p-4 text-sm ${
+            className={`mt-4 rounded-md border p-4 text-sm ${
               lastMessage.type === 'success'
-                ? 'bg-green-50 text-green-800 border border-green-200'
-                : 'bg-red-50 text-red-800 border border-red-200'
+                ? 'border-green-200 bg-green-50 text-green-800'
+                : 'border-red-200 bg-red-50 text-red-800'
             }`}
             role="alert"
           >
@@ -255,23 +419,29 @@ function SyncQueuePage() {
         </div>
 
         {error && (
-          <div className="mt-6 rounded-md bg-red-50 p-4 text-red-800 text-sm">
+          <div className="mt-6 rounded-md bg-red-50 p-4 text-sm text-red-800">
             Error loading sync queue: {error.message}
           </div>
         )}
 
-        <div className="mt-8 overflow-hidden shadow ring-1 ring-black ring-opacity-5 md:rounded-lg">
+        <p className="mt-4 text-xs text-gray-500">
+          Scroll horizontally if needed — Execute and View are in the Actions column.
+        </p>
+
+        <div className="mt-2 overflow-x-auto rounded-lg shadow ring-1 ring-black/5">
           {isLoading ? (
-            <div className="p-8 animate-pulse text-center text-gray-500">Loading sync items…</div>
+            <div className="bg-white p-8 text-center text-gray-500">Loading sync items…</div>
           ) : (
-            <table className="min-w-full divide-y divide-gray-300">
+            <table className="min-w-[1100px] divide-y divide-gray-300 bg-white">
               <thead className="bg-gray-50">
                 {table.getHeaderGroups().map((headerGroup) => (
                   <tr key={headerGroup.id}>
                     {headerGroup.headers.map((header) => (
                       <th
                         key={header.id}
-                        className="px-3 py-3.5 text-left text-xs font-semibold text-gray-900"
+                        className={`px-3 py-3.5 text-left text-xs font-semibold text-gray-900 ${
+                          header.column.id === 'actions' ? 'sticky right-0 bg-gray-50 shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.1)]' : ''
+                        }`}
                       >
                         {header.isPlaceholder
                           ? null
@@ -281,18 +451,26 @@ function SyncQueuePage() {
                   </tr>
                 ))}
               </thead>
-              <tbody className="divide-y divide-gray-200 bg-white">
+              <tbody className="divide-y divide-gray-200">
                 {table.getRowModel().rows.length === 0 ? (
                   <tr>
                     <td colSpan={columns.length} className="px-3 py-8 text-center text-sm text-gray-500">
-                      No sync items found. Enable analysis workers and wait for a mapping diff, or adjust filters.
+                      No sync items found. Enable analysis workers and wait for a mapping diff, or
+                      adjust filters.
                     </td>
                   </tr>
                 ) : (
                   table.getRowModel().rows.map((row) => (
-                    <tr key={row.id}>
+                    <tr key={row.id} className="group hover:bg-gray-50">
                       {row.getVisibleCells().map((cell) => (
-                        <td key={cell.id} className="whitespace-nowrap px-3 py-4">
+                        <td
+                          key={cell.id}
+                          className={`px-3 py-4 ${
+                            cell.column.id === 'actions'
+                              ? 'sticky right-0 bg-white group-hover:bg-gray-50 shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.08)]'
+                              : ''
+                          }`}
+                        >
                           {flexRender(cell.column.columnDef.cell, cell.getContext())}
                         </td>
                       ))}
@@ -310,6 +488,10 @@ function SyncQueuePage() {
           </p>
         )}
       </div>
+
+      {detailItemId && (
+        <SyncItemDetailModal itemId={detailItemId} onClose={() => setDetailItemId(null)} />
+      )}
     </div>
   )
 }
