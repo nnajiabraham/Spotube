@@ -17,6 +17,8 @@ frontend/playwright-report
 *.db-wal
 dist/
 dev.logs
+.backend-dev.pid
+.frontend-dev.pid
 
 # macOS artifacts
 .DS_Store

@@ -15,9 +15,9 @@ Use **Make** from the repo root (see root `Makefile`). Run `make help` for all t
 | Production build both | `make build` |
 | Clean artifacts | `make clean` |
 
-**Backend database:** `make backend/dev` applies migrations (`make backend/db/up`) and regenerates Jet models (`make backend/db/gen`) before starting Echo on **:8090**. Dev server stdout/stderr append to **`dev.logs`** at the repo root (not the terminal). Tail with `tail -f dev.logs`.
+**Dev servers:** `make dev` starts backend + frontend in the background and **follows `dev.logs`** in the foreground (process stdout is not printed to the terminal). `make dev-stop` stops both. Individual: `make backend/dev`, `make frontend/dev`.
 
-**Mapping sync workers:** Off by default. Set `SYNC_WORKERS_ENABLED=true` in `backend/.env` to run the analysis cron (playlist diff → `sync_items` + `activity_logs`). The executor worker is still a stub — items queue but are not applied to Spotify/YouTube yet.
+**Mapping sync workers:** Off by default (`SYNC_WORKERS_ENABLED=false`). When true, analysis runs on **`SYNC_ANALYSIS_CRON_SPEC`** (default `0 * * * * *` = every minute). Auto executor cron is off by default (`SYNC_EXECUTOR_AUTO_ENABLED=false`); V1 execution will be manual per item (see `docs/handoffs/EXECUTOR_V1_MANUAL_PATCH_PLAN.md`).
 
 **Frontend dev server:** Vite on **:5173**. In `frontend/.env` (or `.env.local`):
 

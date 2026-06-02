@@ -55,12 +55,12 @@ func TestSchedulerStartStop(t *testing.T) {
 	assert.False(t, scheduler.IsRunning())
 
 	// Start scheduler
-	err := scheduler.Start()
+	err := scheduler.Start("0 * * * * *", false, "*/10 * * * * *")
 	require.NoError(t, err)
 	assert.True(t, scheduler.IsRunning())
 
 	// Starting again should be no-op
-	err = scheduler.Start()
+	err = scheduler.Start("0 * * * * *", false, "*/10 * * * * *")
 	require.NoError(t, err)
 	assert.True(t, scheduler.IsRunning())
 
@@ -94,7 +94,7 @@ func TestSchedulerLogsStartupAndShutdown(t *testing.T) {
 	}, clientFactory)
 
 	// Start and stop scheduler
-	err := scheduler.Start()
+	err := scheduler.Start("0 * * * * *", false, "*/10 * * * * *")
 	require.NoError(t, err)
 
 	err = scheduler.Stop()
@@ -125,7 +125,7 @@ func TestSchedulerJobsRun(t *testing.T) {
 		ActivityLogger: activityLogger,
 	}, clientFactory)
 
-	err := scheduler.Start()
+	err := scheduler.Start("0 * * * * *", false, "*/10 * * * * *")
 	require.NoError(t, err)
 
 	// Wait a bit for jobs to potentially run (they are placeholders for now)
@@ -157,7 +157,7 @@ func TestSchedulerGracefulShutdown(t *testing.T) {
 	}, clientFactory)
 
 	// Start scheduler
-	err := scheduler.Start()
+	err := scheduler.Start("0 * * * * *", false, "*/10 * * * * *")
 	require.NoError(t, err)
 
 	// Schedule stop in background to test graceful shutdown

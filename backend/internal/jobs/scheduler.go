@@ -57,7 +57,8 @@ func New(deps JobDeps, clientFactory *auth.ClientFactory) *Scheduler {
 }
 
 // Start begins the job scheduler and registers jobs.
-func (s *Scheduler) Start() error {
+// analysisCron and executorCron use 6-field cron syntax (seconds included).
+func (s *Scheduler) Start(analysisCron string, executorAuto bool, executorCron string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -65,23 +66,32 @@ func (s *Scheduler) Start() error {
 		return nil
 	}
 
-	// Register analysis job (every minute)
-	_, err := s.cron.AddFunc("0 * * * * *", s.runAnalysisJob)
+	_, err := s.cron.AddFunc(analysisCron, s.runAnalysisJob)
 	if err != nil {
 		return err
 	}
 
-	// Register executor job (every 10 seconds)
-	_, err = s.cron.AddFunc("*/10 * * * * *", s.runExecutorJob)
-	if err != nil {
-		return err
+	if executorAuto {
+		_, err = s.cron.AddFunc(executorCron, s.runExecutorJob)
+		if err != nil {
+			return err
+		}
 	}
 
 	s.cron.Start()
 	s.started = true
 
-	s.logger.Info().Msg("job scheduler started (analysis every minute; executor stub every 10s)")
-	s.activityLogger.RecordInfo("Job scheduler started (executor not implemented)", "", "system")
+	if executorAuto {
+		s.logger.Info().
+			Str("analysis_cron", analysisCron).
+			Str("executor_cron", executorCron).
+			Msg("job scheduler started (analysis + auto executor cron)")
+	} else {
+		s.logger.Info().
+			Str("analysis_cron", analysisCron).
+			Msg("job scheduler started (analysis cron only; executor is manual via API)")
+	}
+	s.activityLogger.RecordInfo("Job scheduler started", "", "system")
 
 	return nil
 }

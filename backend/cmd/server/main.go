@@ -137,11 +137,13 @@ func main() {
 			Logger:         logger,
 			ActivityLogger: activityLogger,
 		}, clientFactory)
-		if err := jobScheduler.Start(); err != nil {
+		if err := jobScheduler.Start(cfg.SyncAnalysisCronSpec, cfg.SyncExecutorAutoEnabled, cfg.SyncExecutorCronSpec); err != nil {
 			logger.Fatal().Err(err).Msg("failed to start sync workers")
 		}
 		logger.Info().
-			Msg("mapping sync workers enabled: analysis job scheduled every minute; executor job not implemented yet")
+			Str("analysis_cron", cfg.SyncAnalysisCronSpec).
+			Bool("executor_auto", cfg.SyncExecutorAutoEnabled).
+			Msg("mapping sync workers enabled")
 	} else {
 		logger.Info().
 			Msg("mapping sync workers disabled (set SYNC_WORKERS_ENABLED=true in backend/.env to enable)")
