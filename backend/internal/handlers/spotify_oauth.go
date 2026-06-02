@@ -146,6 +146,7 @@ func (h *SpotifyOAuthHandler) ListPlaylists(c echo.Context) error {
 
 	playlists, err := fetchSpotifyPlaylists(c.Request().Context(), token, h.Repo, h.TokenRepo)
 	if err != nil {
+		c.Logger().Errorf("spotify playlists: %v", err)
 		return echo.NewHTTPError(http.StatusBadGateway, "failed to fetch playlists")
 	}
 

@@ -15,7 +15,7 @@ Use **Make** from the repo root (see root `Makefile`). Run `make help` for all t
 | Production build both | `make build` |
 | Clean artifacts | `make clean` |
 
-**Dev servers:** Only the **backend** writes to **`dev.logs`**. `make backend/dev` starts the API server in the background and tails that file. `make frontend/dev` runs Vite in the **foreground** with normal terminal output (no `dev.logs`). `make dev` starts both and tails **backend logs only** — use a second terminal for `make frontend/dev` if you want Vite output. `make dev-stop` stops background processes.
+**Dev servers:** Backend logs go to **`dev.log`** (JSON when redirected; color in an interactive terminal). `make backend/dev` runs the API in the **foreground** with `tee` so you see logs in the terminal and in `dev.log`. `make frontend/dev` runs Vite in the foreground only (not `dev.log`). `make dev` starts both in the background and tails `dev.log`. `make dev-stop` stops background processes.
 
 **Mapping sync workers:** Off by default (`SYNC_WORKERS_ENABLED=false`). When true, analysis runs on **`SYNC_ANALYSIS_CRON_SPEC`** (default `0 * * * * *` = every minute). Auto executor cron is off by default (`SYNC_EXECUTOR_AUTO_ENABLED=false`); V1 execution will be manual per item (see `docs/handoffs/EXECUTOR_V1_MANUAL_PATCH_PLAN.md`).
 

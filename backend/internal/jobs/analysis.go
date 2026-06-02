@@ -103,22 +103,34 @@ func (j *AnalysisJob) analyzeMapping(ctx context.Context, mapping model.Mappings
 	spotifyTracks := []TrackInfo{}
 	youtubeTracks := []TrackInfo{}
 
+	var spotifyClient *spotify.Client
+	var youtubeService *youtube.Service
+
+	needsClients := mapping.SyncTracks != 0 || mapping.SyncName != 0
+	if needsClients {
+		var err error
+		spotifyClient, err = j.clientFactory.GetSpotifyClient(ctx)
+		if err != nil {
+			return err
+		}
+		youtubeService, err = j.clientFactory.GetYouTubeService(ctx)
+		if err != nil {
+			return err
+		}
+	}
+
+	if mapping.SyncName != 0 {
+		if err := j.ensureMappingPlaylistNames(ctx, &mapping, spotifyClient, youtubeService); err != nil {
+			return err
+		}
+	}
+
 	if mapping.SyncTracks != 0 {
-		spotifyClient, err := j.clientFactory.GetSpotifyClient(ctx)
-		if err != nil {
-			return err
-		}
-
-		youtubeService, err := j.clientFactory.GetYouTubeService(ctx)
-		if err != nil {
-			return err
-		}
-
+		var err error
 		spotifyTracks, err = j.getSpotifyPlaylistTracks(ctx, spotifyClient, mapping.SpotifyPlaylistID)
 		if err != nil {
 			return err
 		}
-
 		youtubeTracks, err = j.getYouTubePlaylistTracks(ctx, youtubeService, mapping.YoutubePlaylistID)
 		if err != nil {
 			return err
@@ -127,8 +139,10 @@ func (j *AnalysisJob) analyzeMapping(ctx context.Context, mapping model.Mappings
 
 	syncItems := j.generateSyncItems(mapping, spotifyTracks, youtubeTracks)
 
+	inserted := 0
 	if len(syncItems) > 0 {
-		err := j.insertSyncItems(ctx, syncItems)
+		var err error
+		inserted, err = j.insertSyncItems(ctx, syncItems)
 		if err != nil {
 			return err
 		}
@@ -139,8 +153,12 @@ func (j *AnalysisJob) analyzeMapping(ctx context.Context, mapping model.Mappings
 		return err
 	}
 
-	j.activityLogger.RecordInfo("Analysis completed, found "+strconv.Itoa(len(syncItems))+" differences", mappingID, "analysis")
-	j.logger.Info().Str("mapping_id", mappingID).Int("sync_items", len(syncItems)).Msg("mapping analysis completed")
+	msg := "Analysis completed, found " + strconv.Itoa(inserted) + " sync items"
+	if skipped := len(syncItems) - inserted; skipped > 0 {
+		msg += " (" + strconv.Itoa(skipped) + " already queued)"
+	}
+	j.activityLogger.RecordInfo(msg, mappingID, "analysis")
+	j.logger.Info().Str("mapping_id", mappingID).Int("generated", len(syncItems)).Int("inserted", inserted).Msg("mapping analysis completed")
 
 	return nil
 }
@@ -240,7 +258,7 @@ func (j *AnalysisJob) generateSyncItems(mapping model.Mappings, spotifyTracks, y
 				MappingID:    mappingID,
 				Operation:    "rename",
 				Service:      "youtube",
-				TrackID:      stringPtr(mapping.YoutubePlaylistID),
+				TrackID:      stringPtr(renameTrackIDKey),
 				TrackTitle:   stringPtr(spotifyName),
 				Status:       "pending",
 				AttemptCount: 0,
@@ -306,19 +324,70 @@ func (j *AnalysisJob) containsTrack(tracks []TrackInfo, target TrackInfo) bool {
 	return false
 }
 
-func (j *AnalysisJob) insertSyncItems(ctx context.Context, syncItems []model.SyncItems) error {
+func (j *AnalysisJob) insertSyncItems(ctx context.Context, syncItems []model.SyncItems) (int, error) {
+	inserted := 0
 	for _, item := range syncItems {
+		if item.Operation == "rename" {
+			_, err := j.db.Exec(
+				`DELETE FROM sync_items WHERE mapping_id = ? AND operation = 'rename' AND service = ?`,
+				item.MappingID, item.Service,
+			)
+			if err != nil {
+				return inserted, err
+			}
+		}
+
 		_, err := table.SyncItems.
 			INSERT(table.SyncItems.AllColumns).
 			MODEL(item).
 			Exec(j.db)
 		if err != nil {
 			if strings.Contains(err.Error(), "UNIQUE constraint failed") {
+				j.logger.Debug().
+					Str("mapping_id", item.MappingID).
+					Str("operation", item.Operation).
+					Str("service", item.Service).
+					Str("track_id", lo.FromPtr(item.TrackID)).
+					Msg("sync item already queued, skipping")
 				continue
 			}
+			return inserted, err
+		}
+		inserted++
+	}
+	return inserted, nil
+}
+
+func (j *AnalysisJob) ensureMappingPlaylistNames(
+	ctx context.Context,
+	mapping *model.Mappings,
+	spotifyClient *spotify.Client,
+	youtubeService *youtube.Service,
+) error {
+	spotifyName := strings.TrimSpace(lo.FromPtr(mapping.SpotifyPlaylistName))
+	youtubeName := strings.TrimSpace(lo.FromPtr(mapping.YoutubePlaylistName))
+
+	if spotifyName == "" && spotifyClient != nil {
+		playlist, err := spotifyClient.GetPlaylist(ctx, spotify.ID(mapping.SpotifyPlaylistID))
+		if err != nil {
 			return err
 		}
+		spotifyName = strings.TrimSpace(playlist.Name)
+		mapping.SpotifyPlaylistName = stringPtr(spotifyName)
 	}
+
+	if youtubeName == "" && youtubeService != nil {
+		call := youtubeService.Playlists.List([]string{"snippet"}).Id(mapping.YoutubePlaylistID)
+		response, err := call.Do()
+		if err != nil {
+			return err
+		}
+		if len(response.Items) > 0 && response.Items[0].Snippet != nil {
+			youtubeName = strings.TrimSpace(response.Items[0].Snippet.Title)
+			mapping.YoutubePlaylistName = stringPtr(youtubeName)
+		}
+	}
+
 	return nil
 }
 
@@ -335,6 +404,9 @@ func (j *AnalysisJob) updateMappingAnalysisTimestamp(ctx context.Context, mappin
 	return err
 }
 
+// renameTrackIDKey is the stable track_id for rename sync items (avoids UNIQUE collisions with real track IDs).
+const renameTrackIDKey = "__rename__"
+
 // TrackInfo represents basic track information for comparison.
 type TrackInfo struct {
 	ID     string
@@ -345,3 +417,4 @@ type TrackInfo struct {
 func stringPtr(s string) *string {
 	return &s
 }
+

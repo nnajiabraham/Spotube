@@ -172,6 +172,47 @@ func TestAnalysisJobGenerateSyncItemsRename(t *testing.T) {
 	assert.Equal(t, "rename", syncItems[0].Operation)
 	assert.Equal(t, "youtube", syncItems[0].Service)
 	assert.Equal(t, "Spotify Title", *syncItems[0].TrackTitle)
+	assert.Equal(t, renameTrackIDKey, *syncItems[0].TrackID)
+}
+
+func TestAnalysisJobInsertSyncItemsRenameReplacesStale(t *testing.T) {
+	db, cleanup := setupAnalysisTestDB(t)
+	defer cleanup()
+
+	now := time.Now().Unix()
+	_, err := db.Exec(`INSERT INTO mappings (id, spotify_playlist_id, youtube_playlist_id, sync_name, sync_tracks, interval_minutes, tracks_count, created, updated) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		"map-r", "sp-pl", "yt-pl", 1, 0, 60, 0, now, now)
+	require.NoError(t, err)
+
+	_, err = db.Exec(`INSERT INTO sync_items (id, mapping_id, operation, service, track_id, track_title, status, attempt_count, created, updated) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		"old-rename", "map-r", "rename", "youtube", "PLold", "Old Title", "done", 1, now, now)
+	require.NoError(t, err)
+
+	job := NewAnalysisJob(JobDeps{DB: db, Logger: zerolog.Nop(), ActivityLogger: activitylogger.New(db)}, nil)
+	item := model.SyncItems{
+		ID:           stringPtr("new-rename"),
+		MappingID:    "map-r",
+		Operation:    "rename",
+		Service:      "youtube",
+		TrackID:      stringPtr(renameTrackIDKey),
+		TrackTitle:   stringPtr("New Title"),
+		Status:       "pending",
+		AttemptCount: 0,
+		Created:      int32(now),
+		Updated:      int32(now),
+	}
+
+	inserted, err := job.insertSyncItems(context.Background(), []model.SyncItems{item})
+	require.NoError(t, err)
+	assert.Equal(t, 1, inserted)
+
+	var count int
+	require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM sync_items WHERE mapping_id = ? AND operation = 'rename'`, "map-r").Scan(&count))
+	assert.Equal(t, 1, count)
+
+	var title string
+	require.NoError(t, db.QueryRow(`SELECT track_title FROM sync_items WHERE mapping_id = ? AND operation = 'rename'`, "map-r").Scan(&title))
+	assert.Equal(t, "New Title", title)
 }
 
 func TestAnalysisJobContainsTrack(t *testing.T) {

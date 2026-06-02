@@ -242,6 +242,8 @@ func (h *SyncItemsHandler) loadItemWithMapping(id string) (model.SyncItems, mapp
 }
 
 type mappingNames struct {
+	SpotifyPlaylistID   string
+	YoutubePlaylistID   string
 	SpotifyPlaylistName string
 	YoutubePlaylistName string
 }
@@ -270,7 +272,13 @@ func (h *SyncItemsHandler) loadMappingNames(mappingIDs []string) (map[string]map
 
 	var mappings []model.Mappings
 	err := table.Mappings.
-		SELECT(table.Mappings.ID, table.Mappings.SpotifyPlaylistName, table.Mappings.YoutubePlaylistName).
+		SELECT(
+			table.Mappings.ID,
+			table.Mappings.SpotifyPlaylistID,
+			table.Mappings.YoutubePlaylistID,
+			table.Mappings.SpotifyPlaylistName,
+			table.Mappings.YoutubePlaylistName,
+		).
 		WHERE(table.Mappings.ID.IN(ids...)).
 		Query(h.DB, &mappings)
 	if err != nil {
@@ -279,6 +287,8 @@ func (h *SyncItemsHandler) loadMappingNames(mappingIDs []string) (map[string]map
 
 	for _, m := range mappings {
 		result[lo.FromPtr(m.ID)] = mappingNames{
+			SpotifyPlaylistID:   m.SpotifyPlaylistID,
+			YoutubePlaylistID:   m.YoutubePlaylistID,
 			SpotifyPlaylistName: stringFromPtr(m.SpotifyPlaylistName),
 			YoutubePlaylistName: stringFromPtr(m.YoutubePlaylistName),
 		}
@@ -292,11 +302,11 @@ func syncItemToResponse(item model.SyncItems) SyncItemResponse {
 
 func enrichSyncItemResponse(item model.SyncItems, names mappingNames) SyncItemResponse {
 	sourceService, destinationService := deriveSourceDestination(item.Service)
-	sourcePlaylist := names.SpotifyPlaylistName
-	destinationPlaylist := names.YoutubePlaylistName
+	sourcePlaylist := playlistDisplayLabel(names.SpotifyPlaylistName, names.SpotifyPlaylistID)
+	destinationPlaylist := playlistDisplayLabel(names.YoutubePlaylistName, names.YoutubePlaylistID)
 	if destinationService == "spotify" {
-		sourcePlaylist = names.YoutubePlaylistName
-		destinationPlaylist = names.SpotifyPlaylistName
+		sourcePlaylist = playlistDisplayLabel(names.YoutubePlaylistName, names.YoutubePlaylistID)
+		destinationPlaylist = playlistDisplayLabel(names.SpotifyPlaylistName, names.SpotifyPlaylistID)
 	}
 
 	return SyncItemResponse{
@@ -318,6 +328,13 @@ func enrichSyncItemResponse(item model.SyncItems, names mappingNames) SyncItemRe
 		SourcePlaylistName:      sourcePlaylist,
 		DestinationPlaylistName: destinationPlaylist,
 	}
+}
+
+func playlistDisplayLabel(name, id string) string {
+	if strings.TrimSpace(name) != "" {
+		return strings.TrimSpace(name)
+	}
+	return strings.TrimSpace(id)
 }
 
 func deriveSourceDestination(destinationService string) (source string, destination string) {

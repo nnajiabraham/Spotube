@@ -216,17 +216,9 @@ func (e *Executor) executeRename(ctx context.Context, item model.SyncItems, mapp
 
 	switch item.Service {
 	case "youtube":
-		playlistID := mapping.YoutubePlaylistID
-		if trackID := strings.TrimSpace(stringFromPtr(item.TrackID)); trackID != "" {
-			playlistID = trackID
-		}
-		return e.youtube.RenamePlaylist(ctx, playlistID, newTitle)
+		return e.youtube.RenamePlaylist(ctx, mapping.YoutubePlaylistID, newTitle)
 	case "spotify":
-		playlistID := mapping.SpotifyPlaylistID
-		if trackID := strings.TrimSpace(stringFromPtr(item.TrackID)); trackID != "" {
-			playlistID = trackID
-		}
-		return e.spotify.RenamePlaylist(ctx, playlistID, newTitle)
+		return e.spotify.RenamePlaylist(ctx, mapping.SpotifyPlaylistID, newTitle)
 	default:
 		return fmt.Errorf("unsupported service: %s", item.Service)
 	}

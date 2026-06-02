@@ -16,7 +16,13 @@ async function checkSetupStatus() {
   }
 }
 
-const queryClient = new QueryClient()
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      refetchOnWindowFocus: false,
+    },
+  },
+})
 
 function AppShell() {
   const pathname = useRouterState({ select: (state) => state.location.pathname })

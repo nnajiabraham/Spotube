@@ -7,7 +7,7 @@ FRONTEND_PID := $(REPO_ROOT)/.frontend-dev.pid
 frontend/install: ## Install frontend dependencies
 	@cd $(FRONTEND_DIR) && npm install
 
-# Background Vite for "make dev" only — does not write to dev.logs (use frontend/dev for Vite output).
+# Background Vite for "make dev" only — does not write to dev.log (use frontend/dev for Vite output).
 frontend/dev-bg:
 	@(cd $(FRONTEND_DIR) && npm run dev >/dev/null 2>&1 & echo $$! > $(FRONTEND_PID))
 
