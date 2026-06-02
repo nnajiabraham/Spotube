@@ -23,6 +23,9 @@ const SetupIndexLazyImport = createFileRoute('/setup/')()
 const SetupSuccessLazyImport = createFileRoute('/setup/success')()
 const SettingsYoutubeLazyImport = createFileRoute('/settings/youtube')()
 const SettingsSpotifyLazyImport = createFileRoute('/settings/spotify')()
+const AuthenticatedSyncQueueLazyImport = createFileRoute(
+  '/_authenticated/sync-queue',
+)()
 const AuthenticatedLogsLazyImport = createFileRoute('/_authenticated/logs')()
 const AuthenticatedMappingsIndexLazyImport = createFileRoute(
   '/_authenticated/mappings/',
@@ -83,6 +86,16 @@ const SettingsSpotifyLazyRoute = SettingsSpotifyLazyImport.update({
   getParentRoute: () => rootRoute,
 } as any).lazy(() =>
   import('./routes/settings/spotify.lazy').then((d) => d.Route),
+)
+
+const AuthenticatedSyncQueueLazyRoute = AuthenticatedSyncQueueLazyImport.update(
+  {
+    id: '/_authenticated/sync-queue',
+    path: '/sync-queue',
+    getParentRoute: () => rootRoute,
+  } as any,
+).lazy(() =>
+  import('./routes/_authenticated/sync-queue.lazy').then((d) => d.Route),
 )
 
 const AuthenticatedLogsLazyRoute = AuthenticatedLogsLazyImport.update({
@@ -165,6 +178,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedLogsLazyImport
       parentRoute: typeof rootRoute
     }
+    '/_authenticated/sync-queue': {
+      id: '/_authenticated/sync-queue'
+      path: '/sync-queue'
+      fullPath: '/sync-queue'
+      preLoaderRoute: typeof AuthenticatedSyncQueueLazyImport
+      parentRoute: typeof rootRoute
+    }
     '/settings/spotify': {
       id: '/settings/spotify'
       path: '/settings/spotify'
@@ -245,6 +265,7 @@ export interface FileRoutesByFullPath {
   '/dashboard': typeof DashboardLazyRoute
   '/setup': typeof SetupLazyRouteWithChildren
   '/logs': typeof AuthenticatedLogsLazyRoute
+  '/sync-queue': typeof AuthenticatedSyncQueueLazyRoute
   '/settings/spotify': typeof SettingsSpotifyLazyRoute
   '/settings/youtube': typeof SettingsYoutubeLazyRoute
   '/setup/success': typeof SetupSuccessLazyRoute
@@ -259,6 +280,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexLazyRoute
   '/dashboard': typeof DashboardLazyRoute
   '/logs': typeof AuthenticatedLogsLazyRoute
+  '/sync-queue': typeof AuthenticatedSyncQueueLazyRoute
   '/settings/spotify': typeof SettingsSpotifyLazyRoute
   '/settings/youtube': typeof SettingsYoutubeLazyRoute
   '/setup/success': typeof SetupSuccessLazyRoute
@@ -275,6 +297,7 @@ export interface FileRoutesById {
   '/dashboard': typeof DashboardLazyRoute
   '/setup': typeof SetupLazyRouteWithChildren
   '/_authenticated/logs': typeof AuthenticatedLogsLazyRoute
+  '/_authenticated/sync-queue': typeof AuthenticatedSyncQueueLazyRoute
   '/settings/spotify': typeof SettingsSpotifyLazyRoute
   '/settings/youtube': typeof SettingsYoutubeLazyRoute
   '/setup/success': typeof SetupSuccessLazyRoute
@@ -292,6 +315,7 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/setup'
     | '/logs'
+    | '/sync-queue'
     | '/settings/spotify'
     | '/settings/youtube'
     | '/setup/success'
@@ -305,6 +329,7 @@ export interface FileRouteTypes {
     | '/'
     | '/dashboard'
     | '/logs'
+    | '/sync-queue'
     | '/settings/spotify'
     | '/settings/youtube'
     | '/setup/success'
@@ -319,6 +344,7 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/setup'
     | '/_authenticated/logs'
+    | '/_authenticated/sync-queue'
     | '/settings/spotify'
     | '/settings/youtube'
     | '/setup/success'
@@ -335,6 +361,7 @@ export interface RootRouteChildren {
   DashboardLazyRoute: typeof DashboardLazyRoute
   SetupLazyRoute: typeof SetupLazyRouteWithChildren
   AuthenticatedLogsLazyRoute: typeof AuthenticatedLogsLazyRoute
+  AuthenticatedSyncQueueLazyRoute: typeof AuthenticatedSyncQueueLazyRoute
   SettingsSpotifyLazyRoute: typeof SettingsSpotifyLazyRoute
   SettingsYoutubeLazyRoute: typeof SettingsYoutubeLazyRoute
   AuthenticatedMappingsNewLazyRoute: typeof AuthenticatedMappingsNewLazyRoute
@@ -348,6 +375,7 @@ const rootRouteChildren: RootRouteChildren = {
   DashboardLazyRoute: DashboardLazyRoute,
   SetupLazyRoute: SetupLazyRouteWithChildren,
   AuthenticatedLogsLazyRoute: AuthenticatedLogsLazyRoute,
+  AuthenticatedSyncQueueLazyRoute: AuthenticatedSyncQueueLazyRoute,
   SettingsSpotifyLazyRoute: SettingsSpotifyLazyRoute,
   SettingsYoutubeLazyRoute: SettingsYoutubeLazyRoute,
   AuthenticatedMappingsNewLazyRoute: AuthenticatedMappingsNewLazyRoute,
@@ -372,6 +400,7 @@ export const routeTree = rootRoute
         "/dashboard",
         "/setup",
         "/_authenticated/logs",
+        "/_authenticated/sync-queue",
         "/settings/spotify",
         "/settings/youtube",
         "/_authenticated/mappings/new",
@@ -395,6 +424,9 @@ export const routeTree = rootRoute
     },
     "/_authenticated/logs": {
       "filePath": "_authenticated/logs.lazy.tsx"
+    },
+    "/_authenticated/sync-queue": {
+      "filePath": "_authenticated/sync-queue.lazy.tsx"
     },
     "/settings/spotify": {
       "filePath": "settings/spotify.lazy.tsx"

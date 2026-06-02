@@ -118,8 +118,15 @@ func main() {
 	activityLogsGroup := srv.Group("/api/collections/activity_logs/records")
 	handlers.RegisterActivityLogsRoutes(activityLogsGroup, activityLogsHandler)
 
-	// Sync Items (read-only details for logs modal)
-	syncItemsHandler := handlers.NewSyncItemsHandler(db)
+	// Sync items + manual executor
+	activityLogger := activitylogger.New(db)
+	clientFactory := auth.NewClientFactory(db, settingsRepo, tokenRepo)
+	syncExecutor := jobs.NewExecutor(jobs.JobDeps{
+		DB:             db,
+		Logger:         logger,
+		ActivityLogger: activityLogger,
+	}, clientFactory)
+	syncItemsHandler := handlers.NewSyncItemsHandler(db, syncExecutor)
 	syncItemsGroup := srv.Group("/api/collections/sync_items/records")
 	handlers.RegisterSyncItemsRoutes(syncItemsGroup, syncItemsHandler)
 
@@ -130,8 +137,6 @@ func main() {
 
 	var jobScheduler *jobs.Scheduler
 	if cfg.SyncWorkersEnabled {
-		activityLogger := activitylogger.New(db)
-		clientFactory := auth.NewClientFactory(db, settingsRepo, tokenRepo)
 		jobScheduler = jobs.New(jobs.JobDeps{
 			DB:             db,
 			Logger:         logger,

@@ -345,55 +345,101 @@ export const handlers = [
     })
   }),
 
-  // Sync Items handlers - updated for new API structure
+  // Sync Items handlers
+  http.get('*/api/collections/sync_items/records', ({ request }) => {
+    const url = new URL(request.url)
+    const status = url.searchParams.get('status')
+
+    const allItems = [
+      {
+        id: 'sync-pending-1',
+        mapping_id: 'mapping1',
+        operation: 'add',
+        service: 'youtube',
+        track_id: 'sp-track-1',
+        track_title: 'Test Song',
+        track_artist: 'Test Artist',
+        status: 'pending',
+        error_message: '',
+        attempt_count: 0,
+        created: 1704107200,
+        updated: 1704107200,
+        source_service: 'spotify',
+        destination_service: 'youtube',
+        source_playlist_name: 'My Spotify',
+        destination_playlist_name: 'My YouTube',
+      },
+      {
+        id: 'sync-done-1',
+        mapping_id: 'mapping1',
+        operation: 'rename',
+        service: 'youtube',
+        track_id: 'yt-pl-1',
+        track_title: 'Canonical Title',
+        track_artist: '',
+        status: 'done',
+        error_message: '',
+        attempt_count: 1,
+        created: 1704109000,
+        updated: 1704110700,
+        source_service: 'spotify',
+        destination_service: 'youtube',
+        source_playlist_name: 'My Spotify',
+        destination_playlist_name: 'My YouTube',
+      },
+    ]
+
+    const items = status ? allItems.filter((i) => i.status === status) : allItems
+
+    return HttpResponse.json({
+      page: 1,
+      perPage: 50,
+      totalItems: items.length,
+      totalPages: 1,
+      items,
+    })
+  }),
+
   http.get('*/api/collections/sync_items/records/:id', ({ params }) => {
     const { id } = params
-    
-    // Mock sync item data matching new API structure
-    const syncItems: Record<string, {
-      id: string;
-      mapping_id: string;
-      operation: string;
-      service: string;
-      track_id: string;
-      track_title: string;
-      track_artist: string;
-      status: string;
-      error_message: string;
-      attempt_count: number;
-      last_attempt_at: number;
-      created: number;
-      updated: number;
-    }> = {
-      'sync_item_1': {
+
+    const syncItems: Record<string, object> = {
+      sync_item_1: {
         id: 'sync_item_1',
         mapping_id: 'mapping1',
         operation: 'add',
         service: 'spotify',
-        track_id: 'spotify_track_123',
+        track_id: 'youtube_video_456',
         track_title: 'Test Song',
         track_artist: 'Test Artist',
-        status: 'done',
-        error_message: '',
-        attempt_count: 1,
-        last_attempt_at: 1704110700, // 2024-01-01T12:05:00Z
-        created: 1704107200, // 2024-01-01T11:00:00Z
-        updated: 1704110700,
-      },
-      'sync_item_2': {
-        id: 'sync_item_2',
-        mapping_id: 'mapping1',
-        operation: 'add',
-        service: 'spotify',
-        track_id: 'youtube_video_456',
-        track_title: 'Another Song',
-        track_artist: 'Another Artist',
         status: 'running',
         error_message: 'Rate limit exceeded',
         attempt_count: 2,
-        last_attempt_at: 1704111000, // 2024-01-01T12:10:00Z
-        created: 1704109000, // 2024-01-01T11:30:00Z
+        last_attempt_at: 1704111000,
+        created: 1704109000,
         updated: 1704111000,
+        source_service: 'youtube',
+        destination_service: 'spotify',
+        source_playlist_name: 'My YouTube',
+        destination_playlist_name: 'My Spotify',
+      },
+      'sync-pending-1': {
+        id: 'sync-pending-1',
+        mapping_id: 'mapping1',
+        operation: 'add',
+        service: 'youtube',
+        track_id: 'sp-track-1',
+        track_title: 'Test Song',
+        track_artist: 'Test Artist',
+        status: 'pending',
+        error_message: '',
+        attempt_count: 0,
+        created: 1704107200,
+        updated: 1704107200,
+        source_service: 'spotify',
+        destination_service: 'youtube',
+        source_playlist_name: 'My Spotify',
+        destination_playlist_name: 'My YouTube',
       },
     }
 
@@ -402,6 +448,34 @@ export const handlers = [
     }
 
     return new HttpResponse(null, { status: 404 })
+  }),
+
+  http.post('*/api/collections/sync_items/records/:id/execute', async ({ params }) => {
+    const { id } = params
+    if (id === 'sync-done-1') {
+      return HttpResponse.json(
+        { message: 'sync item is not executable' },
+        { status: 409 },
+      )
+    }
+    return HttpResponse.json({
+      id,
+      mapping_id: 'mapping1',
+      operation: 'add',
+      service: 'youtube',
+      track_id: 'sp-track-1',
+      track_title: 'Test Song',
+      track_artist: 'Test Artist',
+      status: 'done',
+      error_message: '',
+      attempt_count: 1,
+      created: 1704107200,
+      updated: 1704112000,
+      source_service: 'spotify',
+      destination_service: 'youtube',
+      source_playlist_name: 'My Spotify',
+      destination_playlist_name: 'My YouTube',
+    })
   }),
 ];
 

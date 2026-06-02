@@ -10,40 +10,40 @@ import (
 
 // Config holds all runtime configuration for the Spotube backend.
 type Config struct {
-	AppEnv              string
-	Port                string
-	DBPath              string
-	LogLevel            string
-	PublicURL           string
-	FrontendURL         string
-	Version             string
-	CORSAllowOrigins    []string
-	SpotifyClientID     string
-	SpotifyClientSecret string
-	GoogleClientID      string
-	GoogleClientSecret  string
-	SessionCookieName   string
-	SessionSecret       string
-	SessionTTLSeconds   int
-	SessionSecure       bool
-	SyncWorkersEnabled       bool
-	SyncAnalysisCronSpec     string
-	SyncExecutorAutoEnabled  bool
-	SyncExecutorCronSpec     string
+	AppEnv                  string
+	Port                    string
+	DBPath                  string
+	LogLevel                string
+	PublicURL               string
+	FrontendURL             string
+	Version                 string
+	CORSAllowOrigins        []string
+	SpotifyClientID         string
+	SpotifyClientSecret     string
+	GoogleClientID          string
+	GoogleClientSecret      string
+	SessionCookieName       string
+	SessionSecret           string
+	SessionTTLSeconds       int
+	SessionSecure           bool
+	SyncWorkersEnabled      bool
+	SyncAnalysisCronSpec    string
+	SyncExecutorAutoEnabled bool
+	SyncExecutorCronSpec    string
 }
 
 const (
-	defaultPort          = "8090"
-	defaultDBPath        = "./data/spotube.db"
-	defaultLogLevel      = "info"
-	defaultFrontend      = "http://localhost:5173"
-	defaultAppEnv        = "development"
-	defaultVersion       = "dev"
-	defaultSessionCookie = "spotube_session"
-	defaultSessionSecret = "spotube-dev-session-secret-change-me"
-	defaultSessionTTL         = 30 * 24 * 60 * 60 // 30 days
-	defaultSyncAnalysisCron   = "0 * * * * *"     // every minute (6-field cron with seconds)
-	defaultSyncExecutorCron   = "*/10 * * * * *"  // every 10 seconds (only if auto executor enabled)
+	defaultPort             = "8090"
+	defaultDBPath           = "./data/spotube.db"
+	defaultLogLevel         = "info"
+	defaultFrontend         = "http://localhost:5173"
+	defaultAppEnv           = "development"
+	defaultVersion          = "dev"
+	defaultSessionCookie    = "spotube_session"
+	defaultSessionSecret    = "spotube-dev-session-secret-change-me"
+	defaultSessionTTL       = 30 * 24 * 60 * 60 // 30 days
+	defaultSyncAnalysisCron = "0 * * * * *"     // every minute (6-field cron with seconds)
+	defaultSyncExecutorCron = "*/10 * * * * *"  // every 10 seconds (only if auto executor enabled)
 )
 
 // Load reads configuration from environment variables, providing sensible defaults.

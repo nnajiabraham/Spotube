@@ -1,6 +1,6 @@
 # Executor V1 — Manual Sync Items (Patch Plan)
 
-**Status:** Proposed  
+**Status:** Implemented  
 **Depends on:** RFC-007 (analysis / `sync_items`), RFC-008 (executor design), PR #4 OAuth + mappings baseline  
 **Replaces (for V1):** Automatic executor cron from RFC-008 §3.2
 

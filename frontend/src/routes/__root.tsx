@@ -45,6 +45,9 @@ function AppShell() {
                 <Link to="/mappings" className={navLinkClass('/mappings')}>
                   Mappings
                 </Link>
+                <Link to="/sync-queue" className={navLinkClass('/sync-queue')}>
+                  Sync Queue
+                </Link>
                 <Link to="/settings/spotify" className={navLinkClass('/settings/spotify')}>
                   Spotify
                 </Link>
