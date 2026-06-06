@@ -17,12 +17,14 @@ type activityLogsTable struct {
 	sqlite.Table
 
 	// Columns
-	ID        sqlite.ColumnString
-	Level     sqlite.ColumnString
-	Message   sqlite.ColumnString
-	MappingID sqlite.ColumnString
-	JobType   sqlite.ColumnString
-	Created   sqlite.ColumnInteger
+	ID          sqlite.ColumnString
+	Level       sqlite.ColumnString
+	Message     sqlite.ColumnString
+	MappingID   sqlite.ColumnString
+	JobType     sqlite.ColumnString
+	Created     sqlite.ColumnInteger
+	SyncItemID  sqlite.ColumnString
+	DetailsJSON sqlite.ColumnString
 
 	AllColumns     sqlite.ColumnList
 	MutableColumns sqlite.ColumnList
@@ -64,27 +66,31 @@ func newActivityLogsTable(schemaName, tableName, alias string) *ActivityLogsTabl
 
 func newActivityLogsTableImpl(schemaName, tableName, alias string) activityLogsTable {
 	var (
-		IDColumn        = sqlite.StringColumn("id")
-		LevelColumn     = sqlite.StringColumn("level")
-		MessageColumn   = sqlite.StringColumn("message")
-		MappingIDColumn = sqlite.StringColumn("mapping_id")
-		JobTypeColumn   = sqlite.StringColumn("job_type")
-		CreatedColumn   = sqlite.IntegerColumn("created")
-		allColumns      = sqlite.ColumnList{IDColumn, LevelColumn, MessageColumn, MappingIDColumn, JobTypeColumn, CreatedColumn}
-		mutableColumns  = sqlite.ColumnList{LevelColumn, MessageColumn, MappingIDColumn, JobTypeColumn, CreatedColumn}
-		defaultColumns  = sqlite.ColumnList{}
+		IDColumn          = sqlite.StringColumn("id")
+		LevelColumn       = sqlite.StringColumn("level")
+		MessageColumn     = sqlite.StringColumn("message")
+		MappingIDColumn   = sqlite.StringColumn("mapping_id")
+		JobTypeColumn     = sqlite.StringColumn("job_type")
+		CreatedColumn     = sqlite.IntegerColumn("created")
+		SyncItemIDColumn  = sqlite.StringColumn("sync_item_id")
+		DetailsJSONColumn = sqlite.StringColumn("details_json")
+		allColumns        = sqlite.ColumnList{IDColumn, LevelColumn, MessageColumn, MappingIDColumn, JobTypeColumn, CreatedColumn, SyncItemIDColumn, DetailsJSONColumn}
+		mutableColumns    = sqlite.ColumnList{LevelColumn, MessageColumn, MappingIDColumn, JobTypeColumn, CreatedColumn, SyncItemIDColumn, DetailsJSONColumn}
+		defaultColumns    = sqlite.ColumnList{}
 	)
 
 	return activityLogsTable{
 		Table: sqlite.NewTable(schemaName, tableName, alias, allColumns...),
 
 		//Columns
-		ID:        IDColumn,
-		Level:     LevelColumn,
-		Message:   MessageColumn,
-		MappingID: MappingIDColumn,
-		JobType:   JobTypeColumn,
-		Created:   CreatedColumn,
+		ID:          IDColumn,
+		Level:       LevelColumn,
+		Message:     MessageColumn,
+		MappingID:   MappingIDColumn,
+		JobType:     JobTypeColumn,
+		Created:     CreatedColumn,
+		SyncItemID:  SyncItemIDColumn,
+		DetailsJSON: DetailsJSONColumn,
 
 		AllColumns:     allColumns,
 		MutableColumns: mutableColumns,

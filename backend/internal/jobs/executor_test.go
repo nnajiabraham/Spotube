@@ -3,6 +3,7 @@ package jobs
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"path/filepath"
 	"testing"
@@ -13,20 +14,28 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/manlikeabro/spotube/internal/activitylogger"
+	"github.com/manlikeabro/spotube/internal/matching"
 	"github.com/manlikeabro/spotube/internal/migrate"
 	"github.com/manlikeabro/spotube/internal/sqliteconn"
+	"github.com/manlikeabro/spotube/internal/synccontext"
 )
 
 type mockSpotifyPlatform struct {
-	searchTrackID string
-	searchErr     error
-	addErr        error
-	renameErr     error
-	addCalls      []string
+	searchHits     []platformSearchHit
+	searchErr      error
+	playlistTracks []matching.Track
+	playlistErr    error
+	addErr         error
+	renameErr      error
+	addCalls       []string
 }
 
-func (m *mockSpotifyPlatform) SearchTrack(_ context.Context, _, _ string) (string, error) {
-	return m.searchTrackID, m.searchErr
+func (m *mockSpotifyPlatform) SearchTracks(_ context.Context, _, _ string, _ int) ([]platformSearchHit, error) {
+	return m.searchHits, m.searchErr
+}
+
+func (m *mockSpotifyPlatform) ListPlaylistTracks(context.Context, string) ([]matching.Track, error) {
+	return m.playlistTracks, m.playlistErr
 }
 
 func (m *mockSpotifyPlatform) AddTrackToPlaylist(_ context.Context, _, trackID string) error {
@@ -39,15 +48,21 @@ func (m *mockSpotifyPlatform) RenamePlaylist(context.Context, string, string) er
 }
 
 type mockYouTubePlatform struct {
-	searchVideoID string
-	searchErr     error
-	addErr        error
-	renameErr     error
-	addCalls      []string
+	searchHits     []platformSearchHit
+	searchErr      error
+	playlistTracks []matching.Track
+	playlistErr    error
+	addErr         error
+	renameErr      error
+	addCalls       []string
 }
 
-func (m *mockYouTubePlatform) SearchVideo(_ context.Context, _, _ string) (string, error) {
-	return m.searchVideoID, m.searchErr
+func (m *mockYouTubePlatform) SearchVideos(_ context.Context, _, _ string, _ int) ([]platformSearchHit, error) {
+	return m.searchHits, m.searchErr
+}
+
+func (m *mockYouTubePlatform) ListPlaylistTracks(context.Context, string) ([]matching.Track, error) {
+	return m.playlistTracks, m.playlistErr
 }
 
 func (m *mockYouTubePlatform) AddVideoToPlaylist(_ context.Context, _, videoID string) error {
@@ -104,7 +119,9 @@ func TestExecuteOne_YouTubeAddSuccess(t *testing.T) {
 
 	insertExecutorFixtures(t, db, "map-1", "item-1", "add", "youtube", "pending")
 
-	yt := &mockYouTubePlatform{searchVideoID: "yt-video-99"}
+	yt := &mockYouTubePlatform{
+		searchHits: []platformSearchHit{{ID: "yt-video-99", Title: "Song A", Artist: "Artist A"}},
+	}
 	e := newTestExecutor(t, db, &mockSpotifyPlatform{}, yt)
 
 	item, err := e.ExecuteOne(context.Background(), "item-1")
@@ -120,13 +137,85 @@ func TestExecuteOne_SpotifyAddSuccess(t *testing.T) {
 
 	insertExecutorFixtures(t, db, "map-2", "item-2", "add", "spotify", "pending")
 
-	sp := &mockSpotifyPlatform{searchTrackID: "sp-track-42"}
+	sp := &mockSpotifyPlatform{
+		searchHits: []platformSearchHit{{ID: "sp-track-42", Title: "Song A", Artist: "Artist A"}},
+	}
 	e := newTestExecutor(t, db, sp, &mockYouTubePlatform{})
 
 	item, err := e.ExecuteOne(context.Background(), "item-2")
 	require.NoError(t, err)
 	assert.Equal(t, "done", item.Status)
 	assert.Equal(t, []string{"sp-track-42"}, sp.addCalls)
+}
+
+func TestExecuteOne_YouTubeSkipsWhenAlreadyInPlaylist(t *testing.T) {
+	db, cleanup := setupExecutorTestDB(t)
+	defer cleanup()
+
+	insertExecutorFixtures(t, db, "map-dup-yt", "item-dup-yt", "add", "youtube", "pending")
+	_, err := db.Exec(`UPDATE sync_items SET track_title = ?, track_artist = ? WHERE id = ?`, "Pelo Negro", "Fernando Milagros", "item-dup-yt")
+	require.NoError(t, err)
+
+	yt := &mockYouTubePlatform{
+		playlistTracks: []matching.Track{
+			matching.YouTubeFromRaw("existing-video", "Pelo Negro - Fernando Milagros (Official Video)"),
+		},
+		searchHits: []platformSearchHit{{ID: "new-video", Title: "Pelo Negro", Artist: "Fernando Milagros"}},
+	}
+	e := newTestExecutor(t, db, &mockSpotifyPlatform{}, yt)
+
+	item, err := e.ExecuteOne(context.Background(), "item-dup-yt")
+	require.ErrorIs(t, err, ErrSyncItemAlreadyInDestination)
+	assert.Equal(t, "skipped", item.Status)
+	assert.Empty(t, yt.addCalls)
+}
+
+func TestExecuteOne_SpotifySkipsWhenAlreadyInPlaylist(t *testing.T) {
+	db, cleanup := setupExecutorTestDB(t)
+	defer cleanup()
+
+	insertExecutorFixtures(t, db, "map-dup-sp", "item-dup-sp", "add", "spotify", "pending")
+	_, err := db.Exec(`UPDATE sync_items SET track_title = ?, track_artist = ?, track_id = ? WHERE id = ?`,
+		"Pelo Negro", "Fernando Milagros", "yt-src", "item-dup-sp")
+	require.NoError(t, err)
+
+	sp := &mockSpotifyPlatform{
+		playlistTracks: []matching.Track{
+			matching.SpotifyTrack("sp-existing", "Pelo Negro", "Fernando Milagros"),
+		},
+		searchHits: []platformSearchHit{{ID: "sp-new", Title: "Pelo Negro", Artist: "Fernando Milagros"}},
+	}
+	e := newTestExecutor(t, db, sp, &mockYouTubePlatform{})
+
+	item, err := e.ExecuteOne(context.Background(), "item-dup-sp")
+	require.ErrorIs(t, err, ErrSyncItemAlreadyInDestination)
+	assert.Equal(t, "skipped", item.Status)
+	assert.Empty(t, sp.addCalls)
+}
+
+func TestExecuteOne_LogsExecutorDetailsJSON(t *testing.T) {
+	db, cleanup := setupExecutorTestDB(t)
+	defer cleanup()
+
+	insertExecutorFixtures(t, db, "map-log", "item-log", "add", "youtube", "pending")
+
+	yt := &mockYouTubePlatform{
+		searchHits: []platformSearchHit{{ID: "yt-video-99", Title: "Song A", Artist: "Artist A"}},
+	}
+	e := newTestExecutor(t, db, &mockSpotifyPlatform{}, yt)
+	_, err := e.ExecuteOne(context.Background(), "item-log")
+	require.NoError(t, err)
+
+	var detailsJSON, syncItemID string
+	err = db.QueryRow(
+		`SELECT COALESCE(details_json, ''), COALESCE(sync_item_id, '') FROM activity_logs WHERE job_type = 'executor' ORDER BY created DESC LIMIT 1`,
+	).Scan(&detailsJSON, &syncItemID)
+	require.NoError(t, err)
+	assert.Equal(t, "item-log", syncItemID)
+
+	var envelope synccontext.Envelope
+	require.NoError(t, json.Unmarshal([]byte(detailsJSON), &envelope))
+	assert.Equal(t, "executor_run", envelope.Kind)
 }
 
 func TestExecuteOne_YouTubeRenameSuccess(t *testing.T) {
@@ -151,7 +240,7 @@ func TestExecuteOne_SearchEmptyMarksError(t *testing.T) {
 
 	insertExecutorFixtures(t, db, "map-4", "item-4", "add", "youtube", "pending")
 
-	e := newTestExecutor(t, db, &mockSpotifyPlatform{}, &mockYouTubePlatform{searchVideoID: ""})
+	e := newTestExecutor(t, db, &mockSpotifyPlatform{}, &mockYouTubePlatform{searchHits: nil})
 
 	item, err := e.ExecuteOne(context.Background(), "item-4")
 	require.Error(t, err)
@@ -170,7 +259,9 @@ func TestExecuteOne_BlacklistedSkipped(t *testing.T) {
 		"bl-1", "map-5", "youtube", "src-track-1", "manual", now, now)
 	require.NoError(t, err)
 
-	e := newTestExecutor(t, db, &mockSpotifyPlatform{}, &mockYouTubePlatform{searchVideoID: "vid"})
+	e := newTestExecutor(t, db, &mockSpotifyPlatform{}, &mockYouTubePlatform{
+		searchHits: []platformSearchHit{{ID: "vid", Title: "Song A", Artist: "Artist A"}},
+	})
 
 	item, err := e.ExecuteOne(context.Background(), "item-5")
 	require.ErrorIs(t, err, ErrSyncItemBlacklisted)
@@ -204,8 +295,8 @@ func TestExecuteOne_IdempotentAlreadyExists(t *testing.T) {
 	insertExecutorFixtures(t, db, "map-7", "item-7", "add", "youtube", "pending")
 
 	yt := &mockYouTubePlatform{
-		searchVideoID: "vid-1",
-		addErr:        errors.New("video already in playlist"),
+		searchHits: []platformSearchHit{{ID: "vid-1", Title: "Song A", Artist: "Artist A"}},
+		addErr:     errors.New("video already in playlist"),
 	}
 	e := newTestExecutor(t, db, &mockSpotifyPlatform{}, yt)
 
@@ -222,7 +313,9 @@ func TestExecuteOne_ReExecuteFromError(t *testing.T) {
 	_, err := db.Exec(`UPDATE sync_items SET error_message = ?, attempt_count = 1 WHERE id = ?`, "previous failure", "item-8")
 	require.NoError(t, err)
 
-	sp := &mockSpotifyPlatform{searchTrackID: "sp-ok"}
+	sp := &mockSpotifyPlatform{
+		searchHits: []platformSearchHit{{ID: "sp-ok", Title: "Song A", Artist: "Artist A"}},
+	}
 	e := newTestExecutor(t, db, sp, &mockYouTubePlatform{})
 
 	item, err := e.ExecuteOne(context.Background(), "item-8")

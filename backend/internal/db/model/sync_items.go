@@ -8,17 +8,18 @@
 package model
 
 type SyncItems struct {
-	ID            *string `sql:"primary_key"`
-	MappingID     string
-	Operation     string
-	Service       string
-	TrackID       *string
-	TrackTitle    *string
-	TrackArtist   *string
-	Status        string
-	ErrorMessage  *string
-	AttemptCount  int32
-	LastAttemptAt *int32
-	Created       int32
-	Updated       int32
+	ID                  *string `sql:"primary_key"`
+	MappingID           string
+	Operation           string
+	Service             string
+	TrackID             *string
+	TrackTitle          *string
+	TrackArtist         *string
+	Status              string
+	ErrorMessage        *string
+	AttemptCount        int32
+	LastAttemptAt       *int32
+	Created             int32
+	Updated             int32
+	AnalysisContextJSON *string
 }

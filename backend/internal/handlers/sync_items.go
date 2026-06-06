@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
@@ -18,23 +19,24 @@ import (
 
 // SyncItemResponse represents a sync item detail payload.
 type SyncItemResponse struct {
-	ID                      string `json:"id"`
-	MappingID               string `json:"mapping_id"`
-	Operation               string `json:"operation"`
-	Service                 string `json:"service"`
-	TrackID                 string `json:"track_id"`
-	TrackTitle              string `json:"track_title"`
-	TrackArtist             string `json:"track_artist"`
-	Status                  string `json:"status"`
-	ErrorMessage            string `json:"error_message"`
-	AttemptCount            int    `json:"attempt_count"`
-	LastAttemptAt           *int64 `json:"last_attempt_at"`
-	Created                 int64  `json:"created"`
-	Updated                 int64  `json:"updated"`
-	SourceService           string `json:"source_service"`
-	DestinationService      string `json:"destination_service"`
-	SourcePlaylistName      string `json:"source_playlist_name"`
-	DestinationPlaylistName string `json:"destination_playlist_name"`
+	ID                      string          `json:"id"`
+	MappingID               string          `json:"mapping_id"`
+	Operation               string          `json:"operation"`
+	Service                 string          `json:"service"`
+	TrackID                 string          `json:"track_id"`
+	TrackTitle              string          `json:"track_title"`
+	TrackArtist             string          `json:"track_artist"`
+	AnalysisContextJSON     json.RawMessage `json:"analysis_context_json,omitempty"`
+	Status                  string          `json:"status"`
+	ErrorMessage            string          `json:"error_message"`
+	AttemptCount            int             `json:"attempt_count"`
+	LastAttemptAt           *int64          `json:"last_attempt_at"`
+	Created                 int64           `json:"created"`
+	Updated                 int64           `json:"updated"`
+	SourceService           string          `json:"source_service"`
+	DestinationService      string          `json:"destination_service"`
+	SourcePlaylistName      string          `json:"source_playlist_name"`
+	DestinationPlaylistName string          `json:"destination_playlist_name"`
 }
 
 // SyncItemsListResponse represents paginated sync items.
@@ -210,6 +212,8 @@ func (h *SyncItemsHandler) Execute(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusConflict, "sync item is not executable")
 	case errors.Is(execErr, jobs.ErrSyncItemBlacklisted):
 		return c.JSON(http.StatusConflict, response)
+	case errors.Is(execErr, jobs.ErrSyncItemAlreadyInDestination):
+		return c.JSON(http.StatusConflict, response)
 	case execErr != nil:
 		response.ExecutionLog = execErr.Error()
 		return c.JSON(http.StatusOK, response)
@@ -309,7 +313,7 @@ func enrichSyncItemResponse(item model.SyncItems, names mappingNames) SyncItemRe
 		destinationPlaylist = playlistDisplayLabel(names.SpotifyPlaylistName, names.SpotifyPlaylistID)
 	}
 
-	return SyncItemResponse{
+	resp := SyncItemResponse{
 		ID:                      lo.FromPtr(item.ID),
 		MappingID:               item.MappingID,
 		Operation:               item.Operation,
@@ -328,6 +332,10 @@ func enrichSyncItemResponse(item model.SyncItems, names mappingNames) SyncItemRe
 		SourcePlaylistName:      sourcePlaylist,
 		DestinationPlaylistName: destinationPlaylist,
 	}
+	if item.AnalysisContextJSON != nil && strings.TrimSpace(*item.AnalysisContextJSON) != "" {
+		resp.AnalysisContextJSON = json.RawMessage(*item.AnalysisContextJSON)
+	}
+	return resp
 }
 
 func playlistDisplayLabel(name, id string) string {

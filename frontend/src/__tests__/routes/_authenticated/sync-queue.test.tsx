@@ -214,6 +214,114 @@ describe('Sync Queue Page', () => {
     })
   })
 
+  it('renders long track and playlist text without truncating it from the DOM', async () => {
+    const longTitle =
+      'This Is An Extremely Long Track Title That Should Remain Visible In The Sync Queue Table Cell'
+    const longPlaylist =
+      'My Very Long Source Playlist Name That Users Need To Read Fully Without Hover Tooltips'
+
+    server?.use(
+      http.get('*/api/collections/sync_items/records', () => {
+        return HttpResponse.json({
+          page: 1,
+          perPage: 50,
+          totalItems: 1,
+          totalPages: 1,
+          items: [
+            {
+              id: 'sync-long-1',
+              mapping_id: 'mapping1',
+              operation: 'add',
+              service: 'youtube',
+              track_title: longTitle,
+              track_artist: 'Artist With A Long Name',
+              status: 'pending',
+              attempt_count: 0,
+              created: 1704107200,
+              updated: 1704107200,
+              source_service: 'spotify',
+              destination_service: 'youtube',
+              source_playlist_name: longPlaylist,
+              destination_playlist_name: 'Destination Playlist Also Quite Long For Testing',
+            },
+          ],
+        })
+      }),
+    )
+
+    renderWithProviders(<SyncQueuePage />)
+
+    await waitFor(() => {
+      expect(screen.getByText(longTitle)).toBeInTheDocument()
+      expect(screen.getByText(longPlaylist)).toBeInTheDocument()
+    })
+  })
+
+  it('shows analysis context in detail modal when present', async () => {
+    const user = userEvent.setup()
+
+    server?.use(
+      http.get('*/api/collections/sync_items/records', () => {
+        return HttpResponse.json({
+          page: 1,
+          perPage: 50,
+          totalItems: 1,
+          totalPages: 1,
+          items: [
+            {
+              id: 'sync-context-1',
+              mapping_id: 'mapping1',
+              operation: 'add',
+              service: 'youtube',
+              track_title: 'Pelo Negro',
+              status: 'pending',
+              attempt_count: 0,
+              created: 1704107200,
+              updated: 1704107200,
+              source_service: 'spotify',
+              destination_service: 'youtube',
+            },
+          ],
+        })
+      }),
+      http.get('*/api/collections/sync_items/records/sync-context-1', () => {
+        return HttpResponse.json({
+          id: 'sync-context-1',
+          mapping_id: 'mapping1',
+          operation: 'add',
+          service: 'youtube',
+          track_title: 'Pelo Negro',
+          status: 'pending',
+          attempt_count: 0,
+          created: 1704107200,
+          updated: 1704107200,
+          source_service: 'spotify',
+          destination_service: 'youtube',
+          analysis_context_json: {
+            version: 1,
+            decision: { matched: false, score: 0.2, queued_add: true },
+          },
+        })
+      }),
+      http.get('*/api/collections/activity_logs/records', () => {
+        return HttpResponse.json({ page: 1, perPage: 10, totalItems: 0, totalPages: 0, items: [] })
+      }),
+    )
+
+    renderWithProviders(<SyncQueuePage />)
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /view/i })).toBeInTheDocument()
+    })
+
+    await user.click(screen.getByRole('button', { name: /view/i }))
+
+    await waitFor(() => {
+      expect(screen.getByText('Analysis context')).toBeInTheDocument()
+      expect(screen.getByText(/queued_add/)).toBeInTheDocument()
+    })
+  })
+
   it('disables execute for done items', async () => {
     server?.use(
       http.get('*/api/collections/sync_items/records', () => {

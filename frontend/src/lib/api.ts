@@ -251,6 +251,7 @@ export const api = {
     perPage?: number;
     level?: string;
     job_type?: string;
+    sync_item_id?: string;
   }): Promise<ActivityLogsResponse> => {
     try {
       return await activityLogsAPI.getList({
@@ -258,6 +259,7 @@ export const api = {
         per_page: params?.perPage ?? 50,
         level: params?.level as 'info' | 'warn' | 'error' | undefined,
         job_type: params?.job_type as 'analysis' | 'executor' | 'system' | undefined,
+        sync_item_id: params?.sync_item_id,
       });
     } catch (error) {
       throw convertError(error);

@@ -7,6 +7,7 @@ export interface ActivityLogsListOptions {
   job_type?: 'analysis' | 'executor' | 'system';
   level?: 'info' | 'warn' | 'error';
   mapping_id?: string;
+  sync_item_id?: string;
 }
 
 export const activityLogsAPI = {
@@ -25,6 +26,9 @@ export const activityLogsAPI = {
     }
     if (options.mapping_id) {
       params.mapping_id = options.mapping_id;
+    }
+    if (options.sync_item_id) {
+      params.sync_item_id = options.sync_item_id;
     }
 
     const url = apiClient.buildURL('/api/collections/activity_logs/records', params);

@@ -1,5 +1,5 @@
 import { createLazyFileRoute } from '@tanstack/react-router'
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
   useReactTable,
@@ -21,7 +21,9 @@ import {
   Pause,
   CheckCircle,
   XCircle,
-  SkipForward
+  SkipForward,
+  ChevronDown,
+  ChevronRight,
 } from 'lucide-react'
 
 const columnHelper = createColumnHelper<ActivityLog>()
@@ -220,6 +222,7 @@ function ActivityLogsPage() {
   const [levelFilter, setLevelFilter] = useState<string>('')
   const [jobTypeFilter, setJobTypeFilter] = useState<string>('')
   const [selectedSyncItemId, setSelectedSyncItemId] = useState<string | null>(null)
+  const [expandedLogId, setExpandedLogId] = useState<string | null>(null)
 
   const { data: logsData, isLoading, error, refetch } = useQuery({
     queryKey: ['activity-logs', levelFilter, jobTypeFilter],
@@ -297,7 +300,28 @@ function ActivityLogsPage() {
           )
         }
         
-        return <span className="text-sm text-gray-900">{message}</span>
+        return <span className="break-words whitespace-normal text-sm text-gray-900">{message}</span>
+      },
+    }),
+    columnHelper.display({
+      id: 'details',
+      header: 'Details',
+      cell: ({ row }) => {
+        const log = row.original
+        if (!log.details_json) {
+          return <span className="text-xs text-gray-400">—</span>
+        }
+        const isExpanded = expandedLogId === log.id
+        return (
+          <button
+            type="button"
+            onClick={() => setExpandedLogId(isExpanded ? null : log.id)}
+            className="inline-flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-800"
+          >
+            {isExpanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+            JSON
+          </button>
+        )
       },
     }),
   ]
@@ -408,21 +432,32 @@ function ActivityLogsPage() {
                   </tr>
                 ))}
               </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
+              <tbody className="divide-y divide-gray-200 bg-white">
                 {table.getRowModel().rows.map((row) => (
-                  <tr key={row.id} className="hover:bg-gray-50">
-                    {row.getVisibleCells().map((cell) => (
-                      <td
-                        key={cell.id}
-                        className="px-6 py-4 whitespace-nowrap"
-                      >
-                        {flexRender(
-                          cell.column.columnDef.cell,
-                          cell.getContext()
-                        )}
-                      </td>
-                    ))}
-                  </tr>
+                  <Fragment key={row.id}>
+                    <tr className="hover:bg-gray-50">
+                      {row.getVisibleCells().map((cell) => (
+                        <td
+                          key={cell.id}
+                          className={`px-6 py-4 align-top ${cell.column.id === 'message' ? '' : 'whitespace-nowrap'}`}
+                        >
+                          {flexRender(
+                            cell.column.columnDef.cell,
+                            cell.getContext()
+                          )}
+                        </td>
+                      ))}
+                    </tr>
+                    {expandedLogId === row.original.id && row.original.details_json ? (
+                      <tr key={`${row.id}-details`}>
+                        <td colSpan={columns.length} className="bg-gray-50 px-6 py-4">
+                          <pre className="max-h-64 overflow-auto rounded-md border border-gray-200 bg-white p-3 text-xs text-gray-800">
+                            {JSON.stringify(row.original.details_json, null, 2)}
+                          </pre>
+                        </td>
+                      </tr>
+                    ) : null}
+                  </Fragment>
                 ))}
               </tbody>
             </table>

@@ -81,6 +81,7 @@ export interface ActivityLog {
   created: number; // epoch seconds
   updated?: number | null;
   sync_item_id?: string | null;
+  details_json?: Record<string, unknown> | null;
 }
 
 export interface ActivityLogsResponse {

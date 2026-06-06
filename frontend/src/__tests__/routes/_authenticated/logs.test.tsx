@@ -43,6 +43,11 @@ const mockActivityLogs = {
       sync_item_id: 'sync_item_1',
       job_type: 'executor' as const,
       created: 1704110700,
+      details_json: {
+        version: 1,
+        kind: 'executor_run',
+        data: { outcome: 'added', sync_item_id: 'sync_item_1' },
+      },
     },
     {
       id: 'log3',
@@ -313,6 +318,29 @@ describe('Activity Logs Page', () => {
 
     expect(screen.getByText('Activity logs will appear here when system operations occur.')).toBeInTheDocument();
   });
+
+  it('expands details_json when JSON toggle is clicked', async () => {
+    const user = userEvent.setup()
+
+    server?.use(
+      http.get('*/api/collections/activity_logs/records', () => {
+        return HttpResponse.json(mockActivityLogs)
+      }),
+    )
+
+    renderWithProviders(<ActivityLogsPage />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Rate limit encountered, retrying in 30 seconds')).toBeInTheDocument()
+    })
+
+    await user.click(screen.getAllByRole('button', { name: /json/i })[0])
+
+    await waitFor(() => {
+      expect(screen.getByText(/executor_run/)).toBeInTheDocument()
+      expect(screen.getByText(/"outcome": "added"/)).toBeInTheDocument()
+    })
+  })
 
   it('refreshes data when refresh button is clicked', async () => {
     const user = userEvent.setup();

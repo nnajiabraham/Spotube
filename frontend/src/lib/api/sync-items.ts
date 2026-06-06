@@ -22,6 +22,7 @@ export interface SyncItemDetails {
   destination_service: SyncItemService;
   source_playlist_name?: string;
   destination_playlist_name?: string;
+  analysis_context_json?: Record<string, unknown> | null;
 }
 
 export interface SyncItemsListResponse {

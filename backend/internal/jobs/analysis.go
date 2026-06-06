@@ -3,6 +3,7 @@ package jobs
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"strconv"
 	"strings"
 	"time"
@@ -17,6 +18,8 @@ import (
 	"github.com/manlikeabro/spotube/internal/auth"
 	"github.com/manlikeabro/spotube/internal/db/model"
 	"github.com/manlikeabro/spotube/internal/db/table"
+	"github.com/manlikeabro/spotube/internal/matching"
+	"github.com/manlikeabro/spotube/internal/synccontext"
 )
 
 // AnalysisJob handles playlist analysis and sync item generation.
@@ -137,12 +140,12 @@ func (j *AnalysisJob) analyzeMapping(ctx context.Context, mapping model.Mappings
 		}
 	}
 
-	syncItems := j.generateSyncItems(mapping, spotifyTracks, youtubeTracks)
+	result := j.generateSyncItems(mapping, spotifyTracks, youtubeTracks)
 
 	inserted := 0
-	if len(syncItems) > 0 {
+	if len(result.items) > 0 {
 		var err error
-		inserted, err = j.insertSyncItems(ctx, syncItems)
+		inserted, err = j.insertSyncItems(ctx, result.items)
 		if err != nil {
 			return err
 		}
@@ -153,12 +156,30 @@ func (j *AnalysisJob) analyzeMapping(ctx context.Context, mapping model.Mappings
 		return err
 	}
 
+	alreadyQueued := len(result.items) - inserted
 	msg := "Analysis completed, found " + strconv.Itoa(inserted) + " sync items"
-	if skipped := len(syncItems) - inserted; skipped > 0 {
-		msg += " (" + strconv.Itoa(skipped) + " already queued)"
+	if alreadyQueued > 0 {
+		msg += " (" + strconv.Itoa(alreadyQueued) + " already queued)"
 	}
-	j.activityLogger.RecordInfo(msg, mappingID, "analysis")
-	j.logger.Info().Str("mapping_id", mappingID).Int("generated", len(syncItems)).Int("inserted", inserted).Msg("mapping analysis completed")
+	summary := synccontext.Envelope{
+		Version: synccontext.Version,
+		Kind:    "analysis_run",
+		Data: synccontext.AnalysisRun{
+			MappingID:      mappingID,
+			SpotifyCount:   len(spotifyTracks),
+			YoutubeCount:   len(youtubeTracks),
+			QueuedAdds:     inserted,
+			MatchedSkipped: result.matchedSkipped,
+			AlreadyQueued:  alreadyQueued,
+		},
+	}
+	_ = j.activityLogger.RecordWithDetails("info", msg, mappingID, "analysis", "", summary)
+	j.logger.Info().
+		Str("mapping_id", mappingID).
+		Int("generated", len(result.items)).
+		Int("inserted", inserted).
+		Int("matched_skipped", result.matchedSkipped).
+		Msg("mapping analysis completed")
 
 	return nil
 }
@@ -228,9 +249,10 @@ func (j *AnalysisJob) getYouTubePlaylistTracks(ctx context.Context, service *you
 				continue
 			}
 			tracks = append(tracks, TrackInfo{
-				ID:     videoID,
-				Title:  title,
-				Artist: "",
+				ID:       videoID,
+				Title:    title,
+				Artist:   "",
+				RawTitle: title,
 			})
 		}
 
@@ -243,10 +265,19 @@ func (j *AnalysisJob) getYouTubePlaylistTracks(ctx context.Context, service *you
 	return tracks, nil
 }
 
-func (j *AnalysisJob) generateSyncItems(mapping model.Mappings, spotifyTracks, youtubeTracks []TrackInfo) []model.SyncItems {
+type syncItemsGenerateResult struct {
+	items          []model.SyncItems
+	matchedSkipped int
+}
+
+func (j *AnalysisJob) generateSyncItems(mapping model.Mappings, spotifyTracks, youtubeTracks []TrackInfo) syncItemsGenerateResult {
 	var syncItems []model.SyncItems
+	matchedSkipped := 0
 	now := time.Now().Unix()
 	mappingID := lo.FromPtr(mapping.ID)
+
+	youtubeMatching := trackInfosToYouTubeMatching(youtubeTracks)
+	spotifyMatching := trackInfosToSpotifyMatching(spotifyTracks)
 
 	if mapping.SyncName != 0 {
 		spotifyName := strings.TrimSpace(lo.FromPtr(mapping.SpotifyPlaylistName))
@@ -269,59 +300,101 @@ func (j *AnalysisJob) generateSyncItems(mapping model.Mappings, spotifyTracks, y
 	}
 
 	if mapping.SyncTracks == 0 {
-		return syncItems
+		return syncItemsGenerateResult{items: syncItems}
 	}
 
 	for _, track := range spotifyTracks {
-		if !j.containsTrack(youtubeTracks, track) {
-			syncItems = append(syncItems, model.SyncItems{
-				ID:           stringPtr(uuid.NewString()),
-				MappingID:    mappingID,
-				Operation:    "add",
-				Service:      "youtube",
-				TrackID:      stringPtr(track.ID),
-				TrackTitle:   stringPtr(track.Title),
-				TrackArtist:  stringPtr(track.Artist),
-				Status:       "pending",
-				AttemptCount: 0,
-				Created:      int32(now),
-				Updated:      int32(now),
-			})
+		source := matching.SpotifyTrack(track.ID, track.Title, track.Artist)
+		decision := matching.FindMatch(source, youtubeMatching)
+		if decision.Matched {
+			matchedSkipped++
+			j.logger.Debug().Str("mapping_id", mappingID).Msg(matching.BriefAnalysisLine(decision, "youtube", false))
+			continue
 		}
+		decision.QueuedAdd = true
+		contextJSON := marshalAnalysisContext(decision)
+		syncItems = append(syncItems, model.SyncItems{
+			ID:                  stringPtr(uuid.NewString()),
+			MappingID:           mappingID,
+			Operation:           "add",
+			Service:             "youtube",
+			TrackID:             stringPtr(track.ID),
+			TrackTitle:          stringPtr(track.Title),
+			TrackArtist:         stringPtr(track.Artist),
+			Status:              "pending",
+			AttemptCount:        0,
+			Created:             int32(now),
+			Updated:             int32(now),
+			AnalysisContextJSON: contextJSON,
+		})
+		j.logger.Info().Str("mapping_id", mappingID).Msg(matching.BriefAnalysisLine(decision, "youtube", true))
 	}
 
 	for _, track := range youtubeTracks {
-		if !j.containsTrack(spotifyTracks, track) {
-			syncItems = append(syncItems, model.SyncItems{
-				ID:           stringPtr(uuid.NewString()),
-				MappingID:    mappingID,
-				Operation:    "add",
-				Service:      "spotify",
-				TrackID:      stringPtr(track.ID),
-				TrackTitle:   stringPtr(track.Title),
-				TrackArtist:  stringPtr(track.Artist),
-				Status:       "pending",
-				AttemptCount: 0,
-				Created:      int32(now),
-				Updated:      int32(now),
-			})
+		rawTitle := track.RawTitle
+		if rawTitle == "" {
+			rawTitle = track.Title
 		}
+		source := matching.YouTubeFromRaw(track.ID, rawTitle)
+		decision := matching.FindMatch(source, spotifyMatching)
+		if decision.Matched {
+			matchedSkipped++
+			j.logger.Debug().Str("mapping_id", mappingID).Msg(matching.BriefAnalysisLine(decision, "spotify", false))
+			continue
+		}
+		decision.QueuedAdd = true
+		contextJSON := marshalAnalysisContext(decision)
+		syncItems = append(syncItems, model.SyncItems{
+			ID:                  stringPtr(uuid.NewString()),
+			MappingID:           mappingID,
+			Operation:           "add",
+			Service:             "spotify",
+			TrackID:             stringPtr(track.ID),
+			TrackTitle:          stringPtr(track.Title),
+			TrackArtist:         stringPtr(track.Artist),
+			Status:              "pending",
+			AttemptCount:        0,
+			Created:             int32(now),
+			Updated:             int32(now),
+			AnalysisContextJSON: contextJSON,
+		})
+		j.logger.Info().Str("mapping_id", mappingID).Msg(matching.BriefAnalysisLine(decision, "spotify", true))
 	}
 
-	return syncItems
+	return syncItemsGenerateResult{items: syncItems, matchedSkipped: matchedSkipped}
 }
 
-func (j *AnalysisJob) containsTrack(tracks []TrackInfo, target TrackInfo) bool {
+func trackInfosToYouTubeMatching(tracks []TrackInfo) []matching.Track {
+	out := make([]matching.Track, 0, len(tracks))
 	for _, track := range tracks {
-		if track.ID != "" && target.ID != "" && track.ID == target.ID {
-			return true
+		raw := track.RawTitle
+		if raw == "" {
+			raw = track.Title
 		}
-		if strings.EqualFold(track.Title, target.Title) &&
-			strings.EqualFold(track.Artist, target.Artist) {
-			return true
-		}
+		out = append(out, matching.YouTubeFromRaw(track.ID, raw))
 	}
-	return false
+	return out
+}
+
+func trackInfosToSpotifyMatching(tracks []TrackInfo) []matching.Track {
+	out := make([]matching.Track, 0, len(tracks))
+	for _, track := range tracks {
+		out = append(out, matching.SpotifyTrack(track.ID, track.Title, track.Artist))
+	}
+	return out
+}
+
+func marshalAnalysisContext(decision matching.Decision) *string {
+	payload := synccontext.AnalysisItemContext{
+		Version:  synccontext.Version,
+		Decision: decision,
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return nil
+	}
+	s := string(raw)
+	return &s
 }
 
 func (j *AnalysisJob) insertSyncItems(ctx context.Context, syncItems []model.SyncItems) (int, error) {
@@ -417,12 +490,12 @@ const renameTrackIDKey = "__rename__"
 
 // TrackInfo represents basic track information for comparison.
 type TrackInfo struct {
-	ID     string
-	Title  string
-	Artist string
+	ID       string
+	Title    string
+	Artist   string
+	RawTitle string
 }
 
 func stringPtr(s string) *string {
 	return &s
 }
-

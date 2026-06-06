@@ -8,10 +8,12 @@
 package model
 
 type ActivityLogs struct {
-	ID        *string `sql:"primary_key"`
-	Level     string
-	Message   string
-	MappingID *string
-	JobType   string
-	Created   int32
+	ID          *string `sql:"primary_key"`
+	Level       string
+	Message     string
+	MappingID   *string
+	JobType     string
+	Created     int32
+	SyncItemID  *string
+	DetailsJSON *string
 }

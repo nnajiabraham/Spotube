@@ -14,6 +14,7 @@ import (
 	"github.com/manlikeabro/spotube/internal/activitylogger"
 	"github.com/manlikeabro/spotube/internal/auth"
 	"github.com/manlikeabro/spotube/internal/db/model"
+	"github.com/manlikeabro/spotube/internal/matching"
 	"github.com/manlikeabro/spotube/internal/migrate"
 	"github.com/manlikeabro/spotube/internal/sqliteconn"
 )
@@ -85,6 +86,24 @@ func TestAnalysisJobGetMappingsForAnalysis(t *testing.T) {
 	assert.Contains(t, ids, "mapping3")
 }
 
+func TestTrackInfosToMatching_SongAMatchesBothWays(t *testing.T) {
+	spotifyTracks := []TrackInfo{
+		{ID: "spotify1", Title: "Song A", Artist: "Artist 1"},
+	}
+	youtubeTracks := []TrackInfo{
+		{ID: "youtube1", Title: "Song A", Artist: "Artist 1"},
+	}
+
+	assert.True(t, matching.FindMatch(
+		matching.SpotifyTrack("spotify1", "Song A", "Artist 1"),
+		trackInfosToYouTubeMatching(youtubeTracks),
+	).Matched)
+	assert.True(t, matching.FindMatch(
+		matching.YouTubeFromRaw("youtube1", "Song A"),
+		trackInfosToSpotifyMatching(spotifyTracks),
+	).Matched)
+}
+
 func TestAnalysisJobGenerateSyncItems(t *testing.T) {
 	db, cleanup := setupAnalysisTestDB(t)
 	defer cleanup()
@@ -121,13 +140,15 @@ func TestAnalysisJobGenerateSyncItems(t *testing.T) {
 		SyncTracks:        1,
 		YoutubePlaylistID: "youtube-playlist",
 	}
-	syncItems := job.generateSyncItems(mapping, spotifyTracks, youtubeTracks)
+	result := job.generateSyncItems(mapping, spotifyTracks, youtubeTracks)
+	syncItems := result.items
 
 	// Should generate sync items:
 	// - spotify2, spotify3 -> add to youtube (2 items)
 	// - youtube2, youtube3 -> add to spotify (2 items)
 	// Total: 4 items
 	assert.Len(t, syncItems, 4)
+	assert.Equal(t, 2, result.matchedSkipped)
 
 	// Verify items have proper structure
 	for _, item := range syncItems {
@@ -167,12 +188,40 @@ func TestAnalysisJobGenerateSyncItemsRename(t *testing.T) {
 		YoutubePlaylistName: &youtubeName,
 	}
 
-	syncItems := job.generateSyncItems(mapping, nil, nil)
+	syncItems := job.generateSyncItems(mapping, nil, nil).items
 	require.Len(t, syncItems, 1)
 	assert.Equal(t, "rename", syncItems[0].Operation)
 	assert.Equal(t, "youtube", syncItems[0].Service)
 	assert.Equal(t, "Spotify Title", *syncItems[0].TrackTitle)
 	assert.Equal(t, renameTrackIDKey, *syncItems[0].TrackID)
+}
+
+func TestAnalysisJobGenerateSyncItems_PeloNegroDoesNotQueueDuplicate(t *testing.T) {
+	db, cleanup := setupAnalysisTestDB(t)
+	defer cleanup()
+
+	job := NewAnalysisJob(JobDeps{DB: db, Logger: zerolog.Nop(), ActivityLogger: activitylogger.New(db)}, nil)
+
+	spotifyTracks := []TrackInfo{
+		{ID: "sp-pelo", Title: "Pelo Negro", Artist: "Fernando Milagros"},
+	}
+	youtubeTracks := []TrackInfo{
+		{
+			ID:       "yt-pelo",
+			Title:    "Pelo Negro - Fernando Milagros (Official Video)",
+			RawTitle: "Pelo Negro - Fernando Milagros (Official Video)",
+		},
+	}
+
+	mapping := model.Mappings{
+		ID:                stringPtr("mapping-pelo"),
+		SyncName:          0,
+		SyncTracks:        1,
+		YoutubePlaylistID: "youtube-playlist",
+	}
+	result := job.generateSyncItems(mapping, spotifyTracks, youtubeTracks)
+	assert.Empty(t, result.items)
+	assert.Equal(t, 2, result.matchedSkipped)
 }
 
 func TestAnalysisJobInsertSyncItemsRenamePreservesID(t *testing.T) {
@@ -217,35 +266,28 @@ func TestAnalysisJobInsertSyncItemsRenamePreservesID(t *testing.T) {
 }
 
 func TestAnalysisJobContainsTrack(t *testing.T) {
-	db, cleanup := setupAnalysisTestDB(t)
-	defer cleanup()
-
-	logger := zerolog.Nop()
-	activityLogger := activitylogger.New(db)
-
-	tokenRepo := auth.NewSQLiteTokenRepository(db)
-	credsRepo := &testAnalysisCredentialsRepo{}
-	clientFactory := auth.NewClientFactory(db, credsRepo, tokenRepo)
-
-	job := NewAnalysisJob(JobDeps{
-		DB:             db,
-		Logger:         logger,
-		ActivityLogger: activityLogger,
-	}, clientFactory)
-
-	tracks := []TrackInfo{
+	candidates := trackInfosToSpotifyMatching([]TrackInfo{
 		{ID: "track1", Title: "Song A", Artist: "Artist 1"},
 		{ID: "track2", Title: "Song B", Artist: "Artist 2"},
-	}
+	})
 
-	// Test exact ID match
-	assert.True(t, job.containsTrack(tracks, TrackInfo{ID: "track1", Title: "Different", Artist: "Different"}))
+	// Metadata match (IDs alone must not match across different titles)
+	assert.True(t, matching.FindMatch(
+		matching.SpotifyTrack("other-id", "Song A", "Artist 1"),
+		candidates,
+	).Matched)
 
-	// Test title/artist match (case insensitive)
-	assert.True(t, job.containsTrack(tracks, TrackInfo{ID: "different", Title: "song a", Artist: "artist 1"}))
+	// Shared ID strings with different metadata must not match
+	assert.False(t, matching.FindMatch(
+		matching.SpotifyTrack("track1", "Different Song", "Different Artist"),
+		[]matching.Track{{Platform: matching.PlatformSpotify, ID: "track1", Title: "Other", Artist: "Other"}},
+	).Matched)
 
-	// Test no match
-	assert.False(t, job.containsTrack(tracks, TrackInfo{ID: "different", Title: "Different Song", Artist: "Different Artist"}))
+	// No match
+	assert.False(t, matching.FindMatch(
+		matching.SpotifyTrack("x", "Different Song", "Different Artist"),
+		candidates,
+	).Matched)
 }
 
 func TestAnalysisJobUpdateMappingTimestamp(t *testing.T) {

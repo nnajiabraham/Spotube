@@ -6,6 +6,7 @@ import {
   flexRender,
   getCoreRowModel,
   useReactTable,
+  type ColumnSizingState,
 } from '@tanstack/react-table'
 import {
   syncItemsAPI,
@@ -19,6 +20,26 @@ import { activityLogsAPI } from '../../lib/api/activity-logs'
 import { Play, ExternalLink, Loader2, Eye, X } from 'lucide-react'
 
 const columnHelper = createColumnHelper<SyncItemDetails>()
+
+const defaultColumnSizing: ColumnSizingState = {
+  status: 90,
+  operation: 80,
+  route: 120,
+  track: 200,
+  actions: 140,
+  playlists: 220,
+  mapping_id: 100,
+  attempt_count: 70,
+  updated: 140,
+}
+
+function WrapCell({ children, className = '' }: { children: React.ReactNode; className?: string }) {
+  return (
+    <div className={`max-h-24 overflow-y-auto break-words whitespace-normal text-sm ${className}`}>
+      {children}
+    </div>
+  )
+}
 
 function statusBadgeClass(status: SyncItemStatus): string {
   switch (status) {
@@ -50,16 +71,15 @@ function SyncItemDetailModal({
     enabled: !!itemId,
   })
 
-  const mappingId = item?.mapping_id ?? ''
   const { data: executorLogs } = useQuery({
-    queryKey: ['executor-logs', mappingId],
+    queryKey: ['executor-logs', itemId],
     queryFn: () =>
       activityLogsAPI.getList({
-        mapping_id: mappingId,
+        sync_item_id: itemId,
         job_type: 'executor',
         per_page: 10,
       }),
-    enabled: !!mappingId,
+    enabled: !!itemId,
   })
 
   return (
@@ -119,8 +139,17 @@ function SyncItemDetailModal({
                 value={new Date(item.updated * 1000).toLocaleString()}
               />
 
+              {item.analysis_context_json ? (
+                <div className="border-t pt-4">
+                  <h3 className="mb-2 font-medium text-gray-900">Analysis context</h3>
+                  <pre className="max-h-40 overflow-auto rounded-md bg-gray-50 p-3 text-xs text-gray-800">
+                    {JSON.stringify(item.analysis_context_json, null, 2)}
+                  </pre>
+                </div>
+              ) : null}
+
               <div className="border-t pt-4">
-                <h3 className="mb-2 font-medium text-gray-900">Recent executor logs</h3>
+                <h3 className="mb-2 font-medium text-gray-900">Executor logs for this item</h3>
                 {executorLogs?.items?.length ? (
                   <ul className="max-h-40 space-y-2 overflow-y-auto rounded-md bg-gray-50 p-3 text-xs">
                     {executorLogs.items.map((log) => (
@@ -129,6 +158,11 @@ function SyncItemDetailModal({
                           {new Date(log.created * 1000).toLocaleString()} —
                         </span>{' '}
                         {log.message}
+                        {log.details_json ? (
+                          <pre className="mt-1 max-h-32 overflow-auto rounded bg-white p-2 text-[10px] text-gray-600">
+                            {JSON.stringify(log.details_json, null, 2)}
+                          </pre>
+                        ) : null}
                       </li>
                     ))}
                   </ul>
@@ -167,7 +201,7 @@ function DetailRow({
     <div>
       <dt className="text-xs font-medium text-gray-500">{label}</dt>
       <dd
-        className={`mt-0.5 ${mono ? 'font-mono text-xs' : ''} ${isError ? 'text-red-700' : 'text-gray-900'}`}
+        className={`mt-0.5 max-h-32 overflow-y-auto break-words whitespace-normal ${mono ? 'font-mono text-xs' : ''} ${isError ? 'text-red-700' : 'text-gray-900'}`}
       >
         {value}
       </dd>
@@ -182,6 +216,7 @@ function SyncQueuePage() {
   const [operationFilter, setOperationFilter] = useState<SyncItemOperation | ''>('')
   const [executingId, setExecutingId] = useState<string | null>(null)
   const [detailItemId, setDetailItemId] = useState<string | null>(null)
+  const [columnSizing, setColumnSizing] = useState<ColumnSizingState>(defaultColumnSizing)
   const [lastMessage, setLastMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(
     null,
   )
@@ -221,9 +256,7 @@ function SyncQueuePage() {
         })
       }
       queryClient.invalidateQueries({ queryKey: ['sync-items'] })
-      if (result.mapping_id) {
-        queryClient.invalidateQueries({ queryKey: ['executor-logs', result.mapping_id] })
-      }
+      queryClient.invalidateQueries({ queryKey: ['executor-logs', result.id] })
     },
     onError: (err: Error) => {
       setLastMessage({ type: 'error', text: err.message })
@@ -236,6 +269,8 @@ function SyncQueuePage() {
   const columns = [
     columnHelper.accessor('status', {
       header: 'Status',
+      size: 90,
+      enableResizing: false,
       cell: (info) => (
         <span
           className={`inline-flex rounded-full px-2 py-1 text-xs font-semibold ${statusBadgeClass(info.getValue())}`}
@@ -260,20 +295,24 @@ function SyncQueuePage() {
     columnHelper.display({
       id: 'track',
       header: 'Track / target',
+      size: 200,
+      enableResizing: true,
       cell: ({ row }) => {
         const title = row.original.track_title || '—'
         const artist = row.original.track_artist
         return (
-          <div className="max-w-[12rem] text-sm text-gray-900">
-            <div className="truncate">{title}</div>
-            {artist ? <div className="truncate text-xs text-gray-500">{artist}</div> : null}
-          </div>
+          <WrapCell>
+            <div className="text-gray-900">{title}</div>
+            {artist ? <div className="text-xs text-gray-500">{artist}</div> : null}
+          </WrapCell>
         )
       },
     }),
     columnHelper.display({
       id: 'actions',
       header: 'Actions',
+      size: 140,
+      enableResizing: false,
       cell: ({ row }) => {
         const item = row.original
         const canExecute = isSyncItemExecutable(item.status)
@@ -309,11 +348,13 @@ function SyncQueuePage() {
     columnHelper.display({
       id: 'playlists',
       header: 'Playlists',
+      size: 220,
+      enableResizing: true,
       cell: ({ row }) => (
-        <div className="max-w-[10rem] text-xs text-gray-600">
-          <div className="truncate">{row.original.source_playlist_name || '—'}</div>
-          <div className="truncate text-gray-400">→ {row.original.destination_playlist_name || '—'}</div>
-        </div>
+        <WrapCell className="text-xs text-gray-600">
+          <div>{row.original.source_playlist_name || '—'}</div>
+          <div className="text-gray-400">→ {row.original.destination_playlist_name || '—'}</div>
+        </WrapCell>
       ),
     }),
     columnHelper.accessor('mapping_id', {
@@ -347,6 +388,10 @@ function SyncQueuePage() {
     data: data?.items ?? [],
     columns,
     getCoreRowModel: getCoreRowModel(),
+    columnResizeMode: 'onChange',
+    enableColumnResizing: true,
+    state: { columnSizing },
+    onColumnSizingChange: setColumnSizing,
   })
 
   return (
@@ -435,20 +480,30 @@ function SyncQueuePage() {
           {isLoading ? (
             <div className="bg-white p-8 text-center text-gray-500">Loading sync items…</div>
           ) : (
-            <table className="min-w-[1100px] divide-y divide-gray-300 bg-white">
+            <table className="w-full table-fixed divide-y divide-gray-300 bg-white" style={{ width: table.getCenterTotalSize() }}>
               <thead className="bg-gray-50">
                 {table.getHeaderGroups().map((headerGroup) => (
                   <tr key={headerGroup.id}>
                     {headerGroup.headers.map((header) => (
                       <th
                         key={header.id}
-                        className={`px-3 py-3.5 text-left text-xs font-semibold text-gray-900 ${
+                        style={{ width: header.getSize() }}
+                        className={`relative px-3 py-3.5 text-left text-xs font-semibold text-gray-900 ${
                           header.column.id === 'actions' ? 'sticky right-0 bg-gray-50 shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.1)]' : ''
-                        }`}
+                        } ${header.column.id === 'mapping_id' || header.column.id === 'updated' ? 'hidden lg:table-cell' : ''}`}
                       >
                         {header.isPlaceholder
                           ? null
                           : flexRender(header.column.columnDef.header, header.getContext())}
+                        {header.column.getCanResize() ? (
+                          <button
+                            type="button"
+                            aria-label={`Resize ${header.column.id} column`}
+                            onMouseDown={header.getResizeHandler()}
+                            onTouchStart={header.getResizeHandler()}
+                            className="absolute right-0 top-0 h-full w-1.5 cursor-col-resize select-none touch-none bg-transparent hover:bg-indigo-200"
+                          />
+                        ) : null}
                       </th>
                     ))}
                   </tr>
@@ -468,11 +523,12 @@ function SyncQueuePage() {
                       {row.getVisibleCells().map((cell) => (
                         <td
                           key={cell.id}
-                          className={`px-3 py-4 ${
+                          style={{ width: cell.column.getSize() }}
+                          className={`px-3 py-4 align-top ${
                             cell.column.id === 'actions'
                               ? 'sticky right-0 bg-white group-hover:bg-gray-50 shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.08)]'
                               : ''
-                          }`}
+                          } ${cell.column.id === 'mapping_id' || cell.column.id === 'updated' ? 'hidden lg:table-cell' : ''}`}
                         >
                           {flexRender(cell.column.columnDef.cell, cell.getContext())}
                         </td>
