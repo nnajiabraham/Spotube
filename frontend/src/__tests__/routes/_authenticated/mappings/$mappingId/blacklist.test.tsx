@@ -18,63 +18,6 @@ vi.mock('@tanstack/react-router', async (importOriginal) => {
   }
 })
 
-// Mock PocketBase to include auth token and make actual fetch calls
-vi.mock('../../../../../lib/pocketbase', () => ({
-  pb: {
-    authStore: {
-      token: 'test-token'
-    },
-    collection: vi.fn((name: string) => ({
-      getList: vi.fn().mockImplementation(async (page: number, perPage: number, options?: Record<string, string>) => {
-        // Make the actual fetch call that will be intercepted by MSW
-        const params = new URLSearchParams({
-          page: page.toString(),
-          perPage: perPage.toString(),
-        });
-        if (options?.filter) {
-          params.set('filter', options.filter);
-        }
-        if (options?.sort) {
-          params.set('sort', options.sort);
-        }
-        
-        const response = await fetch(`/api/collections/${name}/records?${params}`, {
-          headers: {
-            'Authorization': 'Bearer test-token'
-          }
-        });
-        if (!response.ok) {
-          throw new Error('Failed to fetch');
-        }
-        return response.json();
-      }),
-      getOne: vi.fn().mockImplementation(async (id: string) => {
-        const response = await fetch(`/api/collections/${name}/records/${id}`, {
-          headers: {
-            'Authorization': 'Bearer test-token'
-          }
-        });
-        if (!response.ok) {
-          throw new Error('Failed to fetch');
-        }
-        return response.json();
-      }),
-      delete: vi.fn().mockImplementation(async (id: string) => {
-        const response = await fetch(`/api/collections/${name}/records/${id}`, {
-          method: 'DELETE',
-          headers: {
-            'Authorization': 'Bearer test-token'
-          }
-        });
-        if (!response.ok) {
-          throw new Error('Failed to delete');
-        }
-        return;
-      })
-    }))
-  }
-}))
-
 // Extract the component from the Route
 const BlacklistPage = Route.options.component as React.ComponentType;
 

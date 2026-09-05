@@ -1,5 +1,4 @@
 // API client for making requests to the backend
-// Migrated from PocketBase to new HTTP client
 
 import { 
   setupAPI, 
@@ -53,6 +52,19 @@ export interface SyncItem {
   last_error?: string;
   created: string;
   updated: string;
+}
+
+function mapOperationToAction(operation: 'add' | 'remove' | 'rename'): SyncItem['action'] {
+  switch (operation) {
+    case 'add':
+      return 'add_track';
+    case 'remove':
+      return 'remove_track';
+    case 'rename':
+      return 'rename_playlist';
+    default:
+      return 'add_track';
+  }
 }
 
 // Backward-compatible error class
@@ -239,6 +251,7 @@ export const api = {
     perPage?: number;
     level?: string;
     job_type?: string;
+    sync_item_id?: string;
   }): Promise<ActivityLogsResponse> => {
     try {
       return await activityLogsAPI.getList({
@@ -246,6 +259,7 @@ export const api = {
         per_page: params?.perPage ?? 50,
         level: params?.level as 'info' | 'warn' | 'error' | undefined,
         job_type: params?.job_type as 'analysis' | 'executor' | 'system' | undefined,
+        sync_item_id: params?.sync_item_id,
       });
     } catch (error) {
       throw convertError(error);
@@ -261,12 +275,12 @@ export const api = {
         id: details.id,
         mapping_id: details.mapping_id,
         service: details.service,
-        action: `${details.operation}_track` as SyncItem['action'],
+        action: mapOperationToAction(details.operation),
         status: details.status,
         source_track_id: details.track_id || '',
         source_track_title: details.track_title || '',
-        source_service: details.service,
-        destination_service: details.service === 'spotify' ? 'youtube' : 'spotify',
+        source_service: details.source_service,
+        destination_service: details.destination_service,
         payload: '',
         attempts: details.attempt_count,
         last_error: details.error_message || '',

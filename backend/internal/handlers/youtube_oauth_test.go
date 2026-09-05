@@ -61,7 +61,7 @@ func TestYouTubeOAuthFullFlow(t *testing.T) {
 	tokenRepo := auth.NewSQLiteTokenRepository(db)
 	settingsRepo := &testYouTubeSettingsRepo{db: db}
 
-	handler := NewYouTubeOAuthHandler(settingsRepo, tokenRepo, store, "http://localhost:8090/youtube/callback")
+	handler := NewYouTubeOAuthHandler(settingsRepo, tokenRepo, store, "http://localhost:8090/youtube/callback", "http://localhost:5173")
 
 	e := echo.New()
 	RegisterYouTubeRoutes(e.Group("/api/auth/youtube"), handler)
@@ -92,6 +92,8 @@ func TestYouTubeOAuthFullFlow(t *testing.T) {
 	e.ServeHTTP(rec, req)
 
 	assert.Equal(t, http.StatusFound, rec.Code)
+	assert.Contains(t, rec.Header().Get("Location"), "http://localhost:5173/dashboard")
+	assert.Contains(t, rec.Header().Get("Location"), "youtube=connected")
 
 	// Verify token stored in database
 	var tokenCount int
@@ -124,6 +126,7 @@ func TestYouTubeCallbackStateMismatch(t *testing.T) {
 		TokenRepo:    auth.NewSQLiteTokenRepository(db),
 		SessionStore: store,
 		RedirectURI:  "http://localhost:8090/callback",
+		FrontendURL:  "http://localhost:5173",
 	}
 
 	e := echo.New()
@@ -132,9 +135,11 @@ func TestYouTubeCallbackStateMismatch(t *testing.T) {
 	ctx := e.NewContext(req, rec)
 
 	err := handler.Callback(ctx)
-	httpErr, ok := err.(*echo.HTTPError)
-	require.True(t, ok)
-	assert.Equal(t, http.StatusUnauthorized, httpErr.Code)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusFound, rec.Code)
+	assert.Contains(t, rec.Header().Get("Location"), "http://localhost:5173/dashboard")
+	assert.Contains(t, rec.Header().Get("Location"), "youtube=error")
+	assert.Contains(t, rec.Header().Get("Location"), "message=state+mismatch")
 }
 
 func TestYouTubeTokenExchangeFailure(t *testing.T) {
@@ -154,6 +159,7 @@ func TestYouTubeTokenExchangeFailure(t *testing.T) {
 		TokenRepo:    auth.NewSQLiteTokenRepository(db),
 		SessionStore: store,
 		RedirectURI:  "http://localhost:8090/callback",
+		FrontendURL:  "http://localhost:5173",
 	}
 
 	e := echo.New()

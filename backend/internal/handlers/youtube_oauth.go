@@ -25,15 +25,17 @@ type YouTubeOAuthHandler struct {
 	TokenRepo    localauth.TokenRepository
 	SessionStore sessions.Store
 	RedirectURI  string
+	FrontendURL  string
 	Scopes       []string
 }
 
-func NewYouTubeOAuthHandler(repo localauth.CredentialProvider, tokenRepo localauth.TokenRepository, store sessions.Store, redirectURI string) *YouTubeOAuthHandler {
+func NewYouTubeOAuthHandler(repo localauth.CredentialProvider, tokenRepo localauth.TokenRepository, store sessions.Store, redirectURI, frontendURL string) *YouTubeOAuthHandler {
 	return &YouTubeOAuthHandler{
 		Repo:         repo,
 		TokenRepo:    tokenRepo,
 		SessionStore: store,
 		RedirectURI:  redirectURI,
+		FrontendURL:  frontendURL,
 		Scopes: []string{
 			youtube.YoutubeScope,
 			youtube.YoutubeReadonlyScope,
@@ -48,6 +50,10 @@ func RegisterYouTubeRoutes(group *echo.Group, handler *YouTubeOAuthHandler) {
 }
 
 func (h *YouTubeOAuthHandler) Login(c echo.Context) error {
+	if err := redirectIfOAuthHostMismatch(c, publicURLFromRedirectURI(h.RedirectURI)); err != nil {
+		return err
+	}
+
 	state, err := generateState()
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to create state")
@@ -89,7 +95,7 @@ func (h *YouTubeOAuthHandler) Callback(c echo.Context) error {
 
 	expectedState, _ := session.Values[sessionStateKey].(string)
 	if expectedState == "" || expectedState != c.QueryParam("state") {
-		return echo.NewHTTPError(http.StatusUnauthorized, "state mismatch")
+		return c.Redirect(http.StatusFound, buildFrontendDashboardRedirect(h.FrontendURL, "youtube", "error", "state mismatch"))
 	}
 
 	code := c.QueryParam("code")
@@ -129,7 +135,7 @@ func (h *YouTubeOAuthHandler) Callback(c echo.Context) error {
 	session.Options.MaxAge = -1
 	_ = session.Save(c.Request(), c.Response())
 
-	return c.Redirect(http.StatusFound, "/setup")
+	return c.Redirect(http.StatusFound, buildFrontendDashboardRedirect(h.FrontendURL, "youtube", "connected", ""))
 }
 
 func (h *YouTubeOAuthHandler) ListPlaylists(c echo.Context) error {
@@ -178,7 +184,7 @@ func fetchYouTubePlaylists(ctx context.Context, token *localauth.Token, creds lo
 		return nil, err
 	}
 
-	call := service.Playlists.List([]string{"id", "snippet"}).Mine(true).MaxResults(50)
+	call := service.Playlists.List([]string{"id", "snippet", "contentDetails"}).Mine(true).MaxResults(50)
 	response, err := call.Do()
 	if err != nil {
 		return nil, err
@@ -186,9 +192,24 @@ func fetchYouTubePlaylists(ctx context.Context, token *localauth.Token, creds lo
 
 	result := make([]YouTubePlaylist, len(response.Items))
 	for i, item := range response.Items {
+		name := ""
+		description := ""
+		if item.Snippet != nil {
+			name = item.Snippet.Title
+			description = item.Snippet.Description
+		}
+
+		var itemCount int64
+		if item.ContentDetails != nil {
+			itemCount = item.ContentDetails.ItemCount
+		}
+
 		result[i] = YouTubePlaylist{
-			ID:   item.Id,
-			Name: item.Snippet.Title,
+			ID:          item.Id,
+			Name:        name,
+			Title:       name,
+			Description: description,
+			ItemCount:   itemCount,
 		}
 	}
 
@@ -196,6 +217,9 @@ func fetchYouTubePlaylists(ctx context.Context, token *localauth.Token, creds lo
 }
 
 type YouTubePlaylist struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Title       string `json:"title,omitempty"`
+	Description string `json:"description,omitempty"`
+	ItemCount   int64  `json:"itemCount"`
 }

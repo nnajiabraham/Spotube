@@ -1,17 +1,33 @@
 BACKEND_DIR := backend
 DB_PATH := ./data/spotube.db
 BINARY_NAME := spotube-server
+REPO_ROOT := ..
+DEV_LOG := $(REPO_ROOT)/dev.log
+BACKEND_PID := $(REPO_ROOT)/.backend-dev.pid
 
-.PHONY: backend/install backend/dev backend/test backend/build backend/lint backend/clean
+.PHONY: backend/install backend/dev backend/dev-bg backend/dev-stop backend/test backend/build backend/lint backend/clean
 .PHONY: backend/db/create backend/db/up backend/db/down backend/db/gen
 
 backend/install: ## Install backend dependencies
 	@cd $(BACKEND_DIR) && go mod download
 
-backend/dev: ## Start backend server (applies migrations + codegen first)
-	@$(MAKE) backend/db/up
-	@$(MAKE) backend/db/gen
-	@cd $(BACKEND_DIR) && go run ./cmd/server
+backend/dev-bg: ## Start backend in background (append logs to dev.log only)
+	@touch $(DEV_LOG)
+	@printf '\n[backend] starting at %s\n' "$$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $(DEV_LOG)
+	@$(MAKE) backend/db/up >> $(DEV_LOG) 2>&1
+	@$(MAKE) backend/db/gen >> $(DEV_LOG) 2>&1
+	@(cd $(BACKEND_DIR) && go run ./cmd/server >> $(DEV_LOG) 2>&1 & echo $$! > $(BACKEND_PID))
+	@printf '[backend] pid %s (logs: dev.log)\n' "$$(cat $(BACKEND_PID))" >> $(DEV_LOG)
+
+backend/dev: backend/dev-stop ## Run backend in foreground; logs to terminal and dev.log
+	@touch $(DEV_LOG)
+	@printf '\n[backend] starting at %s (also writing to dev.log)\n' "$$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+	@$(MAKE) backend/db/up >> $(DEV_LOG) 2>&1
+	@$(MAKE) backend/db/gen >> $(DEV_LOG) 2>&1
+	@cd $(BACKEND_DIR) && go run ./cmd/server 2>&1 | tee -a $(DEV_LOG)
+
+backend/dev-stop: ## Stop background backend started by backend/dev-bg
+	@if [ -f $(BACKEND_PID) ]; then kill $$(cat $(BACKEND_PID)) 2>/dev/null || true; rm -f $(BACKEND_PID); fi
 
 backend/test: ## Run backend tests
 	@cd $(BACKEND_DIR) && go test ./...

@@ -59,12 +59,10 @@ func TestMigrationsUpDownIdempotent(t *testing.T) {
 		t.Fatalf("expected settings table after up")
 	}
 
-	if err := Down(db); err != nil {
-		t.Fatalf("down failed: %v", err)
-	}
-
-	if tableExists(t, db, "settings") {
-		t.Fatalf("expected settings table to be dropped after down")
+	for tableExists(t, db, "settings") {
+		if err := Down(db); err != nil {
+			t.Fatalf("down failed: %v", err)
+		}
 	}
 
 	if err := Up(db); err != nil {

@@ -19,29 +19,6 @@ vi.mock('@tanstack/react-router', async (importOriginal) => {
 // Extract the component from the Route
 const MappingsList = Route.options.component as React.ComponentType
 
-// Mock PocketBase to include auth token and make actual fetch calls
-vi.mock('../../../../lib/pocketbase', () => ({
-  pb: {
-    authStore: {
-      token: 'test-token'
-    },
-    collection: vi.fn(() => ({
-      getList: vi.fn().mockImplementation(async () => {
-        // Make the actual fetch call that will be intercepted by MSW
-        const response = await fetch('/api/collections/mappings/records', {
-          headers: {
-            'Authorization': 'Bearer test-token'
-          }
-        });
-        if (!response.ok) {
-          throw new Error('Failed to fetch');
-        }
-        return response.json();
-      })
-    }))
-  }
-}))
-
 const createWrapper = () => {
   const queryClient = new QueryClient({
     defaultOptions: {

@@ -2,6 +2,7 @@ package activitylogger
 
 import (
 	"database/sql"
+	"encoding/json"
 	"strings"
 	"time"
 
@@ -10,6 +11,8 @@ import (
 	"github.com/manlikeabro/spotube/internal/db/model"
 	"github.com/manlikeabro/spotube/internal/db/table"
 )
+
+const maxDetailsJSONLen = 65536
 
 // Logger provides a simple interface for recording activity to the database.
 type Logger struct {
@@ -23,16 +26,36 @@ func New(db *sql.DB) *Logger {
 
 // Record inserts an activity log entry into the database.
 func (l *Logger) Record(level, message, mappingID, jobType string) error {
+	return l.RecordWithDetails(level, message, mappingID, jobType, "", nil)
+}
+
+// RecordWithDetails stores optional sync_item_id and structured JSON metadata.
+func (l *Logger) RecordWithDetails(level, message, mappingID, jobType, syncItemID string, details any) error {
 	id := uuid.NewString()
 	now := time.Now().Unix()
 
+	var detailsJSON *string
+	if details != nil {
+		raw, err := json.Marshal(details)
+		if err != nil {
+			return err
+		}
+		if len(raw) > maxDetailsJSONLen {
+			raw = raw[:maxDetailsJSONLen]
+		}
+		s := string(raw)
+		detailsJSON = &s
+	}
+
 	activityLog := model.ActivityLogs{
-		ID:        &id,
-		Level:     level,
-		Message:   message,
-		MappingID: stringToNullablePtr(mappingID),
-		JobType:   jobType,
-		Created:   int32(now),
+		ID:          &id,
+		Level:       level,
+		Message:     message,
+		MappingID:   stringToNullablePtr(mappingID),
+		JobType:     jobType,
+		Created:     int32(now),
+		SyncItemID:  stringToNullablePtr(syncItemID),
+		DetailsJSON: detailsJSON,
 	}
 
 	_, err := table.ActivityLogs.

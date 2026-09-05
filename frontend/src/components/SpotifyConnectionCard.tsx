@@ -1,19 +1,15 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { api, ApiError, oauthAPI } from '../lib/api';
+import { api, oauthAPI } from '../lib/api';
+import { shouldRetryConnectionCheck } from '../lib/connectionCheckQuery';
 
 export function SpotifyConnectionCard() {
   // Check if user is connected by trying to fetch playlists
   const { isLoading, error } = useQuery({
     queryKey: ['spotify-connection'],
     queryFn: () => api.getSpotifyPlaylists({ limit: 1 }),
-    retry: (failureCount, error) => {
-      // Don't retry 401 errors (not authenticated)
-      if (error instanceof ApiError && error.status === 401) {
-        return false;
-      }
-      return failureCount < 3;
-    },
+    retry: shouldRetryConnectionCheck,
+    retryDelay: (attemptIndex) => Math.min(500 * 2 ** attemptIndex, 2000),
   });
 
   const isConnected = !error;

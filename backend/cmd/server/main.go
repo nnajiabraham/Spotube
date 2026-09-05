@@ -16,10 +16,12 @@ import (
 	"github.com/gorilla/sessions"
 	"github.com/joho/godotenv"
 
+	"github.com/manlikeabro/spotube/internal/activitylogger"
 	"github.com/manlikeabro/spotube/internal/auth"
 	"github.com/manlikeabro/spotube/internal/config"
 	"github.com/manlikeabro/spotube/internal/handlers"
 	"github.com/manlikeabro/spotube/internal/httpserver"
+	"github.com/manlikeabro/spotube/internal/jobs"
 	"github.com/manlikeabro/spotube/internal/logging"
 	"github.com/manlikeabro/spotube/internal/sqliteconn"
 )
@@ -63,11 +65,12 @@ func main() {
 	auth.SetTokenRepository(tokenRepo)
 
 	// Session store
-	sessionStore := sessions.NewCookieStore([]byte(cfg.SessionCookieName))
+	sessionStore := sessions.NewCookieStore([]byte(cfg.SessionSecret))
 	sessionStore.Options.Path = "/"
 	sessionStore.Options.MaxAge = cfg.SessionTTLSeconds
 	sessionStore.Options.HttpOnly = true
 	sessionStore.Options.Secure = cfg.SessionSecure
+	sessionStore.Options.SameSite = http.SameSiteLaxMode
 
 	// Settings repository for OAuth handlers (uses env defaults when DB empty)
 	oauthFallback := &auth.SettingsRecord{
@@ -84,6 +87,7 @@ func main() {
 		tokenRepo,
 		sessionStore,
 		cfg.PublicURL+"/api/auth/spotify/callback",
+		cfg.FrontendURL,
 	)
 	spotifyGroup := srv.Group("/api/auth/spotify")
 	handlers.RegisterSpotifyRoutes(spotifyGroup, spotifyHandler)
@@ -94,6 +98,7 @@ func main() {
 		tokenRepo,
 		sessionStore,
 		cfg.PublicURL+"/api/auth/youtube/callback",
+		cfg.FrontendURL,
 	)
 	youtubeGroup := srv.Group("/api/auth/youtube")
 	handlers.RegisterYouTubeRoutes(youtubeGroup, youtubeHandler)
@@ -113,10 +118,41 @@ func main() {
 	activityLogsGroup := srv.Group("/api/collections/activity_logs/records")
 	handlers.RegisterActivityLogsRoutes(activityLogsGroup, activityLogsHandler)
 
+	// Sync items + manual executor
+	activityLogger := activitylogger.New(db)
+	clientFactory := auth.NewClientFactory(db, settingsRepo, tokenRepo)
+	syncExecutor := jobs.NewExecutor(jobs.JobDeps{
+		DB:             db,
+		Logger:         logger,
+		ActivityLogger: activityLogger,
+	}, clientFactory)
+	syncItemsHandler := handlers.NewSyncItemsHandler(db, syncExecutor)
+	syncItemsGroup := srv.Group("/api/collections/sync_items/records")
+	handlers.RegisterSyncItemsRoutes(syncItemsGroup, syncItemsHandler)
+
 	// Dashboard Stats (unauthenticated)
 	dashboardHandler := handlers.NewDashboardHandler(db)
 	dashboardGroup := srv.Group("/api/dashboard")
 	handlers.RegisterDashboardRoutes(dashboardGroup, dashboardHandler)
+
+	var jobScheduler *jobs.Scheduler
+	if cfg.SyncWorkersEnabled {
+		jobScheduler = jobs.New(jobs.JobDeps{
+			DB:             db,
+			Logger:         logger,
+			ActivityLogger: activityLogger,
+		}, clientFactory)
+		if err := jobScheduler.Start(cfg.SyncAnalysisCronSpec, cfg.SyncExecutorAutoEnabled, cfg.SyncExecutorCronSpec); err != nil {
+			logger.Fatal().Err(err).Msg("failed to start sync workers")
+		}
+		logger.Info().
+			Str("analysis_cron", cfg.SyncAnalysisCronSpec).
+			Bool("executor_auto", cfg.SyncExecutorAutoEnabled).
+			Msg("mapping sync workers enabled")
+	} else {
+		logger.Info().
+			Msg("mapping sync workers disabled (set SYNC_WORKERS_ENABLED=true in backend/.env to enable)")
+	}
 
 	address := ":" + cfg.Port
 	go func() {
@@ -129,6 +165,12 @@ func main() {
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 	<-stop
+
+	if jobScheduler != nil {
+		if err := jobScheduler.Stop(); err != nil {
+			logger.Error().Err(err).Msg("sync worker shutdown failed")
+		}
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

@@ -1,12 +1,21 @@
 FRONTEND_DIR := frontend
+REPO_ROOT := ..
+FRONTEND_PID := $(REPO_ROOT)/.frontend-dev.pid
 
-.PHONY: frontend/install frontend/dev frontend/test frontend/build frontend/lint frontend/type-check frontend/clean
+.PHONY: frontend/install frontend/dev frontend/dev-bg frontend/dev-stop frontend/test frontend/build frontend/lint frontend/type-check frontend/clean
 
 frontend/install: ## Install frontend dependencies
 	@cd $(FRONTEND_DIR) && npm install
 
-frontend/dev: ## Start Vite dev server
+# Background Vite for "make dev" only — does not write to dev.log (use frontend/dev for Vite output).
+frontend/dev-bg:
+	@(cd $(FRONTEND_DIR) && npm run dev >/dev/null 2>&1 & echo $$! > $(FRONTEND_PID))
+
+frontend/dev: ## Start Vite dev server (logs in this terminal only)
 	@cd $(FRONTEND_DIR) && npm run dev
+
+frontend/dev-stop: ## Stop background frontend started by frontend/dev-bg
+	@if [ -f $(FRONTEND_PID) ]; then kill $$(cat $(FRONTEND_PID)) 2>/dev/null || true; rm -f $(FRONTEND_PID); fi
 
 frontend/test: ## Run frontend tests
 	@cd $(FRONTEND_DIR) && npm run test

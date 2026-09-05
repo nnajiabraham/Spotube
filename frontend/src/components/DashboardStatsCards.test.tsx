@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { DashboardStatsCards } from './DashboardStatsCards';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { http, HttpResponse } from 'msw';
+import { TEST_API_BASE_URL } from '../test/apiBaseUrl';
 
 const renderWithProviders = (ui: React.ReactElement) => {
   const queryClient = new QueryClient({
@@ -50,7 +51,7 @@ describe('DashboardStatsCards', () => {
 
   it('renders correct stats from the API', async () => {
     server?.use(
-      http.get('http://localhost:8090/api/dashboard/stats', () => {
+      http.get(`${TEST_API_BASE_URL}/api/dashboard/stats`, () => {
         return HttpResponse.json(mockStats);
       })
     );
@@ -98,7 +99,7 @@ describe('DashboardStatsCards', () => {
 
   it('handles pause button correctly', async () => {
     server?.use(
-      http.get('http://localhost:8090/api/dashboard/stats', () => {
+      http.get(`${TEST_API_BASE_URL}/api/dashboard/stats`, () => {
         return HttpResponse.json(mockStats);
       })
     );
@@ -127,7 +128,7 @@ describe('DashboardStatsCards', () => {
 
   it('shows resume button when paused', async () => {
     server?.use(
-      http.get('http://localhost:8090/api/dashboard/stats', () => {
+      http.get(`${TEST_API_BASE_URL}/api/dashboard/stats`, () => {
         return HttpResponse.json(mockStats);
       })
     );
@@ -149,7 +150,7 @@ describe('DashboardStatsCards', () => {
 
   it('calls refresh handler when refresh button is clicked', async () => {
     server?.use(
-      http.get('http://localhost:8090/api/dashboard/stats', () => {
+      http.get(`${TEST_API_BASE_URL}/api/dashboard/stats`, () => {
         return HttpResponse.json(mockStats);
       })
     );
@@ -178,7 +179,7 @@ describe('DashboardStatsCards', () => {
 
   it('shows error state when API fails', async () => {
     server?.use(
-      http.get('http://localhost:8090/api/dashboard/stats', () => {
+      http.get(`${TEST_API_BASE_URL}/api/dashboard/stats`, () => {
         return HttpResponse.json(
           { error: 'Internal server error' },
           { status: 500 }
@@ -204,7 +205,7 @@ describe('DashboardStatsCards', () => {
 
   it('displays all stat card titles correctly', async () => {
     server?.use(
-      http.get('http://localhost:8090/api/dashboard/stats', () => {
+      http.get(`${TEST_API_BASE_URL}/api/dashboard/stats`, () => {
         return HttpResponse.json(mockStats);
       })
     );

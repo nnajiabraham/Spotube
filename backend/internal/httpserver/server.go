@@ -56,6 +56,9 @@ func accessLogMiddleware(logger zerolog.Logger) echo.MiddlewareFunc {
 			err := next(c)
 
 			status := c.Response().Status
+			if he, ok := err.(*echo.HTTPError); ok && he.Code != 0 {
+				status = he.Code
+			}
 			latency := time.Since(start)
 			requestID, _ := c.Get(echo.HeaderXRequestID).(string)
 

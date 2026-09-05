@@ -17,19 +17,20 @@ type syncItemsTable struct {
 	sqlite.Table
 
 	// Columns
-	ID            sqlite.ColumnString
-	MappingID     sqlite.ColumnString
-	Operation     sqlite.ColumnString
-	Service       sqlite.ColumnString
-	TrackID       sqlite.ColumnString
-	TrackTitle    sqlite.ColumnString
-	TrackArtist   sqlite.ColumnString
-	Status        sqlite.ColumnString
-	ErrorMessage  sqlite.ColumnString
-	AttemptCount  sqlite.ColumnInteger
-	LastAttemptAt sqlite.ColumnInteger
-	Created       sqlite.ColumnInteger
-	Updated       sqlite.ColumnInteger
+	ID                  sqlite.ColumnString
+	MappingID           sqlite.ColumnString
+	Operation           sqlite.ColumnString
+	Service             sqlite.ColumnString
+	TrackID             sqlite.ColumnString
+	TrackTitle          sqlite.ColumnString
+	TrackArtist         sqlite.ColumnString
+	Status              sqlite.ColumnString
+	ErrorMessage        sqlite.ColumnString
+	AttemptCount        sqlite.ColumnInteger
+	LastAttemptAt       sqlite.ColumnInteger
+	Created             sqlite.ColumnInteger
+	Updated             sqlite.ColumnInteger
+	AnalysisContextJSON sqlite.ColumnString
 
 	AllColumns     sqlite.ColumnList
 	MutableColumns sqlite.ColumnList
@@ -71,41 +72,43 @@ func newSyncItemsTable(schemaName, tableName, alias string) *SyncItemsTable {
 
 func newSyncItemsTableImpl(schemaName, tableName, alias string) syncItemsTable {
 	var (
-		IDColumn            = sqlite.StringColumn("id")
-		MappingIDColumn     = sqlite.StringColumn("mapping_id")
-		OperationColumn     = sqlite.StringColumn("operation")
-		ServiceColumn       = sqlite.StringColumn("service")
-		TrackIDColumn       = sqlite.StringColumn("track_id")
-		TrackTitleColumn    = sqlite.StringColumn("track_title")
-		TrackArtistColumn   = sqlite.StringColumn("track_artist")
-		StatusColumn        = sqlite.StringColumn("status")
-		ErrorMessageColumn  = sqlite.StringColumn("error_message")
-		AttemptCountColumn  = sqlite.IntegerColumn("attempt_count")
-		LastAttemptAtColumn = sqlite.IntegerColumn("last_attempt_at")
-		CreatedColumn       = sqlite.IntegerColumn("created")
-		UpdatedColumn       = sqlite.IntegerColumn("updated")
-		allColumns          = sqlite.ColumnList{IDColumn, MappingIDColumn, OperationColumn, ServiceColumn, TrackIDColumn, TrackTitleColumn, TrackArtistColumn, StatusColumn, ErrorMessageColumn, AttemptCountColumn, LastAttemptAtColumn, CreatedColumn, UpdatedColumn}
-		mutableColumns      = sqlite.ColumnList{MappingIDColumn, OperationColumn, ServiceColumn, TrackIDColumn, TrackTitleColumn, TrackArtistColumn, StatusColumn, ErrorMessageColumn, AttemptCountColumn, LastAttemptAtColumn, CreatedColumn, UpdatedColumn}
-		defaultColumns      = sqlite.ColumnList{StatusColumn, AttemptCountColumn}
+		IDColumn                  = sqlite.StringColumn("id")
+		MappingIDColumn           = sqlite.StringColumn("mapping_id")
+		OperationColumn           = sqlite.StringColumn("operation")
+		ServiceColumn             = sqlite.StringColumn("service")
+		TrackIDColumn             = sqlite.StringColumn("track_id")
+		TrackTitleColumn          = sqlite.StringColumn("track_title")
+		TrackArtistColumn         = sqlite.StringColumn("track_artist")
+		StatusColumn              = sqlite.StringColumn("status")
+		ErrorMessageColumn        = sqlite.StringColumn("error_message")
+		AttemptCountColumn        = sqlite.IntegerColumn("attempt_count")
+		LastAttemptAtColumn       = sqlite.IntegerColumn("last_attempt_at")
+		CreatedColumn             = sqlite.IntegerColumn("created")
+		UpdatedColumn             = sqlite.IntegerColumn("updated")
+		AnalysisContextJSONColumn = sqlite.StringColumn("analysis_context_json")
+		allColumns                = sqlite.ColumnList{IDColumn, MappingIDColumn, OperationColumn, ServiceColumn, TrackIDColumn, TrackTitleColumn, TrackArtistColumn, StatusColumn, ErrorMessageColumn, AttemptCountColumn, LastAttemptAtColumn, CreatedColumn, UpdatedColumn, AnalysisContextJSONColumn}
+		mutableColumns            = sqlite.ColumnList{MappingIDColumn, OperationColumn, ServiceColumn, TrackIDColumn, TrackTitleColumn, TrackArtistColumn, StatusColumn, ErrorMessageColumn, AttemptCountColumn, LastAttemptAtColumn, CreatedColumn, UpdatedColumn, AnalysisContextJSONColumn}
+		defaultColumns            = sqlite.ColumnList{StatusColumn, AttemptCountColumn}
 	)
 
 	return syncItemsTable{
 		Table: sqlite.NewTable(schemaName, tableName, alias, allColumns...),
 
 		//Columns
-		ID:            IDColumn,
-		MappingID:     MappingIDColumn,
-		Operation:     OperationColumn,
-		Service:       ServiceColumn,
-		TrackID:       TrackIDColumn,
-		TrackTitle:    TrackTitleColumn,
-		TrackArtist:   TrackArtistColumn,
-		Status:        StatusColumn,
-		ErrorMessage:  ErrorMessageColumn,
-		AttemptCount:  AttemptCountColumn,
-		LastAttemptAt: LastAttemptAtColumn,
-		Created:       CreatedColumn,
-		Updated:       UpdatedColumn,
+		ID:                  IDColumn,
+		MappingID:           MappingIDColumn,
+		Operation:           OperationColumn,
+		Service:             ServiceColumn,
+		TrackID:             TrackIDColumn,
+		TrackTitle:          TrackTitleColumn,
+		TrackArtist:         TrackArtistColumn,
+		Status:              StatusColumn,
+		ErrorMessage:        ErrorMessageColumn,
+		AttemptCount:        AttemptCountColumn,
+		LastAttemptAt:       LastAttemptAtColumn,
+		Created:             CreatedColumn,
+		Updated:             UpdatedColumn,
+		AnalysisContextJSON: AnalysisContextJSONColumn,
 
 		AllColumns:     allColumns,
 		MutableColumns: mutableColumns,

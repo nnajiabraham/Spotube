@@ -81,6 +81,38 @@ func TestActivityLogsList(t *testing.T) {
 	assert.Equal(t, "log1", response.Items[2].ID)
 }
 
+func TestActivityLogsListIncludesDetailsJSONAndSyncItemFilter(t *testing.T) {
+	db, cleanup := setupActivityLogsTestDB(t)
+	defer cleanup()
+
+	now := time.Now().Unix()
+	_, err := db.Exec(`INSERT INTO mappings (id, spotify_playlist_id, youtube_playlist_id, sync_name, sync_tracks, interval_minutes, tracks_count, created, updated) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		"mapping1", "sp", "yt", 1, 1, 60, 0, now, now)
+	require.NoError(t, err)
+	_, err = db.Exec(`INSERT INTO sync_items (id, mapping_id, operation, service, track_id, track_title, status, attempt_count, created, updated) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		"sync-1", "mapping1", "add", "youtube", "sp-1", "Song", "pending", 0, now, now)
+	require.NoError(t, err)
+	_, err = db.Exec(`INSERT INTO activity_logs (id, level, message, mapping_id, job_type, created, sync_item_id, details_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		"log-detailed", "info", "Executor added", "mapping1", "executor", now, "sync-1", `{"version":1,"kind":"executor_run","data":{"outcome":"added"}}`)
+	require.NoError(t, err)
+
+	handler := NewActivityLogsHandler(db)
+	e := echo.New()
+	RegisterActivityLogsRoutes(e.Group("/api/collections/activity_logs/records"), handler)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/collections/activity_logs/records?sync_item_id=sync-1", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var response ActivityLogsListResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &response))
+	require.Len(t, response.Items, 1)
+	assert.Equal(t, "sync-1", *response.Items[0].SyncItemID)
+	assert.Contains(t, string(response.Items[0].DetailsJSON), "executor_run")
+}
+
 func TestActivityLogsListFiltered(t *testing.T) {
 	db, cleanup := setupActivityLogsTestDB(t)
 	defer cleanup()

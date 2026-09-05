@@ -12,8 +12,10 @@ func TestLoadDefaults(t *testing.T) {
 	t.Setenv("FRONTEND_URL", "")
 	t.Setenv("CORS_ALLOW_ORIGINS", "")
 	t.Setenv("SESSION_COOKIE_NAME", "")
+	t.Setenv("SESSION_SECRET", "")
 	t.Setenv("SESSION_TTL_SECONDS", "")
 	t.Setenv("SESSION_SECURE", "")
+	t.Setenv("SYNC_WORKERS_ENABLED", "")
 
 	cfg, err := Load()
 	if err != nil {
@@ -38,11 +40,17 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.SessionCookieName != "spotube_session" {
 		t.Errorf("expected SessionCookieName default 'spotube_session', got %q", cfg.SessionCookieName)
 	}
+	if cfg.SessionSecret != "spotube-dev-session-secret-change-me" {
+		t.Errorf("expected SessionSecret default to be set, got %q", cfg.SessionSecret)
+	}
 	if cfg.SessionTTLSeconds != 2592000 {
 		t.Errorf("expected SessionTTLSeconds default 2592000, got %d", cfg.SessionTTLSeconds)
 	}
 	if cfg.SessionSecure {
 		t.Errorf("expected SessionSecure default false")
+	}
+	if cfg.SyncWorkersEnabled {
+		t.Errorf("expected SyncWorkersEnabled default false")
 	}
 	if len(cfg.CORSAllowOrigins) != 1 || cfg.CORSAllowOrigins[0] != "http://localhost:5173" {
 		t.Errorf("expected default CORS origin 'http://localhost:5173', got %v", cfg.CORSAllowOrigins)
@@ -57,6 +65,7 @@ func TestLoadOverrides(t *testing.T) {
 	t.Setenv("FRONTEND_URL", "https://example.com")
 	t.Setenv("CORS_ALLOW_ORIGINS", "https://a.com, https://b.com ")
 	t.Setenv("SESSION_COOKIE_NAME", "custom")
+	t.Setenv("SESSION_SECRET", "super-secret")
 	t.Setenv("SESSION_TTL_SECONDS", "120")
 	t.Setenv("SESSION_SECURE", "true")
 	t.Setenv("VERSION", "1.2.3")
@@ -87,6 +96,9 @@ func TestLoadOverrides(t *testing.T) {
 	}
 	if cfg.SessionCookieName != "custom" {
 		t.Errorf("expected SessionCookieName 'custom', got %q", cfg.SessionCookieName)
+	}
+	if cfg.SessionSecret != "super-secret" {
+		t.Errorf("expected SessionSecret 'super-secret', got %q", cfg.SessionSecret)
 	}
 	if cfg.SessionTTLSeconds != 120 {
 		t.Errorf("expected SessionTTLSeconds 120, got %d", cfg.SessionTTLSeconds)

@@ -1,4 +1,4 @@
-// Type definitions for the new API (migrated from pocketbase.ts)
+// Type definitions for the HTTP API
 
 export interface SetupStatus {
   required: boolean;
@@ -81,6 +81,7 @@ export interface ActivityLog {
   created: number; // epoch seconds
   updated?: number | null;
   sync_item_id?: string | null;
+  details_json?: Record<string, unknown> | null;
 }
 
 export interface ActivityLogsResponse {

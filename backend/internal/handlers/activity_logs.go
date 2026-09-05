@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"database/sql"
+	"encoding/json"
 	"net/http"
 	"strings"
 
@@ -15,12 +16,14 @@ import (
 
 // ActivityLogResponse represents the API response for an activity log entry.
 type ActivityLogResponse struct {
-	ID        string  `json:"id"`
-	Level     string  `json:"level"`
-	Message   string  `json:"message"`
-	MappingID *string `json:"mapping_id"`
-	JobType   string  `json:"job_type"`
-	Created   int64   `json:"created"`
+	ID          string          `json:"id"`
+	Level       string          `json:"level"`
+	Message     string          `json:"message"`
+	MappingID   *string         `json:"mapping_id"`
+	JobType     string          `json:"job_type"`
+	Created     int64           `json:"created"`
+	SyncItemID  *string         `json:"sync_item_id,omitempty"`
+	DetailsJSON json.RawMessage `json:"details_json,omitempty"`
 }
 
 // ActivityLogsListResponse represents paginated activity logs response.
@@ -56,6 +59,7 @@ func (h *ActivityLogsHandler) List(c echo.Context) error {
 	jobType := c.QueryParam("job_type")
 	level := c.QueryParam("level")
 	mappingID := c.QueryParam("mapping_id")
+	syncItemID := strings.TrimSpace(c.QueryParam("sync_item_id"))
 
 	offset := (page - 1) * perPage
 
@@ -81,6 +85,11 @@ func (h *ActivityLogsHandler) List(c echo.Context) error {
 	if strings.TrimSpace(mappingID) != "" {
 		selectQuery = selectQuery.WHERE(table.ActivityLogs.MappingID.EQ(sqlite.String(mappingID)))
 		countQuery = countQuery.WHERE(table.ActivityLogs.MappingID.EQ(sqlite.String(mappingID)))
+	}
+
+	if syncItemID != "" {
+		selectQuery = selectQuery.WHERE(table.ActivityLogs.SyncItemID.EQ(sqlite.String(syncItemID)))
+		countQuery = countQuery.WHERE(table.ActivityLogs.SyncItemID.EQ(sqlite.String(syncItemID)))
 	}
 
 	var activityLogs []model.ActivityLogs
@@ -115,12 +124,17 @@ func (h *ActivityLogsHandler) List(c echo.Context) error {
 }
 
 func activityLogModelToResponse(a model.ActivityLogs) ActivityLogResponse {
-	return ActivityLogResponse{
-		ID:        lo.FromPtr(a.ID),
-		Level:     a.Level,
-		Message:   a.Message,
-		MappingID: a.MappingID,
-		JobType:   a.JobType,
-		Created:   int64(a.Created),
+	resp := ActivityLogResponse{
+		ID:         lo.FromPtr(a.ID),
+		Level:      a.Level,
+		Message:    a.Message,
+		MappingID:  a.MappingID,
+		JobType:    a.JobType,
+		Created:    int64(a.Created),
+		SyncItemID: a.SyncItemID,
 	}
+	if a.DetailsJSON != nil && strings.TrimSpace(*a.DetailsJSON) != "" {
+		resp.DetailsJSON = json.RawMessage(*a.DetailsJSON)
+	}
+	return resp
 }
