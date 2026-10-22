@@ -73,10 +73,36 @@ func TestFindMatch_NoMatchDifferentSongs(t *testing.T) {
 	assert.False(t, decision.Matched)
 }
 
-func TestYouTubeFromRaw_ParsesArtistFromTitle(t *testing.T) {
-	track := YouTubeFromRaw("vid", "Track Name - Singer Name | Album")
+func TestYouTubeFromRaw_ParsesArtistDashTitle(t *testing.T) {
+	track := YouTubeFromRaw("vid", "Singer Name - Track Name (Official Video) | Album")
 	assert.Equal(t, "Track Name", track.Title)
 	assert.Equal(t, "Singer Name", track.Artist)
+}
+
+func TestYouTubeTrack_TitleDashArtistWhenChannelMatchesRight(t *testing.T) {
+	track := YouTubeTrack("vid", "Pelo Negro - Fernando Milagros", "Fernando Milagros")
+	assert.Equal(t, "Pelo Negro", track.Title)
+	assert.Equal(t, "Fernando Milagros", track.Artist)
+}
+
+func TestYouTubeTrack_TopicChannelSuppliesArtist(t *testing.T) {
+	track := YouTubeTrack("vid", "La Malquerida", "Kany Garcia - Topic")
+	assert.Equal(t, "La Malquerida", track.Title)
+	assert.Equal(t, "Kany Garcia", track.Artist)
+	assert.True(t, FindMatch(SpotifyTrack("sp", "La Malquerida", "Kany García"), []Track{track}).Matched)
+}
+
+func TestFindMatch_ArtistFirstMusicVideo(t *testing.T) {
+	yt := YouTubeTrack("vid", "Beny Jr x El Guincho - Color Caramelo (OFICIAL VIDEO)", "Beny Jr")
+	sp := SpotifyTrack("sp", "Color Caramelo", "Beny Jr")
+	assert.True(t, FindMatch(sp, []Track{yt}).Matched)
+	assert.True(t, FindMatch(yt, []Track{sp}).Matched)
+}
+
+func TestFindMatch_FeaturedArtistCredits(t *testing.T) {
+	yt := YouTubeTrack("vid", "Johnny Drille & Fireboy DML - Angelina", "Johnny Drille")
+	sp := SpotifyTrack("sp", "Angelina (feat. Fireboy DML)", "Johnny Drille")
+	assert.True(t, FindMatch(sp, []Track{yt}).Matched)
 }
 
 func TestScorePair_HigherForCloserTitles(t *testing.T) {
@@ -104,4 +130,10 @@ func TestBriefAnalysisLine_Queued(t *testing.T) {
 	}, "youtube", true)
 	assert.Contains(t, line, "queued add youtube")
 	assert.Contains(t, line, "Pelo Negro")
+}
+
+func TestFindMatch_DifferentSongSameArtistDoesNotMatch(t *testing.T) {
+	yt := YouTubeTrack("vid", "Fearless", "Fearless Worship - Topic")
+	sp := SpotifyTrack("sp", "Joy is Coming", "Fearless Worship")
+	assert.False(t, FindMatch(sp, []Track{yt}).Matched)
 }

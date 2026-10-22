@@ -5,6 +5,10 @@ import (
 	"regexp"
 	"strings"
 	"unicode"
+
+	"golang.org/x/text/runes"
+	"golang.org/x/text/transform"
+	"golang.org/x/text/unicode/norm"
 )
 
 // MatchThreshold is the minimum score to treat two tracks as the same work.
@@ -39,16 +43,25 @@ type Decision struct {
 }
 
 var noisePatterns = []*regexp.Regexp{
-	regexp.MustCompile(`(?i)\(official\s+(video|audio|lyric\s*video|music\s*video)\)`),
-	regexp.MustCompile(`(?i)\[official\s+(video|audio)\]`),
-	regexp.MustCompile(`(?i)\(visualizer\)`),
-	regexp.MustCompile(`(?i)\(hd\)`),
-	regexp.MustCompile(`(?i)\(4k\)`),
+	// Bracketed qualifiers that YouTube uploads add but Spotify titles never carry.
+	regexp.MustCompile(`(?i)[\(\[][^\)\]]*\b(official|oficial|video|videoclip|audio|lyrics?|letra|visuali[sz]er|hd|4k|hq|mv|m/v)\b[^\)\]]*[\)\]]`),
+	// Featured-artist credits are formatted differently on each platform; compare without them.
+	regexp.MustCompile(`(?i)[\(\[]\s*(feat|ft|featuring|with)\.?\s[^\)\]]*[\)\]]`),
+	regexp.MustCompile(`(?i)\s(feat|ft|featuring)\.?\s.*$`),
 }
 
-// YouTubeFromRaw builds a Track from a YouTube playlist video id and raw snippet title.
+var channelSuffixes = regexp.MustCompile(`(?i)(\s*-\s*topic|vevo|\s*official(\s+(channel|music))?)$`)
+
+// YouTubeFromRaw builds a Track from a YouTube video id and raw title when the channel is unknown.
 func YouTubeFromRaw(videoID, rawTitle string) Track {
-	title, artist := parseYouTubeTitle(rawTitle)
+	return YouTubeTrack(videoID, rawTitle, "")
+}
+
+// YouTubeTrack builds a Track from a YouTube video id, raw title, and uploader channel title.
+// YouTube Music uploads use "Artist - Topic" channels with a bare song title; regular videos
+// usually follow "Artist - Title".
+func YouTubeTrack(videoID, rawTitle, channelTitle string) Track {
+	title, artist := parseYouTubeTitle(rawTitle, cleanChannelArtist(channelTitle))
 	return Track{
 		Platform: PlatformYouTube,
 		ID:       videoID,
@@ -95,17 +108,24 @@ func FindMatch(source Track, candidates []Track) Decision {
 	return decision
 }
 
-// ScorePair compares two tracks using normalized title and artist tokens.
+// ScorePair compares two tracks using normalized title and artist tokens. It also scores the
+// combined title+artist token sets so a swapped or missing artist/title split still matches.
 func ScorePair(a, b Track) float64 {
 	titleScore := tokenSimilarity(normalizeTitle(a.Title), normalizeTitle(b.Title))
+	combined := tokenSimilarity(
+		normalizeTitle(a.Title+" "+a.Artist),
+		normalizeTitle(b.Title+" "+b.Artist),
+	)
 	artistA := normalizeArtist(a.Artist)
 	artistB := normalizeArtist(b.Artist)
-	if artistA == "" || artistB == "" {
-		// YouTube titles often embed the artist; lean on title similarity.
-		return titleScore
+	structured := titleScore
+	if artistA != "" && artistB != "" {
+		structured = titleScore*0.65 + artistSimilarity(artistA, artistB)*0.35
 	}
-	artistScore := tokenSimilarity(artistA, artistB)
-	return titleScore*0.65 + artistScore*0.35
+	if combined > structured {
+		return combined
+	}
+	return structured
 }
 
 // BriefAnalysisLine is a single stdout-friendly summary for analysis decisions.
@@ -145,22 +165,65 @@ func normalizeArtist(s string) string {
 	return collapseSpaces(stripPunctuation(strings.ToLower(strings.TrimSpace(s))))
 }
 
-func parseYouTubeTitle(raw string) (title, artist string) {
+func cleanChannelArtist(channel string) string {
+	return strings.TrimSpace(channelSuffixes.ReplaceAllString(strings.TrimSpace(channel), ""))
+}
+
+// parseYouTubeTitle splits "Artist - Title" (or "Title - Artist" when the channel says so).
+func parseYouTubeTitle(raw, channelArtist string) (title, artist string) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
-		return "", ""
+		return "", channelArtist
 	}
 	parts := strings.SplitN(raw, " - ", 2)
-	if len(parts) == 2 {
-		title = strings.TrimSpace(parts[0])
-		rest := strings.TrimSpace(parts[1])
-		if pipe := strings.SplitN(rest, " | ", 2); len(pipe) > 0 {
-			artist = strings.TrimSpace(pipe[0])
-		}
-		artist = stripNoise(artist)
-		return strings.TrimSpace(title), artist
+	if len(parts) != 2 {
+		return stripNoise(raw), channelArtist
 	}
-	return raw, ""
+	left := stripNoise(parts[0])
+	right := strings.TrimSpace(parts[1])
+	if pipe := strings.SplitN(right, " | ", 2); len(pipe) > 0 {
+		right = pipe[0]
+	}
+	right = stripNoise(right)
+
+	if channelArtist != "" {
+		channel := normalizeArtist(channelArtist)
+		if tokenOverlap(channel, normalizeArtist(right)) > tokenOverlap(channel, normalizeArtist(left)) {
+			return left, right
+		}
+	}
+	return right, left
+}
+
+// artistSimilarity tolerates multi-artist credits ("A x B" vs "A") by scoring the shorter
+// credit's containment in the longer one.
+func artistSimilarity(a, b string) float64 {
+	if len(strings.Fields(a)) > len(strings.Fields(b)) {
+		a, b = b, a
+	}
+	if overlap := tokenOverlap(a, b); overlap > tokenSimilarity(a, b) {
+		return overlap
+	}
+	return tokenSimilarity(a, b)
+}
+
+// tokenOverlap is the share of a's tokens present in b.
+func tokenOverlap(a, b string) float64 {
+	tokensA := strings.Fields(a)
+	if len(tokensA) == 0 {
+		return 0
+	}
+	setB := make(map[string]struct{})
+	for _, t := range strings.Fields(b) {
+		setB[t] = struct{}{}
+	}
+	hits := 0
+	for _, t := range tokensA {
+		if _, ok := setB[t]; ok {
+			hits++
+		}
+	}
+	return float64(hits) / float64(len(tokensA))
 }
 
 func tokenSimilarity(a, b string) float64 {
@@ -192,7 +255,17 @@ func tokenSimilarity(a, b string) float64 {
 	return float64(intersect) / float64(union)
 }
 
+// foldAccents maps "García" to "Garcia" so accented and plain spellings compare equal.
+func foldAccents(s string) string {
+	folded, _, err := transform.String(transform.Chain(norm.NFD, runes.Remove(runes.In(unicode.Mn)), norm.NFC), s)
+	if err != nil {
+		return s
+	}
+	return folded
+}
+
 func stripPunctuation(s string) string {
+	s = foldAccents(s)
 	var b strings.Builder
 	for _, r := range s {
 		if unicode.IsLetter(r) || unicode.IsDigit(r) || unicode.IsSpace(r) {
