@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"sync"
+	"sync/atomic"
 
 	"github.com/robfig/cron/v3"
 	"github.com/rs/zerolog"
@@ -24,6 +25,7 @@ type Scheduler struct {
 	cancel         context.CancelFunc
 	wg             sync.WaitGroup
 	started        bool
+	running        atomic.Bool
 	mu             sync.RWMutex
 }
 
@@ -56,9 +58,9 @@ func New(deps JobDeps, clientFactory *auth.ClientFactory) *Scheduler {
 	}
 }
 
-// Start begins the job scheduler and registers jobs.
-// analysisCron and executorCron use 6-field cron syntax (seconds included).
-func (s *Scheduler) Start(analysisCron string, executorAuto bool, executorCron string) error {
+// Start registers the sync run on cronSpec (6-field syntax, seconds included). When applier is
+// non-nil, each run applies queued items right after analysing a mapping.
+func (s *Scheduler) Start(cronSpec string, applier *Executor) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -66,32 +68,22 @@ func (s *Scheduler) Start(analysisCron string, executorAuto bool, executorCron s
 		return nil
 	}
 
-	_, err := s.cron.AddFunc(analysisCron, s.runAnalysisJob)
-	if err != nil {
-		return err
+	if applier != nil {
+		s.analysisJob.EnableAutoApply(applier, defaultApplyLimit)
 	}
 
-	if executorAuto {
-		_, err = s.cron.AddFunc(executorCron, s.runExecutorJob)
-		if err != nil {
-			return err
-		}
+	if _, err := s.cron.AddFunc(cronSpec, s.runAnalysisJob); err != nil {
+		return err
 	}
 
 	s.cron.Start()
 	s.started = true
 
-	if executorAuto {
-		s.logger.Info().
-			Str("analysis_cron", analysisCron).
-			Str("executor_cron", executorCron).
-			Msg("job scheduler started (analysis + auto executor cron)")
-	} else {
-		s.logger.Info().
-			Str("analysis_cron", analysisCron).
-			Msg("job scheduler started (analysis cron only; executor is manual via API)")
-	}
-	s.activityLogger.RecordInfo("Job scheduler started", "", "system")
+	s.logger.Info().
+		Str("cron", cronSpec).
+		Bool("auto_apply", applier != nil).
+		Msg("sync scheduler started")
+	s.activityLogger.RecordInfo("Sync scheduler started", "", "system")
 
 	return nil
 }
@@ -134,6 +126,13 @@ func (s *Scheduler) IsRunning() bool {
 
 // runAnalysisJob is the cron job function for analysis.
 func (s *Scheduler) runAnalysisJob() {
+	// Skip this tick if the previous run is still going (large playlists, slow APIs).
+	if !s.running.CompareAndSwap(false, true) {
+		s.logger.Debug().Msg("sync run still in progress, skipping tick")
+		return
+	}
+	defer s.running.Store(false)
+
 	s.wg.Add(1)
 	defer s.wg.Done()
 
@@ -144,18 +143,5 @@ func (s *Scheduler) runAnalysisJob() {
 		if err := s.analysisJob.Run(s.ctx); err != nil {
 			s.logger.Error().Err(err).Msg("analysis job failed")
 		}
-	}
-}
-
-// runExecutorJob is the cron job function for execution (placeholder).
-func (s *Scheduler) runExecutorJob() {
-	s.wg.Add(1)
-	defer s.wg.Done()
-
-	select {
-	case <-s.ctx.Done():
-		return
-	default:
-		s.logger.Debug().Msg("executor job skipped: execution worker not implemented yet")
 	}
 }

@@ -29,6 +29,8 @@ type mappingsTable struct {
 	TracksCount         sqlite.ColumnInteger
 	Created             sqlite.ColumnInteger
 	Updated             sqlite.ColumnInteger
+	LastSyncStatus      sqlite.ColumnString
+	LastSyncError       sqlite.ColumnString
 
 	AllColumns     sqlite.ColumnList
 	MutableColumns sqlite.ColumnList
@@ -82,8 +84,10 @@ func newMappingsTableImpl(schemaName, tableName, alias string) mappingsTable {
 		TracksCountColumn         = sqlite.IntegerColumn("tracks_count")
 		CreatedColumn             = sqlite.IntegerColumn("created")
 		UpdatedColumn             = sqlite.IntegerColumn("updated")
-		allColumns                = sqlite.ColumnList{IDColumn, SpotifyPlaylistIDColumn, YoutubePlaylistIDColumn, SpotifyPlaylistNameColumn, YoutubePlaylistNameColumn, SyncNameColumn, SyncTracksColumn, IntervalMinutesColumn, LastAnalysisAtColumn, TracksCountColumn, CreatedColumn, UpdatedColumn}
-		mutableColumns            = sqlite.ColumnList{SpotifyPlaylistIDColumn, YoutubePlaylistIDColumn, SpotifyPlaylistNameColumn, YoutubePlaylistNameColumn, SyncNameColumn, SyncTracksColumn, IntervalMinutesColumn, LastAnalysisAtColumn, TracksCountColumn, CreatedColumn, UpdatedColumn}
+		LastSyncStatusColumn      = sqlite.StringColumn("last_sync_status")
+		LastSyncErrorColumn       = sqlite.StringColumn("last_sync_error")
+		allColumns                = sqlite.ColumnList{IDColumn, SpotifyPlaylistIDColumn, YoutubePlaylistIDColumn, SpotifyPlaylistNameColumn, YoutubePlaylistNameColumn, SyncNameColumn, SyncTracksColumn, IntervalMinutesColumn, LastAnalysisAtColumn, TracksCountColumn, CreatedColumn, UpdatedColumn, LastSyncStatusColumn, LastSyncErrorColumn}
+		mutableColumns            = sqlite.ColumnList{SpotifyPlaylistIDColumn, YoutubePlaylistIDColumn, SpotifyPlaylistNameColumn, YoutubePlaylistNameColumn, SyncNameColumn, SyncTracksColumn, IntervalMinutesColumn, LastAnalysisAtColumn, TracksCountColumn, CreatedColumn, UpdatedColumn, LastSyncStatusColumn, LastSyncErrorColumn}
 		defaultColumns            = sqlite.ColumnList{SyncNameColumn, SyncTracksColumn, IntervalMinutesColumn, TracksCountColumn}
 	)
 
@@ -103,6 +107,8 @@ func newMappingsTableImpl(schemaName, tableName, alias string) mappingsTable {
 		TracksCount:         TracksCountColumn,
 		Created:             CreatedColumn,
 		Updated:             UpdatedColumn,
+		LastSyncStatus:      LastSyncStatusColumn,
+		LastSyncError:       LastSyncErrorColumn,
 
 		AllColumns:     allColumns,
 		MutableColumns: mutableColumns,

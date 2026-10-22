@@ -103,11 +103,6 @@ func main() {
 	youtubeGroup := srv.Group("/api/auth/youtube")
 	handlers.RegisterYouTubeRoutes(youtubeGroup, youtubeHandler)
 
-	// Mappings CRUD
-	mappingsHandler := handlers.NewMappingsHandler(db)
-	mappingsGroup := srv.Group("/api/collections/mappings/records")
-	handlers.RegisterMappingsRoutes(mappingsGroup, mappingsHandler)
-
 	// Blacklist CRUD
 	blacklistHandler := handlers.NewBlacklistHandler(db)
 	blacklistGroup := srv.Group("/api/collections/blacklist/records")
@@ -126,6 +121,20 @@ func main() {
 		Logger:         logger,
 		ActivityLogger: activityLogger,
 	}, clientFactory)
+	// Mappings CRUD + on-demand "Sync now" (works even when the cron workers are disabled)
+	manualSync := jobs.NewAnalysisJob(jobs.JobDeps{
+		DB:             db,
+		Logger:         logger,
+		ActivityLogger: activityLogger,
+	}, clientFactory)
+	if cfg.SyncExecutorAutoEnabled {
+		manualSync.EnableAutoApply(syncExecutor, 0)
+	}
+	mappingsHandler := handlers.NewMappingsHandler(db)
+	mappingsHandler.Syncer = manualSync
+	mappingsGroup := srv.Group("/api/collections/mappings/records")
+	handlers.RegisterMappingsRoutes(mappingsGroup, mappingsHandler)
+
 	syncItemsHandler := handlers.NewSyncItemsHandler(db, syncExecutor)
 	syncItemsGroup := srv.Group("/api/collections/sync_items/records")
 	handlers.RegisterSyncItemsRoutes(syncItemsGroup, syncItemsHandler)
@@ -142,13 +151,13 @@ func main() {
 			Logger:         logger,
 			ActivityLogger: activityLogger,
 		}, clientFactory)
-		if err := jobScheduler.Start(cfg.SyncAnalysisCronSpec, cfg.SyncExecutorAutoEnabled, cfg.SyncExecutorCronSpec); err != nil {
+		var applier *jobs.Executor
+		if cfg.SyncExecutorAutoEnabled {
+			applier = syncExecutor
+		}
+		if err := jobScheduler.Start(cfg.SyncAnalysisCronSpec, applier); err != nil {
 			logger.Fatal().Err(err).Msg("failed to start sync workers")
 		}
-		logger.Info().
-			Str("analysis_cron", cfg.SyncAnalysisCronSpec).
-			Bool("executor_auto", cfg.SyncExecutorAutoEnabled).
-			Msg("mapping sync workers enabled")
 	} else {
 		logger.Info().
 			Msg("mapping sync workers disabled (set SYNC_WORKERS_ENABLED=true in backend/.env to enable)")

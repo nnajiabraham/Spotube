@@ -12,6 +12,7 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/api/googleapi"
 
 	"github.com/manlikeabro/spotube/internal/activitylogger"
 	"github.com/manlikeabro/spotube/internal/matching"
@@ -327,6 +328,83 @@ func TestExecuteOne_ReExecuteFromError(t *testing.T) {
 func TestIsIdempotentSuccess(t *testing.T) {
 	assert.True(t, isIdempotentSuccess(errors.New("Item already exists")))
 	assert.False(t, isIdempotentSuccess(errors.New("network timeout")))
+	assert.True(t, isIdempotentSuccess(&googleapi.Error{Code: 409}))
+	assert.False(t, isIdempotentSuccess(&googleapi.Error{Code: 400, Message: "invalid playlist"}))
+}
+
+// countingYouTube counts ListPlaylistTracks calls to prove the batch cache avoids re-listing.
+type countingYouTube struct {
+	mockYouTubePlatform
+	listCalls int
+}
+
+func (c *countingYouTube) ListPlaylistTracks(ctx context.Context, id string) ([]matching.Track, error) {
+	c.listCalls++
+	return c.mockYouTubePlatform.ListPlaylistTracks(ctx, id)
+}
+
+func insertPendingItem(t *testing.T, db *sql.DB, mappingID, itemID, service, title, artist string) {
+	t.Helper()
+	now := time.Now().Unix()
+	_, err := db.Exec(`INSERT INTO sync_items (id, mapping_id, operation, service, track_id, track_title, track_artist, status, attempt_count, created, updated) VALUES (?, ?, 'add', ?, ?, ?, ?, 'pending', 0, ?, ?)`,
+		itemID, mappingID, service, "src-"+itemID, title, artist, now, now)
+	require.NoError(t, err)
+}
+
+func TestExecutePending_UsesSeedAndSkipsDuplicatesWithinBatch(t *testing.T) {
+	db, cleanup := setupExecutorTestDB(t)
+	defer cleanup()
+
+	insertExecutorFixtures(t, db, "map-b", "item-b1", "add", "youtube", "pending")
+	// Same song queued twice (e.g. duplicate in the source playlist): second must be skipped.
+	insertPendingItem(t, db, "map-b", "item-b2", "youtube", "Song A", "Artist A")
+
+	yt := &countingYouTube{mockYouTubePlatform: mockYouTubePlatform{
+		searchHits: []platformSearchHit{{ID: "yt-new", Title: "Song A", Artist: "Artist A"}},
+	}}
+	e := newTestExecutor(t, db, &mockSpotifyPlatform{}, yt)
+
+	seed := &PlaylistSnapshot{YouTube: map[string][]matching.Track{"yt-pl": {}}}
+	result, err := e.ExecutePending(context.Background(), "map-b", 10, seed)
+	require.NoError(t, err)
+	assert.Equal(t, BatchResult{Attempted: 2, Done: 1, Skipped: 1}, result)
+	assert.Equal(t, 0, yt.listCalls, "seeded playlist should not be re-listed")
+	assert.Equal(t, []string{"yt-new"}, yt.addCalls)
+}
+
+func TestExecutePending_StopsOnQuotaExceeded(t *testing.T) {
+	db, cleanup := setupExecutorTestDB(t)
+	defer cleanup()
+
+	insertExecutorFixtures(t, db, "map-q", "item-q1", "add", "youtube", "pending")
+	insertPendingItem(t, db, "map-q", "item-q2", "youtube", "Song B", "Artist B")
+
+	quota := &googleapi.Error{Code: 403, Errors: []googleapi.ErrorItem{{Reason: "quotaExceeded"}}}
+	yt := &mockYouTubePlatform{searchErr: quota}
+	e := newTestExecutor(t, db, &mockSpotifyPlatform{}, yt)
+
+	result, err := e.ExecutePending(context.Background(), "map-q", 10, nil)
+	require.Error(t, err)
+	assert.Equal(t, 1, result.Attempted)
+	assert.Equal(t, 1, result.Failed)
+
+	var status string
+	require.NoError(t, db.QueryRow(`SELECT status FROM sync_items WHERE id = 'item-q2'`).Scan(&status))
+	assert.Equal(t, "pending", status)
+}
+
+func TestExecutePending_SkipsItemsOverAttemptLimit(t *testing.T) {
+	db, cleanup := setupExecutorTestDB(t)
+	defer cleanup()
+
+	insertExecutorFixtures(t, db, "map-r", "item-r1", "add", "youtube", "error")
+	_, err := db.Exec(`UPDATE sync_items SET attempt_count = ? WHERE id = 'item-r1'`, maxAutoAttempts)
+	require.NoError(t, err)
+
+	e := newTestExecutor(t, db, &mockSpotifyPlatform{}, &mockYouTubePlatform{})
+	result, err := e.ExecutePending(context.Background(), "map-r", 10, nil)
+	require.NoError(t, err)
+	assert.Equal(t, 0, result.Attempted)
 }
 
 func TestTruncateExecutorError(t *testing.T) {

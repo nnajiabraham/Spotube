@@ -20,4 +20,6 @@ type Mappings struct {
 	TracksCount         int32
 	Created             int32
 	Updated             int32
+	LastSyncStatus      *string
+	LastSyncError       *string
 }

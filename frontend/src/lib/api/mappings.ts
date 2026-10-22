@@ -42,6 +42,11 @@ export const mappingsAPI = {
     return apiClient.patch<Mapping>(`/api/collections/mappings/records/${id}`, data);
   },
 
+  // Analyze now and apply the queue (when auto-apply is on); returns the refreshed mapping
+  async syncNow(id: string): Promise<Mapping> {
+    return apiClient.post<Mapping>(`/api/collections/mappings/records/${id}/sync`, {});
+  },
+
   // Delete a mapping
   async delete(id: string): Promise<void> {
     return apiClient.delete(`/api/collections/mappings/records/${id}`);

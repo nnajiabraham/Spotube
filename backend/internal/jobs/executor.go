@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"html"
 	"strings"
 	"time"
 
@@ -259,11 +260,17 @@ func (e *Executor) executeAdd(ctx context.Context, item model.SyncItems, mapping
 		return run, nil
 
 	case "spotify":
-		rawTitle := title
-		if artist != "" {
-			rawTitle = title + " - " + artist
+		source := matching.Track{
+			Platform: matching.PlatformYouTube,
+			ID:       stringFromPtr(item.TrackID),
+			Title:    title,
+			Artist:   artist,
 		}
-		source := matching.YouTubeFromRaw(stringFromPtr(item.TrackID), rawTitle)
+		if artist == "" {
+			// Items queued before titles were parsed at analysis time hold the raw video title.
+			source = matching.YouTubeFromRaw(source.ID, title)
+		}
+		title, artist = source.Title, source.Artist
 		run.Source = source
 		run.DestPlaylistID = mapping.SpotifyPlaylistID
 
@@ -470,17 +477,12 @@ func isIdempotentSuccess(err error) bool {
 	if err == nil {
 		return false
 	}
-	msg := strings.ToLower(err.Error())
-	if strings.Contains(msg, "already") {
-		return true
-	}
 	var gerr *googleapi.Error
 	if errors.As(err, &gerr) {
-		if gerr.Code == 400 || gerr.Code == 409 {
-			return true
-		}
+		// 409 is YouTube's "already in playlist"; other 4xx codes are real failures.
+		return gerr.Code == 409
 	}
-	return false
+	return strings.Contains(strings.ToLower(err.Error()), "already")
 }
 
 func truncateExecutorError(msg string) string {
@@ -647,7 +649,7 @@ func (p *liveYouTubePlatform) SearchVideos(ctx context.Context, title, artist st
 		if videoID == "" {
 			continue
 		}
-		parsed := matching.YouTubeFromRaw(videoID, item.Snippet.Title)
+		parsed := matching.YouTubeTrack(videoID, html.UnescapeString(item.Snippet.Title), item.Snippet.ChannelTitle)
 		channel := ""
 		if item.Snippet.ChannelTitle != "" {
 			channel = item.Snippet.ChannelTitle
@@ -685,14 +687,10 @@ func (p *liveYouTubePlatform) ListPlaylistTracks(ctx context.Context, playlistID
 			if item.ContentDetails != nil {
 				videoID = item.ContentDetails.VideoId
 			}
-			rawTitle := ""
-			if item.Snippet != nil {
-				rawTitle = item.Snippet.Title
-			}
-			if videoID == "" {
+			if videoID == "" || item.Snippet == nil {
 				continue
 			}
-			tracks = append(tracks, matching.YouTubeFromRaw(videoID, rawTitle))
+			tracks = append(tracks, matching.YouTubeTrack(videoID, item.Snippet.Title, item.Snippet.VideoOwnerChannelTitle))
 		}
 		pageToken = response.NextPageToken
 		if pageToken == "" {
@@ -733,4 +731,167 @@ func (p *liveYouTubePlatform) RenamePlaylist(ctx context.Context, playlistID, ti
 	}
 	_, err = service.Playlists.Update([]string{"snippet"}, playlist).Do()
 	return err
+}
+
+// PlaylistSnapshot holds destination playlist contents already fetched during analysis,
+// keyed by playlist ID, so applying a batch does not re-list playlists per item.
+type PlaylistSnapshot struct {
+	Spotify map[string][]matching.Track
+	YouTube map[string][]matching.Track
+}
+
+// BatchResult counts outcomes of ExecutePending.
+type BatchResult struct {
+	Attempted int
+	Done      int
+	Skipped   int
+	Failed    int
+}
+
+// Summary is a one-line activity log message for the batch.
+func (b BatchResult) Summary() string {
+	return fmt.Sprintf("Applied sync queue: %d added, %d skipped, %d failed (of %d)", b.Done, b.Skipped, b.Failed, b.Attempted)
+}
+
+// maxAutoAttempts stops auto-apply from retrying an item that keeps failing; manual Execute still works.
+const maxAutoAttempts = 3
+
+// ExecutePending applies up to limit pending (or retryable error) items for one mapping.
+// It stops early when a provider needs reconnecting or YouTube quota is exhausted, since
+// every remaining item would fail the same way.
+func (e *Executor) ExecutePending(ctx context.Context, mappingID string, limit int, seed *PlaylistSnapshot) (BatchResult, error) {
+	var result BatchResult
+	rows, err := e.db.QueryContext(ctx,
+		`SELECT id FROM sync_items
+		 WHERE mapping_id = ? AND (status = 'pending' OR (status = 'error' AND attempt_count < ?))
+		 ORDER BY created, id LIMIT ?`,
+		mappingID, maxAutoAttempts, limit,
+	)
+	if err != nil {
+		return result, err
+	}
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return result, err
+		}
+		ids = append(ids, id)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return result, err
+	}
+
+	batch := *e
+	batch.spotify = newCachedSpotify(e.spotify, seed)
+	batch.youtube = newCachedYouTube(e.youtube, seed)
+
+	for _, id := range ids {
+		if ctx.Err() != nil {
+			return result, ctx.Err()
+		}
+		result.Attempted++
+		item, execErr := batch.ExecuteOne(ctx, id)
+		switch {
+		case execErr == nil:
+			result.Done++
+		case item.Status == "skipped":
+			result.Skipped++
+		default:
+			result.Failed++
+			if errors.Is(execErr, auth.ErrReconnectRequired) || isQuotaExceeded(execErr) {
+				return result, execErr
+			}
+		}
+	}
+	return result, nil
+}
+
+func isQuotaExceeded(err error) bool {
+	var gerr *googleapi.Error
+	if !errors.As(err, &gerr) || gerr.Code != 403 {
+		return false
+	}
+	for _, item := range gerr.Errors {
+		if item.Reason == "quotaExceeded" || item.Reason == "dailyLimitExceeded" {
+			return true
+		}
+	}
+	return false
+}
+
+// cachedSpotify memoizes playlist listings for one batch and records tracks it adds.
+type cachedSpotify struct {
+	spotifyPlatform
+	lists map[string][]matching.Track
+}
+
+func newCachedSpotify(base spotifyPlatform, seed *PlaylistSnapshot) *cachedSpotify {
+	c := &cachedSpotify{spotifyPlatform: base, lists: map[string][]matching.Track{}}
+	if seed != nil {
+		for id, tracks := range seed.Spotify {
+			c.lists[id] = append([]matching.Track(nil), tracks...)
+		}
+	}
+	return c
+}
+
+func (c *cachedSpotify) ListPlaylistTracks(ctx context.Context, playlistID string) ([]matching.Track, error) {
+	if tracks, ok := c.lists[playlistID]; ok {
+		return tracks, nil
+	}
+	tracks, err := c.spotifyPlatform.ListPlaylistTracks(ctx, playlistID)
+	if err == nil {
+		c.lists[playlistID] = tracks
+	}
+	return tracks, err
+}
+
+func (c *cachedSpotify) AddTrackToPlaylist(ctx context.Context, playlistID, trackID string) error {
+	if err := c.spotifyPlatform.AddTrackToPlaylist(ctx, playlistID, trackID); err != nil {
+		return err
+	}
+	if tracks, ok := c.lists[playlistID]; ok {
+		c.lists[playlistID] = append(tracks, matching.Track{Platform: matching.PlatformSpotify, ID: trackID})
+	}
+	return nil
+}
+
+// cachedYouTube memoizes playlist listings for one batch and records videos it adds.
+type cachedYouTube struct {
+	youtubePlatform
+	lists map[string][]matching.Track
+}
+
+func newCachedYouTube(base youtubePlatform, seed *PlaylistSnapshot) *cachedYouTube {
+	c := &cachedYouTube{youtubePlatform: base, lists: map[string][]matching.Track{}}
+	if seed != nil {
+		for id, tracks := range seed.YouTube {
+			c.lists[id] = append([]matching.Track(nil), tracks...)
+		}
+	}
+	return c
+}
+
+func (c *cachedYouTube) ListPlaylistTracks(ctx context.Context, playlistID string) ([]matching.Track, error) {
+	if tracks, ok := c.lists[playlistID]; ok {
+		return tracks, nil
+	}
+	tracks, err := c.youtubePlatform.ListPlaylistTracks(ctx, playlistID)
+	if err == nil {
+		c.lists[playlistID] = tracks
+	}
+	return tracks, err
+}
+
+func (c *cachedYouTube) AddVideoToPlaylist(ctx context.Context, playlistID, videoID string) error {
+	if err := c.youtubePlatform.AddVideoToPlaylist(ctx, playlistID, videoID); err != nil {
+		return err
+	}
+	if tracks, ok := c.lists[playlistID]; ok {
+		c.lists[playlistID] = append(tracks, matching.Track{Platform: matching.PlatformYouTube, ID: videoID})
+	}
+	return nil
 }

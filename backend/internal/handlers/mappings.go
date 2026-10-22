@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"database/sql"
 	"net/http"
 	"strconv"
@@ -38,6 +39,8 @@ type MappingResponse struct {
 	SyncTracks          bool   `json:"sync_tracks"`
 	IntervalMinutes     int    `json:"interval_minutes"`
 	LastAnalysisAt      *int64 `json:"last_analysis_at"`
+	LastSyncStatus      string `json:"last_sync_status,omitempty"`
+	LastSyncError       string `json:"last_sync_error,omitempty"`
 	TracksCount         int    `json:"tracks_count"`
 	Created             int64  `json:"created"`
 	Updated             int64  `json:"updated"`
@@ -52,9 +55,16 @@ type MappingsListResponse struct {
 	TotalPages int               `json:"totalPages"`
 }
 
+// MappingSyncer runs one analyze-and-apply pass for a mapping.
+type MappingSyncer interface {
+	SyncMapping(ctx context.Context, mapping model.Mappings)
+}
+
 // MappingsHandler handles mapping CRUD operations.
 type MappingsHandler struct {
 	DB *sql.DB
+	// Syncer powers POST /:id/sync; nil disables the endpoint.
+	Syncer MappingSyncer
 }
 
 func NewMappingsHandler(db *sql.DB) *MappingsHandler {
@@ -67,6 +77,45 @@ func RegisterMappingsRoutes(group *echo.Group, handler *MappingsHandler) {
 	group.GET("/:id", handler.Get)
 	group.PATCH("/:id", handler.Update)
 	group.DELETE("/:id", handler.Delete)
+	group.POST("/:id/sync", handler.SyncNow)
+}
+
+// SyncNow analyzes the mapping immediately (and applies its queue when auto-apply is on),
+// then returns the mapping with its updated sync status.
+func (h *MappingsHandler) SyncNow(c echo.Context) error {
+	if h.Syncer == nil {
+		return echo.NewHTTPError(http.StatusServiceUnavailable, "sync is not configured")
+	}
+	mapping, err := h.loadMapping(c.Param("id"))
+	if err != nil {
+		return err
+	}
+	// Finish the run even if the browser disconnects mid-request.
+	h.Syncer.SyncMapping(context.WithoutCancel(c.Request().Context()), mapping)
+
+	updated, err := h.loadMapping(c.Param("id"))
+	if err != nil {
+		return err
+	}
+	return c.JSON(http.StatusOK, modelToResponse(updated))
+}
+
+func (h *MappingsHandler) loadMapping(id string) (model.Mappings, error) {
+	if strings.TrimSpace(id) == "" {
+		return model.Mappings{}, echo.NewHTTPError(http.StatusBadRequest, "missing id")
+	}
+	var mappings []model.Mappings
+	err := table.Mappings.
+		SELECT(table.Mappings.AllColumns).
+		WHERE(table.Mappings.ID.EQ(sqlite.String(id))).
+		Query(h.DB, &mappings)
+	if err != nil {
+		return model.Mappings{}, echo.NewHTTPError(http.StatusInternalServerError, "failed to fetch mapping")
+	}
+	if len(mappings) == 0 {
+		return model.Mappings{}, echo.NewHTTPError(http.StatusNotFound, "mapping not found")
+	}
+	return mappings[0], nil
 }
 
 func (h *MappingsHandler) List(c echo.Context) error {
@@ -190,26 +239,11 @@ func (h *MappingsHandler) Create(c echo.Context) error {
 }
 
 func (h *MappingsHandler) Get(c echo.Context) error {
-	id := c.Param("id")
-	if strings.TrimSpace(id) == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, "missing id")
-	}
-
-	var mappings []model.Mappings
-	err := table.Mappings.
-		SELECT(table.Mappings.AllColumns).
-		WHERE(table.Mappings.ID.EQ(sqlite.String(id))).
-		Query(h.DB, &mappings)
-
+	mapping, err := h.loadMapping(c.Param("id"))
 	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, "failed to fetch mapping")
+		return err
 	}
-
-	if len(mappings) == 0 {
-		return echo.NewHTTPError(http.StatusNotFound, "mapping not found")
-	}
-
-	return c.JSON(http.StatusOK, modelToResponse(mappings[0]))
+	return c.JSON(http.StatusOK, modelToResponse(mapping))
 }
 
 func (h *MappingsHandler) Update(c echo.Context) error {
@@ -403,6 +437,8 @@ func modelToResponse(m model.Mappings) MappingResponse {
 		SyncTracks:          boolFromInt(m.SyncTracks),
 		IntervalMinutes:     int(m.IntervalMinutes),
 		LastAnalysisAt:      int64FromPtr(m.LastAnalysisAt),
+		LastSyncStatus:      stringFromPtr(m.LastSyncStatus),
+		LastSyncError:       stringFromPtr(m.LastSyncError),
 		TracksCount:         int(m.TracksCount),
 		Created:             int64(m.Created),
 		Updated:             int64(m.Updated),

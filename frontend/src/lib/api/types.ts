@@ -39,6 +39,9 @@ export interface Mapping {
   sync_tracks: boolean;
   interval_minutes: number;
   last_analysis_at: number | null; // epoch seconds
+  /** Outcome of the most recent sync run: ok | error | reconnect_required */
+  last_sync_status?: string;
+  last_sync_error?: string;
   tracks_count: number;
   created: number; // epoch seconds
   updated: number; // epoch seconds

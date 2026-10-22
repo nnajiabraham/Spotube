@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"strconv"
 	"strings"
 	"time"
@@ -22,12 +23,16 @@ import (
 	"github.com/manlikeabro/spotube/internal/synccontext"
 )
 
-// AnalysisJob handles playlist analysis and sync item generation.
+// AnalysisJob compares mapped playlists, queues sync items, and (optionally) applies them.
 type AnalysisJob struct {
 	db             *sql.DB
 	logger         zerolog.Logger
 	activityLogger *activitylogger.Logger
 	clientFactory  *auth.ClientFactory
+
+	// applier applies queued items right after analysis; nil disables auto-apply.
+	applier    *Executor
+	applyLimit int
 }
 
 func NewAnalysisJob(deps JobDeps, clientFactory *auth.ClientFactory) *AnalysisJob {
@@ -39,10 +44,21 @@ func NewAnalysisJob(deps JobDeps, clientFactory *auth.ClientFactory) *AnalysisJo
 	}
 }
 
-// Run executes the analysis job logic.
-func (j *AnalysisJob) Run(ctx context.Context) error {
-	j.logger.Info().Msg("starting analysis job")
+// EnableAutoApply makes each run apply up to limit pending items per mapping after analysis.
+func (j *AnalysisJob) EnableAutoApply(executor *Executor, limit int) {
+	if limit <= 0 {
+		limit = defaultApplyLimit
+	}
+	j.applier = executor
+	j.applyLimit = limit
+}
 
+// defaultApplyLimit caps items applied per mapping per run. YouTube search costs 100 of the
+// default 10,000 daily quota units, so large backlogs drain over several runs.
+const defaultApplyLimit = 25
+
+// Run analyzes every mapping that is due and applies its queue when auto-apply is enabled.
+func (j *AnalysisJob) Run(ctx context.Context) error {
 	mappings, err := j.getMappingsForAnalysis(ctx)
 	if err != nil {
 		j.logger.Error().Err(err).Msg("failed to get mappings for analysis")
@@ -50,22 +66,50 @@ func (j *AnalysisJob) Run(ctx context.Context) error {
 	}
 
 	if len(mappings) == 0 {
-		j.logger.Debug().Msg("no mappings need analysis")
+		j.logger.Debug().Msg("no mappings due for sync")
 		return nil
 	}
 
-	j.logger.Info().Int("count", len(mappings)).Msg("found mappings for analysis")
+	j.logger.Info().Int("count", len(mappings)).Msg("sync run starting")
 
 	for _, mapping := range mappings {
-		err := j.analyzeMapping(ctx, mapping)
-		if err != nil {
-			j.logger.Error().Err(err).Str("mapping_id", lo.FromPtr(mapping.ID)).Msg("failed to analyze mapping")
-			j.activityLogger.RecordError("Analysis failed: "+err.Error(), lo.FromPtr(mapping.ID), "analysis")
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		j.SyncMapping(ctx, mapping)
+	}
+
+	j.logger.Info().Msg("sync run completed")
+	return nil
+}
+
+// SyncMapping analyzes one mapping, applies its queue when enabled, and records the outcome.
+func (j *AnalysisJob) SyncMapping(ctx context.Context, mapping model.Mappings) {
+	mappingID := lo.FromPtr(mapping.ID)
+
+	snapshot, err := j.analyzeMapping(ctx, mapping)
+	if err == nil && j.applier != nil && mapping.SyncTracks != 0 {
+		var batch BatchResult
+		batch, err = j.applier.ExecutePending(ctx, mappingID, j.applyLimit, snapshot)
+		if batch.Attempted > 0 {
+			j.activityLogger.RecordInfo(batch.Summary(), mappingID, "executor")
 		}
 	}
 
-	j.logger.Info().Msg("analysis job completed")
-	return nil
+	status, errMsg := "ok", ""
+	if err != nil {
+		status, errMsg = "error", truncateExecutorError(err.Error())
+		if errors.Is(err, auth.ErrReconnectRequired) || errors.Is(err, auth.ErrNoTokenFound) {
+			status = "reconnect_required"
+		}
+		j.logger.Error().Err(err).Str("mapping_id", mappingID).Msg("mapping sync failed")
+		j.activityLogger.RecordError("Sync failed: "+err.Error(), mappingID, "analysis")
+	}
+	// Stamp the run even on failure so a broken mapping waits for its interval instead of
+	// retrying (and logging an error) on every cron tick.
+	if stampErr := j.recordSyncResult(mappingID, status, errMsg); stampErr != nil {
+		j.logger.Error().Err(stampErr).Str("mapping_id", mappingID).Msg("failed to record sync result")
+	}
 }
 
 func (j *AnalysisJob) getMappingsForAnalysis(ctx context.Context) ([]model.Mappings, error) {
@@ -99,44 +143,40 @@ func (j *AnalysisJob) getMappingsForAnalysis(ctx context.Context) ([]model.Mappi
 	return eligible, nil
 }
 
-func (j *AnalysisJob) analyzeMapping(ctx context.Context, mapping model.Mappings) error {
+func (j *AnalysisJob) analyzeMapping(ctx context.Context, mapping model.Mappings) (*PlaylistSnapshot, error) {
 	mappingID := lo.FromPtr(mapping.ID)
 	j.logger.Info().Str("mapping_id", mappingID).Msg("analyzing mapping")
 
 	spotifyTracks := []TrackInfo{}
 	youtubeTracks := []TrackInfo{}
 
-	var spotifyClient *spotify.Client
-	var youtubeService *youtube.Service
+	if mapping.SyncTracks == 0 && mapping.SyncName == 0 {
+		return nil, nil
+	}
 
-	needsClients := mapping.SyncTracks != 0 || mapping.SyncName != 0
-	if needsClients {
-		var err error
-		spotifyClient, err = j.clientFactory.GetSpotifyClient(ctx)
-		if err != nil {
-			return err
-		}
-		youtubeService, err = j.clientFactory.GetYouTubeService(ctx)
-		if err != nil {
-			return err
-		}
+	spotifyClient, err := j.clientFactory.GetSpotifyClient(ctx)
+	if err != nil {
+		return nil, err
+	}
+	youtubeService, err := j.clientFactory.GetYouTubeService(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	if mapping.SyncName != 0 {
-		if err := j.ensureMappingPlaylistNames(ctx, &mapping, spotifyClient, youtubeService); err != nil {
-			return err
+		if err := j.refreshMappingPlaylistNames(ctx, &mapping, spotifyClient, youtubeService); err != nil {
+			return nil, err
 		}
 	}
 
 	if mapping.SyncTracks != 0 {
-		var err error
 		spotifyTracks, err = j.getSpotifyPlaylistTracks(ctx, spotifyClient, mapping.SpotifyPlaylistID)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		youtubeTracks, err = j.getYouTubePlaylistTracks(ctx, youtubeService, mapping.YoutubePlaylistID)
 		if err != nil {
-			return err
+			return nil, err
 		}
 	}
 
@@ -144,16 +184,14 @@ func (j *AnalysisJob) analyzeMapping(ctx context.Context, mapping model.Mappings
 
 	inserted := 0
 	if len(result.items) > 0 {
-		var err error
 		inserted, err = j.insertSyncItems(ctx, result.items)
 		if err != nil {
-			return err
+			return nil, err
 		}
 	}
 
-	err := j.updateMappingAnalysisTimestamp(ctx, mappingID, len(spotifyTracks), len(youtubeTracks))
-	if err != nil {
-		return err
+	if err := j.updateMappingAnalysisTimestamp(ctx, mappingID, len(spotifyTracks), len(youtubeTracks)); err != nil {
+		return nil, err
 	}
 
 	alreadyQueued := len(result.items) - inserted
@@ -181,7 +219,12 @@ func (j *AnalysisJob) analyzeMapping(ctx context.Context, mapping model.Mappings
 		Int("matched_skipped", result.matchedSkipped).
 		Msg("mapping analysis completed")
 
-	return nil
+	snapshot := &PlaylistSnapshot{}
+	if mapping.SyncTracks != 0 {
+		snapshot.Spotify = map[string][]matching.Track{mapping.SpotifyPlaylistID: trackInfosToSpotifyMatching(spotifyTracks)}
+		snapshot.YouTube = map[string][]matching.Track{mapping.YoutubePlaylistID: trackInfosToYouTubeMatching(youtubeTracks)}
+	}
+	return snapshot, nil
 }
 
 func (j *AnalysisJob) getSpotifyPlaylistTracks(ctx context.Context, client *spotify.Client, playlistID string) ([]TrackInfo, error) {
@@ -241,18 +284,14 @@ func (j *AnalysisJob) getYouTubePlaylistTracks(ctx context.Context, service *you
 			if item.ContentDetails != nil {
 				videoID = item.ContentDetails.VideoId
 			}
-			title := ""
-			if item.Snippet != nil {
-				title = item.Snippet.Title
-			}
-			if videoID == "" {
+			if videoID == "" || item.Snippet == nil {
 				continue
 			}
 			tracks = append(tracks, TrackInfo{
 				ID:       videoID,
-				Title:    title,
-				Artist:   "",
-				RawTitle: title,
+				Title:    item.Snippet.Title,
+				RawTitle: item.Snippet.Title,
+				Channel:  item.Snippet.VideoOwnerChannelTitle,
 			})
 		}
 
@@ -335,7 +374,7 @@ func (j *AnalysisJob) generateSyncItems(mapping model.Mappings, spotifyTracks, y
 		if rawTitle == "" {
 			rawTitle = track.Title
 		}
-		source := matching.YouTubeFromRaw(track.ID, rawTitle)
+		source := matching.YouTubeTrack(track.ID, rawTitle, track.Channel)
 		decision := matching.FindMatch(source, spotifyMatching)
 		if decision.Matched {
 			matchedSkipped++
@@ -350,8 +389,8 @@ func (j *AnalysisJob) generateSyncItems(mapping model.Mappings, spotifyTracks, y
 			Operation:           "add",
 			Service:             "spotify",
 			TrackID:             stringPtr(track.ID),
-			TrackTitle:          stringPtr(track.Title),
-			TrackArtist:         stringPtr(track.Artist),
+			TrackTitle:          stringPtr(source.Title),
+			TrackArtist:         stringPtr(source.Artist),
 			Status:              "pending",
 			AttemptCount:        0,
 			Created:             int32(now),
@@ -371,7 +410,7 @@ func trackInfosToYouTubeMatching(tracks []TrackInfo) []matching.Track {
 		if raw == "" {
 			raw = track.Title
 		}
-		out = append(out, matching.YouTubeFromRaw(track.ID, raw))
+		out = append(out, matching.YouTubeTrack(track.ID, raw, track.Channel))
 	}
 	return out
 }
@@ -439,37 +478,42 @@ func (j *AnalysisJob) insertSyncItems(ctx context.Context, syncItems []model.Syn
 	return inserted, nil
 }
 
-func (j *AnalysisJob) ensureMappingPlaylistNames(
+// refreshMappingPlaylistNames loads current playlist titles from both services and stores them,
+// so rename detection compares live names rather than whatever was saved at mapping creation.
+func (j *AnalysisJob) refreshMappingPlaylistNames(
 	ctx context.Context,
 	mapping *model.Mappings,
 	spotifyClient *spotify.Client,
 	youtubeService *youtube.Service,
 ) error {
-	spotifyName := strings.TrimSpace(lo.FromPtr(mapping.SpotifyPlaylistName))
-	youtubeName := strings.TrimSpace(lo.FromPtr(mapping.YoutubePlaylistName))
+	playlist, err := spotifyClient.GetPlaylist(ctx, spotify.ID(mapping.SpotifyPlaylistID), spotify.Fields("name"))
+	if err != nil {
+		return err
+	}
+	mapping.SpotifyPlaylistName = stringPtr(strings.TrimSpace(playlist.Name))
 
-	if spotifyName == "" && spotifyClient != nil {
-		playlist, err := spotifyClient.GetPlaylist(ctx, spotify.ID(mapping.SpotifyPlaylistID))
-		if err != nil {
-			return err
-		}
-		spotifyName = strings.TrimSpace(playlist.Name)
-		mapping.SpotifyPlaylistName = stringPtr(spotifyName)
+	response, err := youtubeService.Playlists.List([]string{"snippet"}).Id(mapping.YoutubePlaylistID).Context(ctx).Do()
+	if err != nil {
+		return err
+	}
+	if len(response.Items) > 0 && response.Items[0].Snippet != nil {
+		mapping.YoutubePlaylistName = stringPtr(strings.TrimSpace(response.Items[0].Snippet.Title))
 	}
 
-	if youtubeName == "" && youtubeService != nil {
-		call := youtubeService.Playlists.List([]string{"snippet"}).Id(mapping.YoutubePlaylistID)
-		response, err := call.Do()
-		if err != nil {
-			return err
-		}
-		if len(response.Items) > 0 && response.Items[0].Snippet != nil {
-			youtubeName = strings.TrimSpace(response.Items[0].Snippet.Title)
-			mapping.YoutubePlaylistName = stringPtr(youtubeName)
-		}
-	}
+	_, err = j.db.Exec(
+		"UPDATE mappings SET spotify_playlist_name = ?, youtube_playlist_name = ? WHERE id = ?",
+		mapping.SpotifyPlaylistName, mapping.YoutubePlaylistName, lo.FromPtr(mapping.ID),
+	)
+	return err
+}
 
-	return nil
+func (j *AnalysisJob) recordSyncResult(mappingID, status, errMsg string) error {
+	now := time.Now().Unix()
+	_, err := j.db.Exec(
+		"UPDATE mappings SET last_analysis_at = ?, last_sync_status = ?, last_sync_error = ?, updated = ? WHERE id = ?",
+		now, status, nullableErrorMessage(errMsg), now, mappingID,
+	)
+	return err
 }
 
 func (j *AnalysisJob) updateMappingAnalysisTimestamp(ctx context.Context, mappingID string, spotifyCount, youtubeCount int) error {
@@ -494,6 +538,8 @@ type TrackInfo struct {
 	Title    string
 	Artist   string
 	RawTitle string
+	// Channel is the YouTube uploader channel ("Artist - Topic" for YouTube Music tracks).
+	Channel string
 }
 
 func stringPtr(s string) *string {

@@ -1,7 +1,30 @@
 import { createLazyFileRoute, Link } from '@tanstack/react-router'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { api } from '../../../lib/api'
-import { Trash2, Edit } from 'lucide-react'
+import { api, type Mapping } from '../../../lib/api'
+import { mappingsAPI } from '../../../lib/api/index'
+import { Trash2, Edit, RefreshCw } from 'lucide-react'
+
+function SyncStatus({ mapping }: { mapping: Mapping }) {
+  if (!mapping.last_analysis_at) {
+    return <span className="text-gray-400">Never synced</span>
+  }
+  const when = new Date(mapping.last_analysis_at * 1000).toLocaleString()
+  if (mapping.last_sync_status === 'reconnect_required') {
+    return (
+      <span className="text-amber-700" title={mapping.last_sync_error}>
+        Reconnect needed · {when}
+      </span>
+    )
+  }
+  if (mapping.last_sync_status === 'error') {
+    return (
+      <span className="text-red-600" title={mapping.last_sync_error}>
+        Failed · {when}
+      </span>
+    )
+  }
+  return <span className="text-green-700">OK · {when}</span>
+}
 
 function MappingsList() {
   const queryClient = useQueryClient()
@@ -9,6 +32,14 @@ function MappingsList() {
   const { data, isLoading, error } = useQuery({
     queryKey: ['mappings'],
     queryFn: () => api.getMappings(),
+  })
+
+  const syncMutation = useMutation({
+    mutationFn: (id: string) => mappingsAPI.syncNow(id),
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['mappings'] })
+      queryClient.invalidateQueries({ queryKey: ['sync-items'] })
+    },
   })
 
   const deleteMutation = useMutation({
@@ -80,6 +111,9 @@ function MappingsList() {
                         <th className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">
                           Interval
                         </th>
+                        <th className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">
+                          Last sync
+                        </th>
                         <th className="relative py-3.5 pl-3 pr-4 sm:pr-6">
                           <span className="sr-only">Actions</span>
                         </th>
@@ -103,7 +137,26 @@ function MappingsList() {
                           <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">
                             {mapping.interval_minutes} min
                           </td>
+                          <td className="whitespace-nowrap px-3 py-4 text-sm">
+                            <SyncStatus mapping={mapping} />
+                            {mapping.last_sync_error && (
+                              <div className="max-w-xs truncate text-xs text-gray-500" title={mapping.last_sync_error}>
+                                {mapping.last_sync_error}
+                              </div>
+                            )}
+                          </td>
                           <td className="relative whitespace-nowrap py-4 pl-3 pr-4 text-right text-sm font-medium sm:pr-6">
+                            <button
+                              onClick={() => syncMutation.mutate(mapping.id)}
+                              disabled={syncMutation.isPending}
+                              className="text-indigo-600 hover:text-indigo-900 disabled:opacity-50 mr-4"
+                              title="Sync now"
+                              aria-label="Sync now"
+                            >
+                              <RefreshCw
+                                className={`h-4 w-4 inline ${syncMutation.isPending && syncMutation.variables === mapping.id ? 'animate-spin' : ''}`}
+                              />
+                            </button>
                             <Link
                               to="/mappings/$mappingId/edit"
                               params={{ mappingId: mapping.id }}
