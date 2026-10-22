@@ -45,41 +45,21 @@ func (r *SQLiteTokenRepository) GetToken(provider string) (*Token, error) {
 	}, nil
 }
 
+// UpsertToken stores provider tokens. An empty refresh token keeps the stored one,
+// because providers only return a refresh token on some exchanges.
 func (r *SQLiteTokenRepository) UpsertToken(provider string, token Token) error {
 	now := time.Now().Unix()
-	id := uuid.NewString()
-
-	_, err := table.OAuthTokens.
-		INSERT(
-			table.OAuthTokens.ID,
-			table.OAuthTokens.Provider,
-			table.OAuthTokens.AccessToken,
-			table.OAuthTokens.RefreshToken,
-			table.OAuthTokens.Expiry,
-			table.OAuthTokens.Scopes,
-			table.OAuthTokens.Created,
-			table.OAuthTokens.Updated,
-		).
-		VALUES(
-			id,
-			provider,
-			token.AccessToken,
-			token.RefreshToken,
-			token.Expiry,
-			token.Scopes,
-			now,
-			now,
-		).
-		ON_CONFLICT(table.OAuthTokens.Provider).
-		DO_UPDATE(sqlite.SET(
-			table.OAuthTokens.AccessToken.SET(sqlite.String(token.AccessToken.String)),
-			table.OAuthTokens.RefreshToken.SET(sqlite.String(token.RefreshToken.String)),
-			table.OAuthTokens.Expiry.SET(sqlite.Int(token.Expiry.Int64)),
-			table.OAuthTokens.Scopes.SET(sqlite.String(token.Scopes.String)),
-			table.OAuthTokens.Updated.SET(sqlite.Int(now)),
-		)).
-		Exec(r.db)
-
+	_, err := r.db.Exec(
+		`INSERT INTO oauth_tokens (id, provider, access_token, refresh_token, expiry, scopes, created, updated)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		 ON CONFLICT(provider) DO UPDATE SET
+		   access_token = excluded.access_token,
+		   refresh_token = COALESCE(NULLIF(excluded.refresh_token, ''), oauth_tokens.refresh_token),
+		   expiry = excluded.expiry,
+		   scopes = COALESCE(NULLIF(excluded.scopes, ''), oauth_tokens.scopes),
+		   updated = excluded.updated`,
+		uuid.NewString(), provider, token.AccessToken, token.RefreshToken, token.Expiry, token.Scopes, now, now,
+	)
 	return err
 }
 

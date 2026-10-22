@@ -43,11 +43,16 @@ func NewSpotifyOAuthHandler(repo localauth.CredentialProvider, tokenRepo localau
 		SessionStore: store,
 		RedirectURI:  redirectURI,
 		FrontendURL:  frontendURL,
-		Scopes: []string{
-			"playlist-read-private",
-			"playlist-modify-private",
-		},
+		Scopes:       spotifyScopes,
 	}
+}
+
+// spotifyScopes covers reading and editing both private and public/collaborative playlists.
+var spotifyScopes = []string{
+	"playlist-read-private",
+	"playlist-read-collaborative",
+	"playlist-modify-private",
+	"playlist-modify-public",
 }
 
 func RegisterSpotifyRoutes(group *echo.Group, handler *SpotifyOAuthHandler) {
@@ -147,6 +152,9 @@ func (h *SpotifyOAuthHandler) ListPlaylists(c echo.Context) error {
 	playlists, err := fetchSpotifyPlaylists(c.Request().Context(), token, h.Repo, h.TokenRepo)
 	if err != nil {
 		c.Logger().Errorf("spotify playlists: %v", err)
+		if errors.Is(err, localauth.ErrReconnectRequired) {
+			return echo.NewHTTPError(http.StatusUnauthorized, "spotify authorization expired; reconnect required")
+		}
 		return echo.NewHTTPError(http.StatusBadGateway, "failed to fetch playlists")
 	}
 
@@ -180,10 +188,7 @@ func exchangeSpotifyCode(ctx context.Context, code, verifier, clientID, clientSe
 		ClientID:     clientID,
 		ClientSecret: clientSecret,
 		RedirectURL:  redirectURI,
-		Scopes: []string{
-			"playlist-read-private",
-			"playlist-modify-private",
-		},
+		Scopes:       spotifyScopes,
 		Endpoint: oauth2.Endpoint{
 			AuthURL:  spotifyauth.AuthURL,
 			TokenURL: spotifyauth.TokenURL,
@@ -213,36 +218,29 @@ func fetchSpotifyPlaylists(ctx context.Context, token *localauth.Token, creds lo
 		return nil, errors.New("invalid access token")
 	}
 
-	oauthToken := &oauth2.Token{
-		AccessToken:  token.AccessToken.String,
-		RefreshToken: token.RefreshToken.String,
-		Expiry:       time.Unix(token.Expiry.Int64, 0),
-	}
-
-	clientID, clientSecret, err := localauth.LoadCredentials(creds, "spotify")
+	client, err := localauth.NewClientFactory(nil, creds, repo).GetSpotifyClient(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	config := &oauth2.Config{
-		ClientID:     clientID,
-		ClientSecret: clientSecret,
-		Endpoint: oauth2.Endpoint{
-			AuthURL:  spotifyauth.AuthURL,
-			TokenURL: spotifyauth.TokenURL,
-		},
+	var all []spotify.SimplePlaylist
+	page, err := client.CurrentUsersPlaylists(ctx, spotify.Limit(50))
+	for {
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, page.Playlists...)
+		if page.Next == "" {
+			break
+		}
+		err = client.NextPage(ctx, page)
+		if errors.Is(err, spotify.ErrNoMorePages) {
+			break
+		}
 	}
 
-	httpClient := config.Client(ctx, oauthToken)
-	client := spotify.New(httpClient)
-
-	playlists, err := client.CurrentUsersPlaylists(ctx, spotify.Limit(50))
-	if err != nil {
-		return nil, err
-	}
-
-	result := make([]SpotifyPlaylist, len(playlists.Playlists))
-	for i, p := range playlists.Playlists {
+	result := make([]SpotifyPlaylist, len(all))
+	for i, p := range all {
 		images := make([]SpotifyPlaylistImage, 0, len(p.Images))
 		for _, image := range p.Images {
 			images = append(images, SpotifyPlaylistImage{
