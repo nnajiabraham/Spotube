@@ -10,9 +10,10 @@
 
 - **Install:** `make install` (root orchestrates `backend/` and `frontend/`).
 - **Tests / lint / build:** `make test`, `make lint`, `make build`.
-- **Env (local, not committed):** `backend/.env` from `backend/env.example`; `frontend/.env` with `VITE_API_URL=http://localhost:8090`. OAuth keys can be empty at first; the app can guide setup via the UI.
+- **Env (local, not committed):** `backend/.env` from `backend/env.example`; `frontend/.env` with `VITE_API_URL=http://127.0.0.1:8090`. Use `127.0.0.1` (not `localhost`) for all dev URLs — Spotify rejects `localhost` redirects. OAuth keys can be empty at first; the app can guide setup via the UI.
 - **Dev logs:** `make backend/dev` runs the API in the foreground with `tee -a dev.log` (terminal + file). `make dev` tails `dev.log` from a background backend. `make frontend/dev` prints Vite in the terminal only.
-- **Sync workers:** `SYNC_WORKERS_ENABLED=false` by default in `backend/.env`. Analysis cron only runs when `true`; executor is still a stub.
+- **Sync workers:** `SYNC_WORKERS_ENABLED=false` by default. When `true`, each cron tick analyzes due mappings and auto-applies queued items (`SYNC_EXECUTOR_AUTO_ENABLED`, default true). "Sync now" on the Mappings page works regardless.
+- **How sync works / config reference:** see `README.md` (kept current). `docs/rfcs/` are historical plans, not the current design.
 
 ### Cursor Cloud / VM notes
 

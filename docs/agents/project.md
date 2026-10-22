@@ -18,7 +18,8 @@ There is **no Docker** in this repo: the database is a local SQLite file under `
 | `frontend/src/routes/` | TanStack file-based routes |
 | `frontend/src/lib/` | API client (`api.ts`), shared utilities |
 | `frontend/e2e/` | Playwright E2E tests |
-| `docs/rfcs/` | Feature RFCs and implementation notes |
+| `docs/rfcs/` | Historical feature RFCs (plans at the time, not current design) |
+| `docs/archive/` | Old discovery reports and handoffs (unmaintained) |
 | `docs/product_spec/` | Product requirements |
 | `agents/skills/` | Optional agent skills (templates, workflows) |
 

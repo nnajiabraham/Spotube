@@ -17,13 +17,11 @@ Use **Make** from the repo root (see root `Makefile`). Run `make help` for all t
 
 **Dev servers:** Backend logs go to **`dev.log`** (JSON when redirected; color in an interactive terminal). `make backend/dev` runs the API in the **foreground** with `tee` so you see logs in the terminal and in `dev.log`. `make frontend/dev` runs Vite in the foreground only (not `dev.log`). `make dev` starts both in the background and tails `dev.log`. `make dev-stop` stops background processes.
 
-**Mapping sync workers:** Off by default (`SYNC_WORKERS_ENABLED=false`). When true, analysis runs on **`SYNC_ANALYSIS_CRON_SPEC`** (default `0 * * * * *` = every minute). Auto executor cron is off by default (`SYNC_EXECUTOR_AUTO_ENABLED=false`); V1 execution will be manual per item (see `docs/handoffs/EXECUTOR_V1_MANUAL_PATCH_PLAN.md`).
+**Sync:** Off by default (`SYNC_WORKERS_ENABLED=false`). When true, the scheduler ticks on **`SYNC_ANALYSIS_CRON_SPEC`** (default every minute) and syncs each mapping whose `interval_minutes` has elapsed: analyze → queue `sync_items` → auto-apply up to 25 items (`SYNC_EXECUTOR_AUTO_ENABLED`, default true). The Mappings page "Sync now" button (`POST /api/collections/mappings/records/:id/sync`) runs the same pass on demand. See the README "How sync works" section.
 
-**Frontend dev server:** Vite on **:5173**. In `frontend/.env` (or `.env.local`):
+**Hosts:** Use **`127.0.0.1`** everywhere in dev — Spotify rejects `localhost` redirect URIs. In `backend/.env`: `PUBLIC_URL=http://127.0.0.1:8090`, `FRONTEND_URL=http://127.0.0.1:5173`. In `frontend/.env`: `VITE_API_URL=http://127.0.0.1:8090`. Vite listens on all interfaces (`host: true`).
 
-- `VITE_API_URL` — backend origin for API calls (host must match `PUBLIC_URL`: both `localhost` or both `127.0.0.1`).
-- `VITE_PUBLIC_URL` — optional; same host as `PUBLIC_URL` for OAuth login links.
-- `FRONTEND_URL` (backend) — where you open the UI (`http://localhost:5173`). Do **not** set this to `127.0.0.1:5173` unless Vite is bound to that host.
+**OAuth testing:** Real provider logins need the account owner (Spotify emails a one-time code; Google may require a passkey). Drive the browser to the login page, then hand off to the user. Check `oauth_tokens.updated` in SQLite or `GET /api/auth/{spotify,youtube}/playlists` (401 = reconnect needed) to confirm.
 
 **Formatting:** There is no root `make format`. The frontend can use `npm run format` inside `frontend/` when needed; backend uses `make backend/lint` (`go fmt`, `go vet`).
 

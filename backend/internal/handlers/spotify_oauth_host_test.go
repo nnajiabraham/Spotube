@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestSpotifyCallbackStateMismatchUsesLocalhostFrontend(t *testing.T) {
+func TestSpotifyCallbackStateMismatchRedirectsToFrontend(t *testing.T) {
 	store := sessions.NewCookieStore([]byte("test-key"))
 	handler := &SpotifyOAuthHandler{
 		Repo:         &fakeCredentialProvider{id: "spotify-id", secret: "secret"},
@@ -29,5 +29,5 @@ func TestSpotifyCallbackStateMismatchUsesLocalhostFrontend(t *testing.T) {
 	err := handler.Callback(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusFound, rec.Code)
-	assert.Equal(t, "http://localhost:5173/dashboard?message=state+mismatch&spotify=error", rec.Header().Get("Location"))
+	assert.Equal(t, "http://127.0.0.1:5173/dashboard?message=state+mismatch&spotify=error", rec.Header().Get("Location"))
 }
