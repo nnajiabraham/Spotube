@@ -1,4 +1,5 @@
 import { render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Route } from '../../../../routes/_authenticated/mappings/index.lazy'
@@ -46,10 +47,8 @@ describe('MappingsList', () => {
 
   it('renders loading state initially', async () => {
     renderWithProviders(<MappingsList />)
-    
-    // Look for loading spinner
-    const spinner = document.querySelector('.animate-spin')
-    expect(spinner).toBeInTheDocument()
+
+    expect(screen.getByRole('status')).toHaveTextContent('Loading mappings')
   })
 
   it('renders empty state when no mappings exist', async () => {
@@ -68,11 +67,11 @@ describe('MappingsList', () => {
     renderWithProviders(<MappingsList />)
 
     await waitFor(() => {
-      expect(screen.getByText('No mappings yet. Create your first mapping to start syncing playlists.')).toBeInTheDocument()
+      expect(screen.getByText(/No mappings yet/)).toBeInTheDocument()
     })
   })
 
-  it('renders mappings table when mappings exist', async () => {
+  it('renders a card per mapping with options and links to both playlists', async () => {
     // Default handler already returns 2 mappings
     renderWithProviders(<MappingsList />)
 
@@ -83,13 +82,18 @@ describe('MappingsList', () => {
       expect(screen.getByText('Another YT Playlist')).toBeInTheDocument()
     })
 
-    // Check sync options are displayed
-    expect(screen.getByText('✓ Name')).toBeInTheDocument()
-    expect(screen.getAllByText('✓ Tracks')).toHaveLength(2)
-    
-    // Check intervals are displayed
-    expect(screen.getByText('60 min')).toBeInTheDocument()
-    expect(screen.getByText('120 min')).toBeInTheDocument()
+    expect(screen.getByText('My Spotify Playlist').closest('a')).toHaveAttribute(
+      'href',
+      expect.stringContaining('https://open.spotify.com/playlist/'),
+    )
+    expect(screen.getByText('My YouTube Playlist').closest('a')).toHaveAttribute(
+      'href',
+      expect.stringContaining('https://www.youtube.com/playlist?list='),
+    )
+    expect(screen.getAllByText('Name')).toHaveLength(1)
+    expect(screen.getAllByText('Tracks')).toHaveLength(2)
+    expect(screen.getByText(/every 60 min/)).toBeInTheDocument()
+    expect(screen.getByText(/every 120 min/)).toBeInTheDocument()
   })
 
   it('shows error message on API failure', async () => {
@@ -106,34 +110,19 @@ describe('MappingsList', () => {
     })
   })
 
-  it('renders delete buttons for each mapping', async () => {
-    renderWithProviders(<MappingsList />)
-
-    await waitFor(() => {
-      expect(screen.getByText('My Spotify Playlist')).toBeInTheDocument()
-    })
-
-    // Should have delete buttons (one for each mapping)
-    const deleteButtons = screen.getAllByRole('button')
-    // At least 2 delete buttons (one for each mapping)
-    expect(deleteButtons.length).toBeGreaterThanOrEqual(2)
-  })
-
-  it('shows confirmation when delete is clicked', async () => {
-    // Mock window.confirm
+  it('asks for confirmation before deleting', async () => {
+    const user = userEvent.setup()
     const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
-    
+
     renderWithProviders(<MappingsList />)
 
-    await waitFor(() => {
-      expect(screen.getByText('My Spotify Playlist')).toBeInTheDocument()
-    })
+    const deleteButtons = await screen.findAllByRole('button', { name: 'Delete mapping' })
+    expect(deleteButtons).toHaveLength(2)
+    expect(screen.getAllByRole('button', { name: 'Sync now' })).toHaveLength(2)
 
-    // The component has delete buttons that trigger confirm dialog
-    // This test verifies the structure exists
-    const buttons = screen.getAllByRole('button')
-    expect(buttons.length).toBeGreaterThan(0)
-    
+    await user.click(deleteButtons[0])
+    expect(confirmSpy).toHaveBeenCalled()
+
     confirmSpy.mockRestore()
   })
 }) 

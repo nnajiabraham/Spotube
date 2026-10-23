@@ -1,304 +1,207 @@
-import { createLazyFileRoute, useNavigate } from '@tanstack/react-router'
+import { createLazyFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { useState } from 'react'
-import { useQuery, useMutation } from '@tanstack/react-query'
-import { api } from '../../../lib/api'
-import type { SpotifyPlaylist, YouTubePlaylist } from '../../../lib/api'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { Check, Search } from 'lucide-react'
+import { mappingsAPI, oauthAPI } from '../../../lib/api/index'
+import { MappingOptions, type MappingOptionsValue } from '../../../components/MappingOptions'
+import { Card, Page, Pill, ServiceIcon } from '../../../components/ui'
+import { buttonClass } from '../../../lib/format'
+
+type PickerItem = { id: string; name: string; detail: string; paired: boolean; sameName?: boolean }
+
+const normalize = (s: string) => s.trim().toLowerCase()
+
+function PlaylistPicker({
+  service,
+  items,
+  isLoading,
+  error,
+  selectedId,
+  onSelect,
+}: {
+  service: 'spotify' | 'youtube'
+  items: PickerItem[]
+  isLoading: boolean
+  error: Error | null
+  selectedId: string
+  onSelect: (id: string) => void
+}) {
+  const [query, setQuery] = useState('')
+  const visible = items.filter((p) => normalize(p.name).includes(normalize(query)))
+
+  return (
+    <Card className="flex flex-col overflow-hidden">
+      <div className="flex items-center gap-2 border-b border-gray-200 px-4 py-3">
+        <ServiceIcon service={service} className="h-5 w-5" />
+        <h2 className="font-medium text-gray-900">{service === 'spotify' ? 'Spotify' : 'YouTube'} playlist</h2>
+      </div>
+      <div className="border-b border-gray-100 px-3 py-2">
+        <label className="flex items-center gap-2 rounded-lg bg-gray-50 px-3 py-1.5">
+          <Search className="h-4 w-4 text-gray-400" />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder={`Search ${items.length} playlists`}
+            className="w-full bg-transparent text-sm outline-none"
+            aria-label={`Search ${service} playlists`}
+          />
+        </label>
+      </div>
+      <div className="h-80 overflow-y-auto" role="radiogroup" aria-label={`${service} playlists`}>
+        {isLoading ? (
+          <p className="p-4 text-sm text-gray-500">Loading playlists…</p>
+        ) : error ? (
+          <p className="p-4 text-sm text-red-700">
+            Couldn't load playlists ({error.message}). Check the account on the{' '}
+            <Link to="/dashboard" className="underline">
+              dashboard
+            </Link>
+            .
+          </p>
+        ) : visible.length === 0 ? (
+          <p className="p-4 text-sm text-gray-500">No playlists match.</p>
+        ) : (
+          visible.map((p) => {
+            const selected = p.id === selectedId
+            return (
+              <button
+                key={p.id}
+                type="button"
+                role="radio"
+                aria-checked={selected}
+                disabled={p.paired}
+                onClick={() => onSelect(p.id)}
+                className={`flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm disabled:cursor-not-allowed disabled:opacity-50 ${
+                  selected ? 'bg-indigo-50' : 'hover:bg-gray-50'
+                }`}
+              >
+                <span
+                  className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${
+                    selected ? 'border-indigo-600 bg-indigo-600 text-white' : 'border-gray-300'
+                  }`}
+                >
+                  {selected && <Check className="h-3 w-3" />}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate font-medium text-gray-900">{p.name}</span>
+                  <span className="block text-xs text-gray-500">{p.detail}</span>
+                </span>
+                {p.paired && <Pill>Already paired</Pill>}
+                {!p.paired && p.sameName && <Pill tone="green">Same name</Pill>}
+              </button>
+            )
+          })
+        )}
+      </div>
+    </Card>
+  )
+}
 
 function NewMapping() {
   const navigate = useNavigate()
-  const [step, setStep] = useState(1)
-  const [formData, setFormData] = useState({
-    spotify_playlist_id: '',
-    youtube_playlist_id: '',
-    sync_name: true,
+  const queryClient = useQueryClient()
+  const [spotifyId, setSpotifyId] = useState('')
+  const [youtubeId, setYoutubeId] = useState('')
+  const [options, setOptions] = useState<MappingOptionsValue>({
     sync_tracks: true,
+    sync_name: false,
     interval_minutes: 60,
   })
 
-  // Fetch playlists
-  const { data: spotifyPlaylists, isLoading: spotifyLoading } = useQuery({
-    queryKey: ['spotify-playlists'],
-    queryFn: () => api.getSpotifyPlaylists({ limit: 50 }),
-  })
+  const spotify = useQuery({ queryKey: ['spotify-playlists'], queryFn: oauthAPI.spotify.getPlaylists })
+  const youtube = useQuery({ queryKey: ['youtube-playlists'], queryFn: oauthAPI.youtube.getPlaylists })
+  const existing = useQuery({ queryKey: ['mappings', 'all'], queryFn: () => mappingsAPI.getList({ per_page: 200 }) })
 
-  const { data: youtubePlaylists, isLoading: youtubeLoading } = useQuery({
-    queryKey: ['youtube-playlists'],
-    queryFn: () => api.getYouTubePlaylists(),
-  })
+  const pairedSpotify = new Set(existing.data?.items.map((m) => m.spotify_playlist_id))
+  const pairedYouTube = new Set(existing.data?.items.map((m) => m.youtube_playlist_id))
+  const selectedSpotify = spotify.data?.find((p) => p.id === spotifyId)
+  const selectedYouTube = youtube.data?.find((p) => p.id === youtubeId)
 
-  const createMutation = useMutation({
-    mutationFn: api.createMapping,
+  const spotifyItems: PickerItem[] = (spotify.data ?? []).map((p) => ({
+    id: p.id,
+    name: p.name,
+    detail: [`${p.track_count ?? 0} tracks`, p.owner?.display_name && `by ${p.owner.display_name}`].filter(Boolean).join(' · '),
+    paired: pairedSpotify.has(p.id),
+  }))
+
+  // Put a YouTube playlist with the same name as the chosen Spotify one first.
+  const target = selectedSpotify ? normalize(selectedSpotify.name) : ''
+  const youtubeItems: PickerItem[] = (youtube.data ?? [])
+    .map((p) => {
+      const name = p.name || p.title || p.id
+      return {
+        id: p.id,
+        name,
+        detail: `${p.itemCount ?? 0} videos`,
+        paired: pairedYouTube.has(p.id),
+        sameName: target !== '' && normalize(name) === target,
+      }
+    })
+    .sort((a, b) => Number(b.sameName) - Number(a.sameName))
+
+  const create = useMutation({
+    mutationFn: () =>
+      mappingsAPI.create({
+        spotify_playlist_id: spotifyId,
+        youtube_playlist_id: youtubeId,
+        spotify_playlist_name: selectedSpotify?.name,
+        youtube_playlist_name: selectedYouTube?.name || selectedYouTube?.title,
+        ...options,
+      }),
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['mappings'] })
       navigate({ to: '/mappings' })
     },
   })
 
-  const handleNext = () => {
-    if (step < 4) setStep(step + 1)
-  }
-
-  const handleBack = () => {
-    if (step > 1) setStep(step - 1)
-  }
-
-  const handleSubmit = () => {
-    createMutation.mutate(formData)
-  }
-
-  const selectedSpotifyPlaylist = spotifyPlaylists?.items.find(p => p.id === formData.spotify_playlist_id)
-  const selectedYouTubePlaylist = youtubePlaylists?.items.find(p => p.id === formData.youtube_playlist_id)
-
   return (
-    <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-3xl mx-auto">
-        <h1 className="text-2xl font-semibold text-gray-900 mb-8">Create New Mapping</h1>
-
-        {/* Progress indicator */}
-        <div className="mb-8">
-          <div className="flex items-center justify-between">
-            {[1, 2, 3, 4].map((i) => (
-              <div
-                key={i}
-                className={`flex items-center ${i < 4 ? 'flex-1' : ''}`}
-              >
-                <div
-                  className={`flex items-center justify-center w-10 h-10 rounded-full ${
-                    i <= step ? 'bg-indigo-600 text-white' : 'bg-gray-300 text-gray-600'
-                  }`}
-                >
-                  {i}
-                </div>
-                {i < 4 && (
-                  <div
-                    className={`flex-1 h-0.5 mx-2 ${
-                      i < step ? 'bg-indigo-600' : 'bg-gray-300'
-                    }`}
-                  />
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Step content */}
-        <div className="bg-white shadow rounded-lg p-6">
-          {step === 1 && (
-            <div>
-              <h2 className="text-lg font-medium mb-4">Step 1: Choose Spotify Playlist</h2>
-              {spotifyLoading ? (
-                <div className="text-center py-4">Loading playlists...</div>
-              ) : (
-                <div className="space-y-2">
-                  {spotifyPlaylists?.items.map((playlist: SpotifyPlaylist) => (
-                    <label
-                      key={playlist.id}
-                      className={`flex items-center p-4 border rounded-lg cursor-pointer hover:bg-gray-50 ${
-                        formData.spotify_playlist_id === playlist.id
-                          ? 'border-indigo-600 bg-indigo-50'
-                          : 'border-gray-300'
-                      }`}
-                    >
-                      <input
-                        type="radio"
-                        name="spotify_playlist"
-                        value={playlist.id}
-                        checked={formData.spotify_playlist_id === playlist.id}
-                        onChange={(e) =>
-                          setFormData({ ...formData, spotify_playlist_id: e.target.value })
-                        }
-                        className="mr-3"
-                      />
-                      <div className="flex-1">
-                        <div className="font-medium">{playlist.name}</div>
-                        <div className="text-sm text-gray-500">
-                          {playlist.track_count} tracks • {playlist.public ? 'Public' : 'Private'}
-                        </div>
-                      </div>
-                    </label>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          {step === 2 && (
-            <div>
-              <h2 className="text-lg font-medium mb-4">Step 2: Choose YouTube Playlist</h2>
-              {youtubeLoading ? (
-                <div className="text-center py-4">Loading playlists...</div>
-              ) : (
-                <div className="space-y-2">
-                  {youtubePlaylists?.items.map((playlist: YouTubePlaylist) => (
-                    <label
-                      key={playlist.id}
-                      className={`flex items-center p-4 border rounded-lg cursor-pointer hover:bg-gray-50 ${
-                        formData.youtube_playlist_id === playlist.id
-                          ? 'border-indigo-600 bg-indigo-50'
-                          : 'border-gray-300'
-                      }`}
-                    >
-                      <input
-                        type="radio"
-                        name="youtube_playlist"
-                        value={playlist.id}
-                        checked={formData.youtube_playlist_id === playlist.id}
-                        onChange={(e) =>
-                          setFormData({ ...formData, youtube_playlist_id: e.target.value })
-                        }
-                        className="mr-3"
-                      />
-                      <div className="flex-1">
-                        <div className="font-medium">{playlist.name || playlist.title}</div>
-                        {typeof playlist.itemCount === 'number' && (
-                          <div className="text-sm text-gray-500">
-                            {playlist.itemCount} items
-                          </div>
-                        )}
-                      </div>
-                    </label>
-                  ))}
-                  <div className="mt-4 p-4 bg-gray-100 rounded-lg">
-                    <p className="text-sm text-gray-600">
-                      Creating new playlists on YouTube is coming soon!
-                    </p>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {step === 3 && (
-            <div>
-              <h2 className="text-lg font-medium mb-4">Step 3: Sync Options</h2>
-              <div className="space-y-6">
-                <div>
-                  <label className="flex items-center">
-                    <input
-                      type="checkbox"
-                      checked={formData.sync_name}
-                      onChange={(e) =>
-                        setFormData({ ...formData, sync_name: e.target.checked })
-                      }
-                      className="mr-3"
-                    />
-                    <div>
-                      <div className="font-medium">Sync playlist name</div>
-                      <div className="text-sm text-gray-500">
-                        Keep playlist names synchronized between platforms
-                      </div>
-                    </div>
-                  </label>
-                </div>
-
-                <div>
-                  <label className="flex items-center">
-                    <input
-                      type="checkbox"
-                      checked={formData.sync_tracks}
-                      onChange={(e) =>
-                        setFormData({ ...formData, sync_tracks: e.target.checked })
-                      }
-                      className="mr-3"
-                    />
-                    <div>
-                      <div className="font-medium">Sync tracks</div>
-                      <div className="text-sm text-gray-500">
-                        Keep track lists synchronized between platforms
-                      </div>
-                    </div>
-                  </label>
-                </div>
-
-                <div>
-                  <label className="block">
-                    <span className="font-medium">Sync interval (minutes)</span>
-                    <input
-                      type="range"
-                      min="5"
-                      max="720"
-                      step="5"
-                      value={formData.interval_minutes}
-                      onChange={(e) =>
-                        setFormData({ ...formData, interval_minutes: Number(e.target.value) })
-                      }
-                      className="mt-2 w-full"
-                    />
-                    <div className="flex justify-between text-sm text-gray-500 mt-1">
-                      <span>5 min</span>
-                      <span className="font-medium">{formData.interval_minutes} minutes</span>
-                      <span>720 min</span>
-                    </div>
-                  </label>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {step === 4 && (
-            <div>
-              <h2 className="text-lg font-medium mb-4">Review & Save</h2>
-              <div className="space-y-4">
-                <div>
-                  <h3 className="font-medium text-gray-900">Spotify Playlist</h3>
-                  <p className="text-gray-600">{selectedSpotifyPlaylist?.name || formData.spotify_playlist_id}</p>
-                </div>
-
-                <div>
-                  <h3 className="font-medium text-gray-900">YouTube Playlist</h3>
-                  <p className="text-gray-600">{selectedYouTubePlaylist?.name || selectedYouTubePlaylist?.title || formData.youtube_playlist_id}</p>
-                </div>
-
-                <div>
-                  <h3 className="font-medium text-gray-900">Sync Options</h3>
-                  <ul className="text-gray-600 space-y-1">
-                    {formData.sync_name && <li>✓ Sync playlist name</li>}
-                    {formData.sync_tracks && <li>✓ Sync tracks</li>}
-                    <li>Sync every {formData.interval_minutes} minutes</li>
-                  </ul>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Navigation buttons */}
-          <div className="mt-8 flex justify-between">
-            {step > 1 && (
-              <button
-                onClick={handleBack}
-                className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
-              >
-                Back
-              </button>
-            )}
-            <div className="ml-auto">
-              {step < 4 ? (
-                <button
-                  onClick={handleNext}
-                  disabled={
-                    (step === 1 && !formData.spotify_playlist_id) ||
-                    (step === 2 && !formData.youtube_playlist_id)
-                  }
-                  className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:bg-gray-400"
-                >
-                  Next
-                </button>
-              ) : (
-                <button
-                  onClick={handleSubmit}
-                  disabled={createMutation.isPending}
-                  className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:bg-gray-400"
-                >
-                  {createMutation.isPending ? 'Creating...' : 'Create Mapping'}
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
+    <Page title="Pair playlists" description="Choose one playlist on each side. The first sync runs within a minute.">
+      <div className="grid gap-4 md:grid-cols-2">
+        <PlaylistPicker
+          service="spotify"
+          items={spotifyItems}
+          isLoading={spotify.isLoading}
+          error={spotify.error}
+          selectedId={spotifyId}
+          onSelect={setSpotifyId}
+        />
+        <PlaylistPicker
+          service="youtube"
+          items={youtubeItems}
+          isLoading={youtube.isLoading}
+          error={youtube.error}
+          selectedId={youtubeId}
+          onSelect={setYoutubeId}
+        />
       </div>
-    </div>
+
+      <Card className="mt-4 p-5">
+        <MappingOptions value={options} onChange={setOptions} />
+      </Card>
+
+      {create.error && (
+        <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+          {create.error.message}
+        </div>
+      )}
+
+      <div className="mt-6 flex items-center justify-end gap-3">
+        <Link to="/mappings" className={buttonClass.secondary}>
+          Cancel
+        </Link>
+        <button
+          type="button"
+          className={buttonClass.primary}
+          disabled={!spotifyId || !youtubeId || create.isPending}
+          onClick={() => create.mutate()}
+        >
+          {create.isPending ? 'Saving…' : 'Pair playlists'}
+        </button>
+      </div>
+    </Page>
   )
 }
 
 export const Route = createLazyFileRoute('/_authenticated/mappings/new')({
   component: NewMapping,
-}) 
+})

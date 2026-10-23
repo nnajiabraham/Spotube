@@ -277,3 +277,64 @@ func TestBlacklistCreateDuplicate(t *testing.T) {
 
 	assert.Equal(t, http.StatusConflict, rec.Code)
 }
+
+func TestBlacklistDeleteRequeuesSkippedItemAndListShowsTitle(t *testing.T) {
+	db, cleanup := setupBlacklistTestDB(t)
+	defer cleanup()
+
+	now := time.Now().Unix()
+	_, err := db.Exec(`INSERT INTO mappings (id, spotify_playlist_id, youtube_playlist_id, sync_name, sync_tracks, interval_minutes, tracks_count, created, updated) VALUES ('m1','sp','yt',0,1,60,0,?,?)`, now, now)
+	require.NoError(t, err)
+	_, err = db.Exec(`INSERT INTO sync_items (id, mapping_id, operation, service, track_id, track_title, track_artist, status, error_message, attempt_count, created, updated) VALUES ('item1','m1','add','youtube','track1','Song','Singer','skipped','track blacklisted',1,?,?)`, now, now)
+	require.NoError(t, err)
+	_, err = db.Exec(`INSERT INTO blacklist (id, mapping_id, service, track_id, reason, skip_counter, created, updated) VALUES ('bl1','m1','youtube','track1','wrong song',0,?,?)`, now, now)
+	require.NoError(t, err)
+
+	e := echo.New()
+	RegisterBlacklistRoutes(e.Group("/api/collections/blacklist/records"), NewBlacklistHandler(db))
+
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/collections/blacklist/records?mapping_id=m1", nil))
+	require.Equal(t, http.StatusOK, rec.Code)
+	var list BlacklistListResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &list))
+	require.Len(t, list.Items, 1)
+	assert.Equal(t, "Song", list.Items[0].TrackTitle)
+	assert.Equal(t, "Singer", list.Items[0].TrackArtist)
+
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, httptest.NewRequest(http.MethodDelete, "/api/collections/blacklist/records/bl1", nil))
+	require.Equal(t, http.StatusNoContent, rec.Code)
+
+	var status string
+	var attempts int
+	require.NoError(t, db.QueryRow(`SELECT status, attempt_count FROM sync_items WHERE id = 'item1'`).Scan(&status, &attempts))
+	assert.Equal(t, "pending", status)
+	assert.Equal(t, 0, attempts)
+}
+
+func TestBlacklistCreateSkipsQueuedItem(t *testing.T) {
+	db, cleanup := setupBlacklistTestDB(t)
+	defer cleanup()
+
+	now := time.Now().Unix()
+	_, err := db.Exec(`INSERT INTO mappings (id, spotify_playlist_id, youtube_playlist_id, sync_name, sync_tracks, interval_minutes, tracks_count, created, updated) VALUES ('m1','sp','yt',0,1,60,0,?,?)`, now, now)
+	require.NoError(t, err)
+	_, err = db.Exec(`INSERT INTO sync_items (id, mapping_id, operation, service, track_id, track_title, track_artist, status, error_message, attempt_count, created, updated) VALUES ('item1','m1','add','youtube','track1','Song','Singer','error','no match',3,?,?)`, now, now)
+	require.NoError(t, err)
+
+	e := echo.New()
+	RegisterBlacklistRoutes(e.Group("/api/collections/blacklist/records"), NewBlacklistHandler(db))
+
+	body := `{"mapping_id":"m1","service":"youtube","track_id":"track1","reason":"wrong song"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/collections/blacklist/records", bytes.NewBufferString(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	var status, reason string
+	require.NoError(t, db.QueryRow(`SELECT status, error_message FROM sync_items WHERE id = 'item1'`).Scan(&status, &reason))
+	assert.Equal(t, "skipped", status)
+	assert.Equal(t, "track blacklisted", reason)
+}

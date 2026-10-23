@@ -61,6 +61,9 @@ export interface BlacklistEntry {
   service: 'spotify' | 'youtube';
   track_id: string;
   reason: string;
+  /** From the track's queue row, when there is one. */
+  track_title?: string;
+  track_artist?: string;
   skip_counter: number;
   last_skipped_at: number | null; // epoch seconds
   created: number; // epoch seconds

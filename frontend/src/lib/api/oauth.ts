@@ -5,7 +5,7 @@ import type { SpotifyPlaylist, YouTubePlaylist } from './types';
 const API_BASE_URL =
   import.meta.env.VITE_PUBLIC_URL ||
   import.meta.env.VITE_API_URL ||
-  'http://localhost:8090';
+  'http://127.0.0.1:8090';
 
 export const oauthAPI = {
   spotify: {

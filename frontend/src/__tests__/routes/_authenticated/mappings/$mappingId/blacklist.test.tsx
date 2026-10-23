@@ -5,211 +5,119 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Route } from '../../../../../routes/_authenticated/mappings/$mappingId/blacklist.lazy';
 import { http, HttpResponse } from 'msw';
 
-// Mock TanStack Router - partial mock to preserve createLazyFileRoute
 vi.mock('@tanstack/react-router', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@tanstack/react-router')>()
+  const actual = await importOriginal<typeof import('@tanstack/react-router')>();
   return {
     ...actual,
     Link: ({ to, children, className }: { to: string; children: React.ReactNode; className?: string }) => (
-      <a href={to} className={className}>{children}</a>
+      <a href={to} className={className}>
+        {children}
+      </a>
     ),
     useParams: () => ({ mappingId: 'mapping1' }),
-    useNavigate: () => vi.fn(),
-  }
-})
+  };
+});
 
-// Extract the component from the Route
 const BlacklistPage = Route.options.component as React.ComponentType;
 
-const createWrapper = () => {
-  const queryClient = new QueryClient({
-    defaultOptions: {
-      queries: {
-        retry: false,
-      },
-    },
-  })
-
-  return function Wrapper({ children }: { children: React.ReactNode }) {
-    return (
-      <QueryClientProvider client={queryClient}>
-        {children}
-      </QueryClientProvider>
-    )
-  }
+function renderPage() {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+  return render(
+    <QueryClientProvider client={client}>
+      <BlacklistPage />
+    </QueryClientProvider>,
+  );
 }
 
-const renderWithProviders = (component: React.ReactElement) => {
-  return render(component, { wrapper: createWrapper() })
-};
+describe('Blocked tracks page', () => {
+  const server = globalThis.mswServer;
 
-describe('BlacklistPage', () => {
-  const server = globalThis.mswServer
+  it('lists blocked tracks with their reason, falling back to the track id', async () => {
+    renderPage();
 
-  it('displays loading state initially', async () => {
-    renderWithProviders(<BlacklistPage />);
-
-    // Look for loading spinner
-    const spinner = document.querySelector('.animate-spin')
-    expect(spinner).toBeInTheDocument()
-  });
-
-  it('displays blacklist entries for a mapping', async () => {
-    renderWithProviders(<BlacklistPage />);
-
-    await waitFor(() => {
-      expect(screen.getByText('Blacklisted Tracks')).toBeInTheDocument();
-    });
-
-    // Check for service badges
-    expect(screen.getByText('Spotify')).toBeInTheDocument();
-    expect(screen.getByText('YouTube')).toBeInTheDocument();
-
-    // Check for track IDs
-    expect(screen.getByText('spotify_track_456')).toBeInTheDocument();
+    expect(await screen.findByText('spotify_track_456')).toBeInTheDocument();
     expect(screen.getByText('youtube_video_789')).toBeInTheDocument();
-
-    // Check for reasons
-    expect(screen.getByText('not found')).toBeInTheDocument();
-    expect(screen.getByText('forbidden')).toBeInTheDocument();
-
-    // Check for skip counters
-    expect(screen.getByText('2')).toBeInTheDocument();
-    expect(screen.getByText('1')).toBeInTheDocument();
+    expect(screen.getByText(/not found/)).toBeInTheDocument();
   });
 
-  it('displays empty state when no blacklist entries', async () => {
+  it('shows the track title when the API provides it', async () => {
     server?.use(
-      http.get('*/api/collections/blacklist/records', () => {
-        return HttpResponse.json({
+      http.get('*/api/collections/blacklist/records', () =>
+        HttpResponse.json({
           page: 1,
-          perPage: 30,
-          totalItems: 0,
-          totalPages: 0,
-          items: [],
-        })
-      })
-    )
-
-    renderWithProviders(<BlacklistPage />);
-
-    await waitFor(() => {
-      expect(screen.getByText('No blacklisted tracks')).toBeInTheDocument();
-    });
-
-    expect(screen.getByText('All tracks in this mapping are syncing successfully.')).toBeInTheDocument();
-  });
-
-  it('shows mapping information in the header', async () => {
-    renderWithProviders(<BlacklistPage />);
-
-    await waitFor(() => {
-      expect(screen.getByText(/My Spotify Playlist/)).toBeInTheDocument();
-      expect(screen.getByText(/My YouTube Playlist/)).toBeInTheDocument();
-    });
-  });
-
-  it('displays service badges with correct colors', async () => {
-    renderWithProviders(<BlacklistPage />);
-
-    await waitFor(() => {
-      const spotifyBadge = screen.getByText('Spotify');
-      const youtubeBadge = screen.getByText('YouTube');
-
-      expect(spotifyBadge).toHaveClass('bg-green-100', 'text-green-800');
-      expect(youtubeBadge).toHaveClass('bg-red-100', 'text-red-800');
-    });
-  });
-
-  it('displays reason badges with correct colors', async () => {
-    renderWithProviders(<BlacklistPage />);
-
-    await waitFor(() => {
-      const notFoundBadge = screen.getByText('not found');
-      const forbiddenBadge = screen.getByText('forbidden');
-
-      expect(notFoundBadge).toHaveClass('bg-gray-100', 'text-gray-800');
-      expect(forbiddenBadge).toHaveClass('bg-yellow-100', 'text-yellow-800');
-    });
-  });
-
-  it('handles delete blacklist entry', async () => {
-    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
-    const user = userEvent.setup();
-    renderWithProviders(<BlacklistPage />);
-
-    await waitFor(() => {
-      expect(screen.getByText('Blacklisted Tracks')).toBeInTheDocument();
-    });
-
-    // Find delete buttons
-    const deleteButtons = screen.getAllByTitle('Remove from blacklist');
-    expect(deleteButtons).toHaveLength(2);
-
-    // Click first delete button
-    await user.click(deleteButtons[0]);
-
-    // Should show confirmation dialog
-    expect(window.confirm).toHaveBeenCalledWith(
-      'Remove this track from the blacklist? It will be retried in future sync attempts.'
+          perPage: 100,
+          totalItems: 1,
+          totalPages: 1,
+          items: [
+            {
+              id: 'bl1',
+              mapping_id: 'mapping1',
+              service: 'youtube',
+              track_id: 'sp1',
+              track_title: 'Umbrella',
+              track_artist: 'Moses Bliss',
+              reason: 'Blocked from the Sync Queue',
+              skip_counter: 0,
+              last_skipped_at: null,
+              created: 1704107200,
+              updated: 1704107200,
+            },
+          ],
+        }),
+      ),
     );
-    
-    confirmSpy.mockRestore()
+    renderPage();
+
+    expect(await screen.findByText('Umbrella')).toBeInTheDocument();
+    expect(screen.getByText(/Moses Bliss · Blocked from the Sync Queue/)).toBeInTheDocument();
   });
 
-  it('formats dates correctly', async () => {
-    renderWithProviders(<BlacklistPage />);
+  it('shows the mapping in the description', async () => {
+    renderPage();
 
     await waitFor(() => {
-      expect(screen.getByText('Blacklisted Tracks')).toBeInTheDocument();
+      expect(screen.getByText(/My Spotify Playlist ⇄ My YouTube Playlist/)).toBeInTheDocument();
     });
-
-    // Check that dates are formatted properly (should contain Jan 1, 2024) - multiple entries expected
-    const dateElements = screen.getAllByText(/Jan 1, 2024/);
-    expect(dateElements.length).toBeGreaterThan(0);
   });
 
-  it('displays error state when API fails', async () => {
+  it('shows an empty state', async () => {
     server?.use(
-      http.get('*/api/collections/blacklist/records', () => {
-        return new HttpResponse(null, { status: 500 })
-      })
-    )
+      http.get('*/api/collections/blacklist/records', () =>
+        HttpResponse.json({ page: 1, perPage: 100, totalItems: 0, totalPages: 0, items: [] }),
+      ),
+    );
+    renderPage();
 
-    renderWithProviders(<BlacklistPage />);
-
-    await waitFor(() => {
-      expect(screen.getByText(/Error loading blacklist/)).toBeInTheDocument();
-    });
+    expect(await screen.findByText(/No blocked tracks/)).toBeInTheDocument();
   });
 
-  it('has back link to mapping edit page', async () => {
-    renderWithProviders(<BlacklistPage />);
+  it('unblocks a track', async () => {
+    const user = userEvent.setup();
+    let deleted = '';
+    server?.use(
+      http.delete('*/api/collections/blacklist/records/:id', ({ params }) => {
+        deleted = String(params.id);
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+    renderPage();
 
-    await waitFor(() => {
-      expect(screen.getByText('Back to mapping')).toBeInTheDocument();
-    });
+    const buttons = await screen.findAllByRole('button', { name: 'Unblock' });
+    await user.click(buttons[0]);
 
-    const backLink = screen.getByText('Back to mapping');
-    // The mocked Link component returns the template, not the actual resolved path
-    expect(backLink.closest('a')).toHaveAttribute('href', '/mappings/$mappingId/edit');
+    await waitFor(() => expect(deleted).not.toBe(''));
   });
 
-  it('renders track IDs with proper styling', async () => {
-    renderWithProviders(<BlacklistPage />);
+  it('shows an error when loading fails', async () => {
+    server?.use(http.get('*/api/collections/blacklist/records', () => new HttpResponse(null, { status: 500 })));
+    renderPage();
 
-    await waitFor(() => {
-      expect(screen.getByText('Blacklisted Tracks')).toBeInTheDocument();
-    });
-
-    // Track IDs should be rendered and their table cells should have monospace font
-    const trackIdCells = screen.getAllByText(/spotify_track_|youtube_video_/);
-    expect(trackIdCells.length).toBeGreaterThan(0);
-    
-    trackIdCells.forEach(cell => {
-      // Find the table cell that should have font-mono
-      const tableCell = cell.closest('td');
-      expect(tableCell).toHaveClass('font-mono');
-    });
+    expect(await screen.findByText(/Error loading blocked tracks/)).toBeInTheDocument();
   });
-}); 
+
+  it('links back to the mapping', async () => {
+    renderPage();
+
+    expect(await screen.findByText('Back to mapping')).toHaveAttribute('href', '/mappings/$mappingId/edit');
+  });
+});

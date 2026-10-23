@@ -2,10 +2,12 @@ package handlers
 
 import (
 	"database/sql"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
 
+	"github.com/go-jet/jet/v2/qrm"
 	"github.com/go-jet/jet/v2/sqlite"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
@@ -30,6 +32,8 @@ type BlacklistResponse struct {
 	Service       string `json:"service"`
 	TrackID       string `json:"track_id"`
 	Reason        string `json:"reason"`
+	TrackTitle    string `json:"track_title,omitempty"`
+	TrackArtist   string `json:"track_artist,omitempty"`
 	SkipCounter   int    `json:"skip_counter"`
 	LastSkippedAt *int64 `json:"last_skipped_at"`
 	Created       int64  `json:"created"`
@@ -101,7 +105,9 @@ func (h *BlacklistHandler) List(c echo.Context) error {
 	totalPages := int((totalCount.Count + int64(perPage) - 1) / int64(perPage))
 
 	items := lo.Map(blacklistEntries, func(b model.Blacklist, _ int) BlacklistResponse {
-		return blacklistModelToResponse(b)
+		resp := blacklistModelToResponse(b)
+		resp.TrackTitle, resp.TrackArtist = h.lookupTrackLabel(b)
+		return resp
 	})
 
 	response := BlacklistListResponse{
@@ -152,6 +158,15 @@ func (h *BlacklistHandler) Create(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to create blacklist entry")
 	}
 
+	// Take the track out of the queue now instead of waiting for the executor to reach it.
+	if _, err := h.DB.Exec(
+		`UPDATE sync_items SET status = 'skipped', error_message = 'track blacklisted', updated = ?
+		 WHERE mapping_id = ? AND service = ? AND track_id = ? AND operation = 'add' AND status IN ('pending', 'error')`,
+		now, req.MappingID, req.Service, req.TrackID,
+	); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to skip queued track")
+	}
+
 	return c.JSON(http.StatusCreated, blacklistModelToResponse(blacklistEntry))
 }
 
@@ -161,21 +176,46 @@ func (h *BlacklistHandler) Delete(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "missing id")
 	}
 
-	result, err := table.Blacklist.
+	var entry model.Blacklist
+	err := table.Blacklist.
+		SELECT(table.Blacklist.AllColumns).
+		WHERE(table.Blacklist.ID.EQ(sqlite.String(id))).
+		Query(h.DB, &entry)
+	if err != nil {
+		if errors.Is(err, qrm.ErrNoRows) {
+			return echo.NewHTTPError(http.StatusNotFound, "blacklist entry not found")
+		}
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to load blacklist entry")
+	}
+
+	if _, err := table.Blacklist.
 		DELETE().
 		WHERE(table.Blacklist.ID.EQ(sqlite.String(id))).
-		Exec(h.DB)
-
-	if err != nil {
+		Exec(h.DB); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to delete blacklist entry")
 	}
 
-	rowsAffected, _ := result.RowsAffected()
-	if rowsAffected == 0 {
-		return echo.NewHTTPError(http.StatusNotFound, "blacklist entry not found")
+	// The skipped queue row would stop analysis from queuing the track again, so put it back.
+	if _, err := h.DB.Exec(
+		`UPDATE sync_items SET status = 'pending', error_message = NULL, attempt_count = 0, updated = ?
+		 WHERE mapping_id = ? AND service = ? AND track_id = ? AND operation = 'add' AND status = 'skipped'`,
+		time.Now().Unix(), entry.MappingID, entry.Service, entry.TrackID,
+	); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to requeue track")
 	}
 
 	return c.NoContent(http.StatusNoContent)
+}
+
+// lookupTrackLabel finds the title/artist of a blacklisted track from its queue row.
+func (h *BlacklistHandler) lookupTrackLabel(b model.Blacklist) (string, string) {
+	var title, artist sql.NullString
+	_ = h.DB.QueryRow(
+		`SELECT track_title, track_artist FROM sync_items
+		 WHERE mapping_id = ? AND service = ? AND track_id = ? AND operation = 'add' LIMIT 1`,
+		b.MappingID, b.Service, b.TrackID,
+	).Scan(&title, &artist)
+	return title.String, artist.String
 }
 
 // Helper functions

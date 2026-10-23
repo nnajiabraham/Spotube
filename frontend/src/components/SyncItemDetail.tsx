@@ -1,9 +1,10 @@
-import { useQuery } from '@tanstack/react-query'
-import { ExternalLink, X } from 'lucide-react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Ban, ExternalLink, X } from 'lucide-react'
 import { activityLogsAPI } from '../lib/api/activity-logs'
-import { syncItemsAPI } from '../lib/api/sync-items'
+import { blacklistAPI } from '../lib/api/blacklist'
+import { isSyncItemExecutable, syncItemsAPI } from '../lib/api/sync-items'
 import { Pill, QueueStatusPill, ServiceIcon } from './ui'
-import { fullTime, serviceName, timeAgo } from '../lib/format'
+import { buttonClass, fullTime, serviceName, timeAgo } from '../lib/format'
 
 // Mirrors matching.MatchThreshold on the backend.
 const MATCH_THRESHOLD = 0.85
@@ -62,6 +63,25 @@ export function SyncItemDetail({ itemId, onClose }: { itemId: string; onClose: (
   const { data: logs } = useQuery({
     queryKey: ['executor-logs', itemId],
     queryFn: () => activityLogsAPI.getList({ sync_item_id: itemId, job_type: 'executor', per_page: 10 }),
+  })
+
+  const queryClient = useQueryClient()
+  // Blacklist the source track for this mapping; the backend marks the queued item skipped.
+  const block = useMutation({
+    mutationFn: async () => {
+      if (!item?.track_id) return
+      await blacklistAPI.create({
+        mapping_id: item.mapping_id,
+        service: item.service,
+        track_id: item.track_id,
+        reason: 'Blocked from the Sync Queue',
+      })
+    },
+    onSettled: () => {
+      for (const key of ['sync-item', 'sync-items', 'executor-logs', 'dashboard-stats', 'blacklist']) {
+        queryClient.invalidateQueries({ queryKey: [key] })
+      }
+    },
   })
 
   const decision = (item?.analysis_context_json as { decision?: AnalysisDecision } | null)?.decision
@@ -202,6 +222,20 @@ export function SyncItemDetail({ itemId, onClose }: { itemId: string; onClose: (
                   <p className="text-gray-500">Not attempted yet.</p>
                 )}
               </section>
+
+              {item.operation === 'add' && item.track_id && isSyncItemExecutable(item.status) && (
+                <section className="rounded-lg border border-gray-200 p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <p className="text-gray-600">
+                      Wrong song, or you don't want it on {serviceName(item.destination_service)}?
+                    </p>
+                    <button type="button" className={buttonClass.secondary} disabled={block.isPending} onClick={() => block.mutate()}>
+                      <Ban className="h-4 w-4" /> Never sync this track
+                    </button>
+                  </div>
+                  {block.error && <p className="mt-2 text-xs text-red-700">{block.error.message}</p>}
+                </section>
+              )}
 
               <details className="text-xs text-gray-500">
                 <summary className="cursor-pointer select-none">Raw data</summary>
