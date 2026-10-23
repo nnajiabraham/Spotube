@@ -63,7 +63,7 @@ func TestDashboardStatsEmptyDatabase(t *testing.T) {
 	assert.Equal(t, int64(0), response.Queue.Skipped)
 	assert.Empty(t, response.RecentRuns)
 
-	// YouTube quota should have placeholder values
+	// No executor runs yet, so no quota used
 	assert.Equal(t, int64(0), response.YouTubeQuota.Used)
 	assert.Equal(t, int64(10000), response.YouTubeQuota.Limit)
 }
@@ -146,7 +146,7 @@ func TestDashboardStatsWithData(t *testing.T) {
 	assert.NotNil(t, response.RecentRuns[0].MappingID)
 	assert.Equal(t, "mapping1", *response.RecentRuns[0].MappingID)
 
-	// YouTube quota placeholder
+	// Seeded logs are not executor runs, so no quota used
 	assert.Equal(t, int64(0), response.YouTubeQuota.Used)
 	assert.Equal(t, int64(10000), response.YouTubeQuota.Limit)
 }
@@ -262,4 +262,28 @@ func TestDashboardStatsUnauthenticated(t *testing.T) {
 	assert.NotNil(t, response.Queue)
 	assert.NotNil(t, response.RecentRuns)
 	assert.Equal(t, int64(10000), response.YouTubeQuota.Limit)
+}
+
+func TestEstimateYouTubeQuotaUsed(t *testing.T) {
+	db, cleanup := setupDashboardTestDB(t)
+	defer cleanup()
+
+	now := time.Now()
+	insert := func(id string, created int64, details string) {
+		_, err := db.Exec(`INSERT INTO activity_logs (id, level, message, job_type, created, details_json) VALUES (?, 'info', 'x', 'executor', ?, ?)`,
+			id, created, details)
+		require.NoError(t, err)
+	}
+	// Search + add to YouTube today: 150 units.
+	insert("a", now.Unix(), `{"data":{"source":{"platform":"spotify"},"search_query":"q","outcome":"added"}}`)
+	// Search with no match today: 100 units.
+	insert("b", now.Unix(), `{"data":{"source":{"platform":"spotify"},"search_query":"q","outcome":"no_match"}}`)
+	// Add to Spotify costs no YouTube quota.
+	insert("c", now.Unix(), `{"data":{"source":{"platform":"youtube"},"search_query":"q","outcome":"added"}}`)
+	// Yesterday's run is outside the quota day.
+	insert("d", youtubeQuotaDayStart(now).Unix()-60, `{"data":{"source":{"platform":"spotify"},"search_query":"q","outcome":"added"}}`)
+
+	used, err := NewDashboardHandler(db).estimateYouTubeQuotaUsed(now)
+	require.NoError(t, err)
+	assert.Equal(t, int64(250), used)
 }

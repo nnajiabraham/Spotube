@@ -24,52 +24,54 @@ const queryClient = new QueryClient({
   },
 })
 
+// Floating devtools cover page content, so they're opt-in: VITE_DEVTOOLS=true in frontend/.env.
+const showDevtools = import.meta.env.DEV && import.meta.env.VITE_DEVTOOLS === 'true'
+
+const navItems = [
+  { to: '/dashboard', label: 'Dashboard' },
+  { to: '/mappings', label: 'Mappings' },
+  { to: '/sync-queue', label: 'Sync Queue' },
+  { to: '/logs', label: 'Activity' },
+] as const
+
 function AppShell() {
   const pathname = useRouterState({ select: (state) => state.location.pathname })
   const showNavigation = !pathname.startsWith('/setup')
 
   const navLinkClass = (target: string) =>
-    `px-3 py-2 rounded-md text-sm font-medium ${
+    `rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
       pathname === target || pathname.startsWith(`${target}/`)
-        ? 'bg-indigo-100 text-indigo-800'
-        : 'text-gray-700 hover:bg-gray-100'
+        ? 'bg-gray-900 text-white'
+        : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
     }`
 
   return (
     <QueryClientProvider client={queryClient}>
-      <div className="min-h-screen bg-gray-50 font-sans antialiased">
+      <div className="min-h-screen bg-gray-50 font-sans text-gray-900 antialiased">
         {showNavigation && (
-          <header className="border-b border-gray-200 bg-white">
-            <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3 sm:px-6 lg:px-8">
-              <Link to="/dashboard" className="text-lg font-semibold text-gray-900">
+          <header className="sticky top-0 z-30 border-b border-gray-200 bg-white/90 backdrop-blur">
+            <div className="mx-auto flex h-14 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
+              <Link to="/dashboard" className="flex items-center gap-2 font-semibold tracking-tight">
+                <img src="/favicon.svg" alt="" className="h-7 w-7" />
                 Spotube
               </Link>
               <nav className="flex items-center gap-1">
-                <Link to="/dashboard" className={navLinkClass('/dashboard')}>
-                  Dashboard
-                </Link>
-                <Link to="/mappings" className={navLinkClass('/mappings')}>
-                  Mappings
-                </Link>
-                <Link to="/sync-queue" className={navLinkClass('/sync-queue')}>
-                  Sync Queue
-                </Link>
-                <Link to="/settings/spotify" className={navLinkClass('/settings/spotify')}>
-                  Spotify
-                </Link>
-                <Link to="/settings/youtube" className={navLinkClass('/settings/youtube')}>
-                  YouTube
-                </Link>
-                <Link to="/logs" className={`${navLinkClass('/logs')} text-xs`}>
-                  Logs (advanced)
-                </Link>
+                {navItems.map((item) => (
+                  <Link key={item.to} to={item.to} className={navLinkClass(item.to)}>
+                    {item.label}
+                  </Link>
+                ))}
               </nav>
             </div>
           </header>
         )}
         <Outlet />
-        <TanStackRouterDevtools />
-        <ReactQueryDevtools />
+        {showDevtools && (
+          <>
+            <TanStackRouterDevtools />
+            <ReactQueryDevtools />
+          </>
+        )}
       </div>
     </QueryClientProvider>
   )

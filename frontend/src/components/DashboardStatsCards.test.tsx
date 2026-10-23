@@ -1,233 +1,42 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import { DashboardStatsCards } from './DashboardStatsCards';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { http, HttpResponse } from 'msw';
-import { TEST_API_BASE_URL } from '../test/apiBaseUrl';
+import { describe, it, expect, vi } from 'vitest'
+import { render, screen } from '@testing-library/react'
+import { DashboardStatsCards } from './DashboardStatsCards'
+import type { DashboardStats } from '../lib/api/index'
 
-const renderWithProviders = (ui: React.ReactElement) => {
-  const queryClient = new QueryClient({
-    defaultOptions: {
-      queries: { retry: false },
-    },
-  });
-  
-  return render(
-    <QueryClientProvider client={queryClient}>
-      {ui}
-    </QueryClientProvider>
-  );
-};
+vi.mock('@tanstack/react-router', () => ({
+  Link: ({ children, to, search }: { children: React.ReactNode; to: string; search?: { status?: string } }) => (
+    <a href={search?.status ? `${to}?status=${search.status}` : to}>{children}</a>
+  ),
+}))
 
-const mockStats = {
-  mappings: { total: 5 },
-  queue: { 
-    pending: 12, 
-    running: 1, 
-    errors: 2, 
-    skipped: 1, 
-    done: 102 
-  },
-  recent_runs: [
-    {
-      timestamp: '2024-01-01T12:00:00Z',
-      job_type: 'analysis' as const,
-      status: 'success' as const,
-      message: 'Analysis completed successfully'
-    }
-  ],
-  youtube_quota: { used: 1250, limit: 10000 }
-};
+const stats: DashboardStats = {
+  mappings: { total: 2 },
+  queue: { pending: 12, running: 0, done: 1024, error: 2, skipped: 3 },
+  recent_runs: [],
+  youtube_quota: { used: 2500, limit: 10000 },
+}
 
 describe('DashboardStatsCards', () => {
-  const server = globalThis.mswServer;
-  const mockOnTogglePause = vi.fn();
-  const mockOnRefresh = vi.fn();
+  it('shows each queue count and links it to the filtered queue', () => {
+    render(<DashboardStatsCards stats={stats} isLoading={false} />)
 
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
+    expect(screen.getByText('12')).toBeInTheDocument()
+    expect(screen.getByText('1,024')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /failed/i })).toHaveAttribute('href', '/sync-queue?status=error')
+    expect(screen.getByRole('link', { name: /pending/i })).toHaveAttribute('href', '/sync-queue?status=pending')
+  })
 
-  it('renders correct stats from the API', async () => {
-    server?.use(
-      http.get(`${TEST_API_BASE_URL}/api/dashboard/stats`, () => {
-        return HttpResponse.json(mockStats);
-      })
-    );
+  it('shows estimated YouTube quota use against the daily limit', () => {
+    render(<DashboardStatsCards stats={stats} isLoading={false} />)
 
-    renderWithProviders(
-      <DashboardStatsCards 
-        isPaused={false}
-        onTogglePause={mockOnTogglePause}
-        onRefresh={mockOnRefresh}
-      />
-    );
+    expect(screen.getByText('YouTube quota today')).toBeInTheDocument()
+    expect(screen.getByText('2,500')).toBeInTheDocument()
+    expect(screen.getByLabelText('25% of daily quota')).toBeInTheDocument()
+  })
 
-    // Just verify the component renders with the expected titles
-    expect(screen.getByText('Total Mappings')).toBeInTheDocument();
-    expect(screen.getByText('Pending Items')).toBeInTheDocument();
-    expect(screen.getByText('Running Items')).toBeInTheDocument();
-    expect(screen.getByText('Error Items')).toBeInTheDocument();
-    expect(screen.getByText('Skipped Items')).toBeInTheDocument();
-    expect(screen.getByText('Completed Items')).toBeInTheDocument();
-    expect(screen.getByText('YouTube Quota')).toBeInTheDocument();
-    expect(screen.getByText('Auto-refresh')).toBeInTheDocument();
-  });
+  it('shows placeholders while loading', () => {
+    render(<DashboardStatsCards isLoading />)
 
-  it('shows loading state while fetching data', () => {
-    // Use a delayed response to test loading state
-    server?.use(
-      http.get('http://localhost:8090/api/dashboard/stats', async () => {
-        await new Promise(resolve => setTimeout(resolve, 100));
-        return HttpResponse.json(mockStats);
-      })
-    );
-
-    renderWithProviders(
-      <DashboardStatsCards 
-        isPaused={false}
-        onTogglePause={mockOnTogglePause}
-        onRefresh={mockOnRefresh}
-      />
-    );
-
-    // Check for loading indicators (shimmer effects)
-    const loadingElements = screen.getAllByRole('status', { hidden: true });
-    expect(loadingElements.length).toBeGreaterThan(0);
-  });
-
-  it('handles pause button correctly', async () => {
-    server?.use(
-      http.get(`${TEST_API_BASE_URL}/api/dashboard/stats`, () => {
-        return HttpResponse.json(mockStats);
-      })
-    );
-
-    const user = userEvent.setup();
-
-    renderWithProviders(
-      <DashboardStatsCards 
-        isPaused={false}
-        onTogglePause={mockOnTogglePause}
-        onRefresh={mockOnRefresh}
-      />
-    );
-
-    // Wait for component to load
-    await waitFor(() => {
-      expect(screen.getByText('Pause')).toBeInTheDocument();
-    });
-
-    // Click pause button
-    const pauseButton = screen.getByText('Pause');
-    await user.click(pauseButton);
-
-    expect(mockOnTogglePause).toHaveBeenCalledTimes(1);
-  });
-
-  it('shows resume button when paused', async () => {
-    server?.use(
-      http.get(`${TEST_API_BASE_URL}/api/dashboard/stats`, () => {
-        return HttpResponse.json(mockStats);
-      })
-    );
-
-    renderWithProviders(
-      <DashboardStatsCards 
-        isPaused={true}
-        onTogglePause={mockOnTogglePause}
-        onRefresh={mockOnRefresh}
-      />
-    );
-
-    await waitFor(() => {
-      expect(screen.getByText('Resume')).toBeInTheDocument();
-    });
-
-    expect(screen.getByText('Paused')).toBeInTheDocument();
-  });
-
-  it('calls refresh handler when refresh button is clicked', async () => {
-    server?.use(
-      http.get(`${TEST_API_BASE_URL}/api/dashboard/stats`, () => {
-        return HttpResponse.json(mockStats);
-      })
-    );
-
-    const user = userEvent.setup();
-
-    renderWithProviders(
-      <DashboardStatsCards 
-        isPaused={false}
-        onTogglePause={mockOnTogglePause}
-        onRefresh={mockOnRefresh}
-      />
-    );
-
-    // Wait for component to load
-    await waitFor(() => {
-      expect(screen.getByText('Refresh')).toBeInTheDocument();
-    });
-
-    // Click refresh button
-    const refreshButton = screen.getByText('Refresh');
-    await user.click(refreshButton);
-
-    expect(mockOnRefresh).toHaveBeenCalledTimes(1);
-  });
-
-  it('shows error state when API fails', async () => {
-    server?.use(
-      http.get(`${TEST_API_BASE_URL}/api/dashboard/stats`, () => {
-        return HttpResponse.json(
-          { error: 'Internal server error' },
-          { status: 500 }
-        );
-      })
-    );
-
-    renderWithProviders(
-      <DashboardStatsCards 
-        isPaused={false}
-        onTogglePause={mockOnTogglePause}
-        onRefresh={mockOnRefresh}
-      />
-    );
-
-    await waitFor(() => {
-      expect(screen.getByText('Error loading dashboard stats')).toBeInTheDocument();
-    });
-
-    expect(screen.getByText('Unable to fetch dashboard data. Please try refreshing.')).toBeInTheDocument();
-    expect(screen.getByText('Try Again')).toBeInTheDocument();
-  });
-
-  it('displays all stat card titles correctly', async () => {
-    server?.use(
-      http.get(`${TEST_API_BASE_URL}/api/dashboard/stats`, () => {
-        return HttpResponse.json(mockStats);
-      })
-    );
-
-    renderWithProviders(
-      <DashboardStatsCards 
-        isPaused={false}
-        onTogglePause={mockOnTogglePause}
-        onRefresh={mockOnRefresh}
-      />
-    );
-
-    await waitFor(() => {
-      expect(screen.getByText('Total Mappings')).toBeInTheDocument();
-    });
-
-    expect(screen.getByText('Pending Items')).toBeInTheDocument();
-    expect(screen.getByText('Running Items')).toBeInTheDocument();
-    expect(screen.getByText('Error Items')).toBeInTheDocument();
-    expect(screen.getByText('Skipped Items')).toBeInTheDocument();
-    expect(screen.getByText('Completed Items')).toBeInTheDocument();
-    expect(screen.getByText('YouTube Quota')).toBeInTheDocument();
-    expect(screen.getByText('Auto-refresh')).toBeInTheDocument();
-  });
-}); 
+    expect(screen.getAllByRole('status').length).toBeGreaterThan(0)
+  })
+})

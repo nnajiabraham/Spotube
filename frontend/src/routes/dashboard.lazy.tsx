@@ -1,138 +1,187 @@
 import { Link, createLazyFileRoute, useSearch } from '@tanstack/react-router'
-import { SpotifyConnectionCard } from '../components/SpotifyConnectionCard'
-import { YoutubeConnectionCard } from '../components/YoutubeConnectionCard'
+import { useQuery } from '@tanstack/react-query'
+import { ArrowLeftRight, Plus, RefreshCw } from 'lucide-react'
+import { ConnectionCard } from '../components/ConnectionCard'
 import { DashboardStatsCards } from '../components/DashboardStatsCards'
-import { useEffect, useState } from 'react'
+import { MappingSyncStatus, SyncNowButton } from '../components/MappingSync'
+import { useSyncNow } from '../lib/useSyncNow'
+import { Card, Page, SectionTitle, ServiceIcon } from '../components/ui'
+import { buttonClass, fullTime, timeAgo } from '../lib/format'
+import { dashboardAPI, mappingsAPI } from '../lib/api/index'
 
-function Dashboard() {
-  const search = useSearch({ from: '/dashboard' })
-  const [isPaused, setIsPaused] = useState(true)
-  
-  const [authNotice, setAuthNotice] = useState<{ type: 'success' | 'error'; service: string; message: string } | null>(null)
+const REFRESH_MS = 30_000
 
-  useEffect(() => {
-    if (!search || typeof search !== 'object') {
-      return
-    }
+function AuthNotice() {
+  const params = useSearch({ from: '/dashboard' }) as { spotify?: string; youtube?: string; message?: string }
+  const service = params.spotify ? 'Spotify' : params.youtube ? 'YouTube' : null
+  const result = params.spotify ?? params.youtube
+  if (!service || !result) return null
 
-    const params = search as { spotify?: string; youtube?: string; message?: string }
+  const ok = result === 'connected'
+  return (
+    <div
+      role="status"
+      className={`mb-6 rounded-lg border px-4 py-3 text-sm ${
+        ok ? 'border-green-200 bg-green-50 text-green-800' : 'border-red-200 bg-red-50 text-red-800'
+      }`}
+    >
+      <span className="font-medium">{service}:</span>{' '}
+      {ok ? 'connected successfully.' : params.message || 'connection failed. Try again.'}
+      {!ok && params.message?.includes('state mismatch') && (
+        <span className="mt-1 block">Open the app at http://127.0.0.1:5173 (not localhost) and try again.</span>
+      )}
+    </div>
+  )
+}
 
-    if (params.spotify === 'connected') {
-      setAuthNotice({ type: 'success', service: 'Spotify', message: 'Connected successfully.' })
-    } else if (params.spotify === 'error') {
-      setAuthNotice({
-        type: 'error',
-        service: 'Spotify',
-        message: params.message || 'Connection failed. Try again.',
-      })
-    }
-
-    if (params.youtube === 'connected') {
-      setAuthNotice({ type: 'success', service: 'YouTube', message: 'Connected successfully.' })
-    } else if (params.youtube === 'error') {
-      setAuthNotice({
-        type: 'error',
-        service: 'YouTube',
-        message: params.message || 'Connection failed. Try again.',
-      })
-    }
-  }, [search]);
-
-  const handleTogglePause = () => {
-    setIsPaused(prev => !prev)
-  }
-
-  const handleRefresh = () => {
-    // The actual refresh logic is handled in DashboardStatsCards
-    console.log('Dashboard refreshed')
-  }
+function MappingsPanel() {
+  const sync = useSyncNow()
+  const { data, isLoading } = useQuery({
+    queryKey: ['mappings', 'dashboard'],
+    queryFn: () => mappingsAPI.getList({ per_page: 50 }),
+    refetchInterval: REFRESH_MS,
+  })
+  const mappings = data?.items ?? []
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-7xl mx-auto">
-        {authNotice && (
-          <div
-            className={`mb-6 rounded-md p-4 ${
-              authNotice.type === 'success'
-                ? 'bg-green-50 text-green-800 border border-green-200'
-                : 'bg-red-50 text-red-800 border border-red-200'
-            }`}
-            role="status"
+    <Card>
+      {isLoading ? (
+        <div className="p-6 text-sm text-gray-500">Loading mappings…</div>
+      ) : mappings.length === 0 ? (
+        <div className="p-8 text-center">
+          <p className="text-sm text-gray-500">No playlists are paired yet.</p>
+          <Link to="/mappings/new" className={`${buttonClass.primary} mt-4`}>
+            <Plus className="h-4 w-4" /> Pair two playlists
+          </Link>
+        </div>
+      ) : (
+        <ul className="divide-y divide-gray-100">
+          {mappings.map((m) => (
+            <li key={m.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
+              <Link
+                to="/mappings/$mappingId/edit"
+                params={{ mappingId: m.id }}
+                className="flex min-w-0 flex-1 items-center gap-2 text-sm font-medium text-gray-900 hover:text-indigo-700"
+              >
+                <ServiceIcon service="spotify" />
+                <span className="truncate">{m.spotify_playlist_name || m.spotify_playlist_id}</span>
+                <ArrowLeftRight className="h-3.5 w-3.5 shrink-0 text-gray-400" />
+                <ServiceIcon service="youtube" />
+                <span className="truncate">{m.youtube_playlist_name || m.youtube_playlist_id}</span>
+              </Link>
+              <span className="text-xs text-gray-500">every {m.interval_minutes} min</span>
+              <MappingSyncStatus mapping={m} />
+              <SyncNowButton mappingId={m.id} sync={sync} compact />
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
+  )
+}
+
+const levelDot: Record<string, string> = {
+  info: 'bg-gray-300',
+  warn: 'bg-amber-400',
+  error: 'bg-red-500',
+}
+
+function Dashboard() {
+  const { data: stats, isLoading, dataUpdatedAt, refetch, isFetching } = useQuery({
+    queryKey: ['dashboard-stats'],
+    queryFn: dashboardAPI.getStats,
+    refetchInterval: REFRESH_MS,
+  })
+
+  return (
+    <Page
+      title="Dashboard"
+      description="Keeps paired Spotify and YouTube playlists in sync."
+      actions={
+        <>
+          {dataUpdatedAt > 0 && (
+            <span className="text-xs text-gray-400">Updated {timeAgo(dataUpdatedAt / 1000)}</span>
+          )}
+          <button type="button" onClick={() => refetch()} className={buttonClass.secondary} disabled={isFetching}>
+            <RefreshCw className={`h-4 w-4 ${isFetching ? 'animate-spin' : ''}`} /> Refresh
+          </button>
+        </>
+      }
+    >
+      <AuthNotice />
+
+      <section className="mb-8">
+        <SectionTitle>Accounts</SectionTitle>
+        <div className="grid gap-3 md:grid-cols-2">
+          <ConnectionCard service="spotify" />
+          <ConnectionCard service="youtube" />
+        </div>
+      </section>
+
+      <section className="mb-8">
+        <SectionTitle
+          action={
+            <Link to="/sync-queue" className="text-sm text-indigo-600 hover:text-indigo-800">
+              Open queue →
+            </Link>
+          }
+        >
+          Sync queue
+        </SectionTitle>
+        <DashboardStatsCards stats={stats} isLoading={isLoading} />
+      </section>
+
+      <div className="grid gap-8 lg:grid-cols-5">
+        <section className="lg:col-span-3">
+          <SectionTitle
+            action={
+              <Link to="/mappings" className="text-sm text-indigo-600 hover:text-indigo-800">
+                Manage →
+              </Link>
+            }
           >
-            <p className="font-medium">
-              {authNotice.service}: {authNotice.message}
-            </p>
-            {authNotice.type === 'error' && authNotice.message.includes('state mismatch') && (
-              <p className="mt-2 text-sm">
-                Use the same host for frontend API calls and OAuth (e.g. both localhost or both 127.0.0.1).
-              </p>
+            Paired playlists
+          </SectionTitle>
+          <MappingsPanel />
+        </section>
+
+        <section className="lg:col-span-2">
+          <SectionTitle
+            action={
+              <Link to="/logs" className="text-sm text-indigo-600 hover:text-indigo-800">
+                All activity →
+              </Link>
+            }
+          >
+            Recent activity
+          </SectionTitle>
+          <Card>
+            {stats?.recent_runs?.length ? (
+              <ul className="divide-y divide-gray-100">
+                {stats.recent_runs.slice(0, 8).map((run, i) => (
+                  <li key={`${run.timestamp}-${i}`} className="flex gap-3 px-4 py-2.5">
+                    <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${levelDot[run.level] ?? 'bg-gray-300'}`} />
+                    <div className="min-w-0 flex-1">
+                      <p className="line-clamp-2 text-sm text-gray-700" title={run.message}>
+                        {run.message}
+                      </p>
+                      <p className="text-xs text-gray-400" title={fullTime(run.timestamp)}>
+                        {run.job_type} · {timeAgo(run.timestamp)}
+                      </p>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="p-6 text-sm text-gray-500">{isLoading ? 'Loading…' : 'Nothing has run yet.'}</p>
             )}
-          </div>
-        )}
-
-        <div className="text-center mb-8">
-          <h1 className="text-4xl font-extrabold text-gray-900">
-            Spotube Dashboard
-          </h1>
-          <p className="mt-4 text-xl text-gray-600">
-            Monitor your playlist synchronization system
-          </p>
-        </div>
-        
-        {/* Dashboard Stats Cards */}
-        <div className="mb-10">
-          <h2 className="text-2xl font-semibold text-gray-900 mb-6">System Status</h2>
-          <DashboardStatsCards 
-            isPaused={isPaused}
-            onTogglePause={handleTogglePause}
-            onRefresh={handleRefresh}
-          />
-        </div>
-
-        {/* Service Connection Cards */}
-        <div className="mb-10">
-          <h2 className="text-2xl font-semibold text-gray-900 mb-6">Service Connections</h2>
-          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            <SpotifyConnectionCard />
-            <YoutubeConnectionCard />
-            
-            {/* Mappings Card */}
-            <div className="bg-white overflow-hidden shadow rounded-lg">
-              <div className="p-5">
-                <div className="flex items-center">
-                  <div className="flex-shrink-0">
-                    <svg className="h-6 w-6 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
-                    </svg>
-                  </div>
-                  <div className="ml-5 w-0 flex-1">
-                    <dt className="text-sm font-medium text-gray-500 truncate">
-                      Playlist Mappings
-                    </dt>
-                    <dd className="flex items-baseline">
-                      <div className="text-2xl font-semibold text-gray-900">
-                        Manage Sync
-                      </div>
-                    </dd>
-                  </div>
-                </div>
-                <div className="mt-5">
-                  <Link
-                    to="/mappings"
-                    className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-                  >
-                    View Mappings
-                  </Link>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
+          </Card>
+        </section>
       </div>
-    </div>
+    </Page>
   )
 }
 
 export const Route = createLazyFileRoute('/dashboard')({
   component: Dashboard,
-}) 
+})

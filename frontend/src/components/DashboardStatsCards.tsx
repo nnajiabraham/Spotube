@@ -1,246 +1,64 @@
-import React from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { api } from '../lib/api';
-import { 
-  Music, 
-  Clock, 
-  CheckCircle, 
-  XCircle, 
-  SkipForward,
-  RefreshCw,
-  Play,
-  Pause,
-  Youtube
-} from 'lucide-react';
+import { Link } from '@tanstack/react-router'
+import type { DashboardStats } from '../lib/api/index'
+import { Card } from './ui'
 
-interface DashboardStatsCardsProps {
-  isPaused: boolean;
-  onTogglePause: () => void;
-  onRefresh: () => void;
+type QueueKey = 'pending' | 'done' | 'skipped' | 'error'
+
+const tiles: Array<{ key: QueueKey; label: string; hint: string; accent: string }> = [
+  { key: 'pending', label: 'Pending', hint: 'Waiting for the next sync', accent: 'bg-amber-400' },
+  { key: 'done', label: 'Synced', hint: 'Added to the other side', accent: 'bg-green-500' },
+  { key: 'skipped', label: 'Skipped', hint: 'Already there or removed', accent: 'bg-gray-300' },
+  { key: 'error', label: 'Failed', hint: 'No confident match or API error', accent: 'bg-red-500' },
+]
+
+function Tile({ children, status }: { children: React.ReactNode; status?: QueueKey }) {
+  const body = <Card className="h-full p-4 transition-colors hover:border-gray-300">{children}</Card>
+  if (!status) return body
+  return (
+    <Link to="/sync-queue" search={{ status }} className="block">
+      {body}
+    </Link>
+  )
 }
 
-const REFETCH_INTERVAL = 60000; // 60 seconds
+/** Queue counters (each links to the filtered queue) plus today's estimated YouTube quota use. */
+export function DashboardStatsCards({ stats, isLoading }: { stats?: DashboardStats; isLoading: boolean }) {
+  const value = (n: number | undefined) =>
+    isLoading ? (
+      <span className="inline-block h-7 w-10 animate-pulse rounded bg-gray-200" role="status" aria-label="Loading" />
+    ) : (
+      (n ?? 0).toLocaleString()
+    )
 
-function StatCard({ 
-  title, 
-  value, 
-  icon: Icon, 
-  isLoading = false,
-  color = 'blue'
-}: {
-  title: string;
-  value: string | number;
-  icon: React.ComponentType<{ className?: string }>;
-  isLoading?: boolean;
-  color?: 'blue' | 'green' | 'red' | 'yellow' | 'purple' | 'orange';
-}) {
-  const colorClasses = {
-    blue: 'text-blue-600 bg-blue-100',
-    green: 'text-green-600 bg-green-100', 
-    red: 'text-red-600 bg-red-100',
-    yellow: 'text-yellow-600 bg-yellow-100',
-    purple: 'text-purple-600 bg-purple-100',
-    orange: 'text-orange-600 bg-orange-100',
-  };
+  const quota = stats?.youtube_quota
+  const quotaPct = quota && quota.limit > 0 ? Math.min(100, Math.round((quota.used / quota.limit) * 100)) : 0
 
   return (
-    <div className="bg-white overflow-hidden shadow rounded-lg">
-      <div className="p-5">
-        <div className="flex items-center">
-          <div className="flex-shrink-0">
-            <div className={`p-3 rounded-md ${colorClasses[color]}`}>
-              <Icon className="h-6 w-6" />
-            </div>
+    <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-5">
+      {tiles.map((tile) => (
+        <Tile key={tile.key} status={tile.key}>
+          <div className="flex items-center gap-2 text-sm font-medium text-gray-600">
+            <span className={`h-2 w-2 rounded-full ${tile.accent}`} />
+            {tile.label}
           </div>
-          <div className="ml-5 w-0 flex-1">
-            <dt className="text-sm font-medium text-gray-500 truncate">
-              {title}
-            </dt>
-            <dd className="flex items-baseline">
-              <div className="text-2xl font-semibold text-gray-900">
-                {isLoading ? (
-                  <div 
-                    className="animate-pulse bg-gray-200 h-8 w-16 rounded"
-                    role="status"
-                    aria-label="Loading"
-                  ></div>
-                ) : (
-                  value
-                )}
-              </div>
-            </dd>
-          </div>
+          <div className="mt-2 text-2xl font-semibold tabular-nums text-gray-900">{value(stats?.queue[tile.key])}</div>
+          <p className="mt-1 text-xs text-gray-500">{tile.hint}</p>
+        </Tile>
+      ))}
+      <Tile>
+        <div className="text-sm font-medium text-gray-600">YouTube quota today</div>
+        <div className="mt-2 text-2xl font-semibold tabular-nums text-gray-900">
+          {value(quota?.used)}
+          <span className="text-sm font-normal text-gray-400"> / {(quota?.limit ?? 10000).toLocaleString()}</span>
         </div>
-      </div>
+        <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-gray-100" aria-label={`${quotaPct}% of daily quota`}>
+          <div
+            className={`h-full rounded-full ${quotaPct > 80 ? 'bg-red-500' : 'bg-indigo-500'}`}
+            style={{ width: `${quotaPct}%` }}
+          />
+        </div>
+        <p className="mt-1 text-xs text-gray-500">Estimate · searches cost 100</p>
+      </Tile>
     </div>
-  );
+  )
 }
-
-function ControlsCard({ isPaused, onTogglePause, onRefresh }: {
-  isPaused: boolean;
-  onTogglePause: () => void;
-  onRefresh: () => void;
-}) {
-  return (
-    <div className="bg-white overflow-hidden shadow rounded-lg">
-      <div className="p-5">
-        <div className="flex items-center justify-between">
-          <div>
-            <dt className="text-sm font-medium text-gray-500">
-              Auto-refresh
-            </dt>
-            <dd className="text-xs text-gray-400 mt-1">
-              {isPaused ? 'Paused' : '60s interval'}
-            </dd>
-          </div>
-          <div className="flex space-x-2">
-            <button
-              onClick={onTogglePause}
-              className={`inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-white focus:outline-none focus:ring-2 focus:ring-offset-2 ${
-                isPaused 
-                  ? 'bg-green-600 hover:bg-green-700 focus:ring-green-500' 
-                  : 'bg-yellow-600 hover:bg-yellow-700 focus:ring-yellow-500'
-              }`}
-            >
-              {isPaused ? (
-                <>
-                  <Play className="h-4 w-4 mr-1" />
-                  Resume
-                </>
-              ) : (
-                <>
-                  <Pause className="h-4 w-4 mr-1" />
-                  Pause
-                </>
-              )}
-            </button>
-            <button
-              onClick={onRefresh}
-              className="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-            >
-              <RefreshCw className="h-4 w-4 mr-1" />
-              Refresh
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-export function DashboardStatsCards({ isPaused, onTogglePause, onRefresh }: DashboardStatsCardsProps) {
-  const queryClient = useQueryClient();
-  
-  const { data: stats, isLoading, error } = useQuery({
-    queryKey: ['dashboard-stats'],
-    queryFn: api.getDashboardStats,
-    refetchInterval: isPaused ? false : REFETCH_INTERVAL,
-    refetchIntervalInBackground: true,
-    staleTime: 30000, // Consider data stale after 30 seconds
-  });
-
-  const handleRefresh = () => {
-    queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
-    onRefresh();
-  };
-
-  if (error) {
-    return (
-      <div className="bg-red-50 border border-red-200 rounded-md p-4">
-        <div className="flex">
-          <XCircle className="h-5 w-5 text-red-400" />
-          <div className="ml-3">
-            <h3 className="text-sm font-medium text-red-800">
-              Error loading dashboard stats
-            </h3>
-            <div className="mt-2 text-sm text-red-700">
-              <p>Unable to fetch dashboard data. Please try refreshing.</p>
-            </div>
-            <div className="mt-4">
-              <button
-                onClick={handleRefresh}
-                className="bg-red-100 px-3 py-2 rounded-md text-sm font-medium text-red-800 hover:bg-red-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
-              >
-                Try Again
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
-      {/* Controls Card */}
-      <ControlsCard 
-        isPaused={isPaused}
-        onTogglePause={onTogglePause}
-        onRefresh={handleRefresh}
-      />
-
-      {/* Mappings */}
-      <StatCard
-        title="Total Mappings"
-        value={stats?.mappings.total ?? 0}
-        icon={Music}
-        isLoading={isLoading}
-        color="blue"
-      />
-
-      {/* Queue - Pending */}
-      <StatCard
-        title="Pending Items"
-        value={stats?.queue.pending ?? 0}
-        icon={Clock}
-        isLoading={isLoading}
-        color="yellow"
-      />
-
-      {/* Queue - Running */}
-      <StatCard
-        title="Running Items"
-        value={stats?.queue.running ?? 0}
-        icon={RefreshCw}
-        isLoading={isLoading}
-        color="blue"
-      />
-
-      {/* Queue - Errors */}
-      <StatCard
-        title="Error Items"
-        value={stats?.queue.error ?? 0}
-        icon={XCircle}
-        isLoading={isLoading}
-        color="red"
-      />
-
-      {/* Queue - Skipped */}
-      <StatCard
-        title="Skipped Items"
-        value={stats?.queue.skipped ?? 0}
-        icon={SkipForward}
-        isLoading={isLoading}
-        color="orange"
-      />
-
-      {/* Queue - Done */}
-      <StatCard
-        title="Completed Items"
-        value={stats?.queue.done ?? 0}
-        icon={CheckCircle}
-        isLoading={isLoading}
-        color="green"
-      />
-
-      {/* YouTube Quota */}
-      <StatCard
-        title="YouTube Quota"
-        value={stats ? `${stats.youtube_quota.used}/${stats.youtube_quota.limit}` : '0/10000'}
-        icon={Youtube}
-        isLoading={isLoading}
-        color="purple"
-      />
-    </div>
-  );
-} 

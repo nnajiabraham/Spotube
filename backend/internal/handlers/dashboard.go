@@ -3,6 +3,7 @@ package handlers
 import (
 	"database/sql"
 	"net/http"
+	"time"
 
 	"github.com/go-jet/jet/v2/sqlite"
 	"github.com/labstack/echo/v4"
@@ -43,7 +44,8 @@ type RecentRun struct {
 	MappingID *string `json:"mapping_id,omitempty"`
 }
 
-// YouTubeQuotaStats represents YouTube API quota usage.
+// YouTubeQuotaStats is an estimate of today's YouTube Data API usage, derived from executor
+// runs that wrote to YouTube (search = 100 units, playlist insert = 50). Reads are ignored.
 type YouTubeQuotaStats struct {
 	Used  int64 `json:"used"`
 	Limit int64 `json:"limit"`
@@ -86,10 +88,13 @@ func (h *DashboardHandler) GetStats(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to fetch recent runs")
 	}
 
-	// YouTube quota placeholder (will be implemented in Phase 7)
+	quotaUsed, err := h.estimateYouTubeQuotaUsed(time.Now())
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to estimate youtube quota")
+	}
 	youtubeQuota := YouTubeQuotaStats{
-		Used:  0,
-		Limit: 10000,
+		Used:  quotaUsed,
+		Limit: youtubeDailyQuota,
 	}
 
 	response := DashboardStatsResponse{
@@ -102,6 +107,34 @@ func (h *DashboardHandler) GetStats(c echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, response)
+}
+
+const youtubeDailyQuota = 10000
+
+// youtubeQuotaDayStart returns the most recent midnight Pacific time, when YouTube resets quota.
+func youtubeQuotaDayStart(now time.Time) time.Time {
+	loc, err := time.LoadLocation("America/Los_Angeles")
+	if err != nil {
+		loc = time.FixedZone("PT", -8*60*60)
+	}
+	local := now.In(loc)
+	return time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, loc)
+}
+
+func (h *DashboardHandler) estimateYouTubeQuotaUsed(now time.Time) (int64, error) {
+	var used int64
+	err := h.DB.QueryRow(`
+		SELECT COALESCE(SUM(
+			CASE WHEN COALESCE(json_extract(details_json, '$.data.search_query'), '') <> '' THEN 100 ELSE 0 END +
+			CASE WHEN json_extract(details_json, '$.data.outcome') = 'added' THEN 50 ELSE 0 END
+		), 0)
+		FROM activity_logs
+		WHERE job_type = 'executor'
+		  AND json_extract(details_json, '$.data.source.platform') = 'spotify'
+		  AND created >= ?`,
+		youtubeQuotaDayStart(now).Unix(),
+	).Scan(&used)
+	return used, err
 }
 
 func (h *DashboardHandler) getQueueStats() (QueueStats, error) {
@@ -143,8 +176,13 @@ func (h *DashboardHandler) getQueueStats() (QueueStats, error) {
 
 func (h *DashboardHandler) getRecentRuns() ([]RecentRun, error) {
 	var activityLogs []model.ActivityLogs
+	// Routine system lifecycle entries (scheduler started/stopped) drown out sync activity.
 	err := table.ActivityLogs.
 		SELECT(table.ActivityLogs.AllColumns).
+		WHERE(sqlite.NOT(
+			table.ActivityLogs.JobType.EQ(sqlite.String("system")).
+				AND(table.ActivityLogs.Level.EQ(sqlite.String("info"))),
+		)).
 		ORDER_BY(table.ActivityLogs.Created.DESC()).
 		LIMIT(10).
 		Query(h.DB, &activityLogs)
