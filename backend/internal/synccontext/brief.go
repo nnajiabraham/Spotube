@@ -7,29 +7,48 @@ import (
 	"github.com/manlikeabro/spotube/internal/matching"
 )
 
-// BriefExecutorLine summarizes an executor run for stdout logging.
-func BriefExecutorLine(run ExecutorRun) string {
+// BriefExecutorLine is a one-line, human-readable summary of an executor run. dest is the
+// service the item was applied to ("spotify" or "youtube").
+func BriefExecutorLine(run ExecutorRun, dest string) string {
 	src := strings.TrimSpace(run.Source.Title)
-	if strings.TrimSpace(run.Source.Artist) != "" {
-		src += " — " + strings.TrimSpace(run.Source.Artist)
+	if artist := strings.TrimSpace(run.Source.Artist); artist != "" {
+		src += " — " + artist
 	}
-	selected := "none"
-	if run.Selected != nil {
-		selected = fmt.Sprintf("%q (%s)", strings.TrimSpace(run.Selected.Title), run.Selected.ID)
+	service := serviceLabel(dest)
+
+	switch run.Outcome {
+	case "added":
+		if run.Selected != nil {
+			return fmt.Sprintf("Added %q to %s as %q", src, service, strings.TrimSpace(run.Selected.Title))
+		}
+		return fmt.Sprintf("Added %q to %s", src, service)
+	case "skipped_duplicate":
+		return fmt.Sprintf("%q is already in the %s playlist", src, service)
+	case "no_match":
+		return fmt.Sprintf("Couldn't find %q on %s: %s", src, service, run.Error)
+	case "renamed":
+		return fmt.Sprintf("Renamed the %s playlist to %q", service, src)
 	}
-	// Items are applied to the platform opposite the source.
-	dest := "youtube"
-	if run.Source.Platform == matching.PlatformYouTube {
-		dest = "spotify"
+
+	verb := "add"
+	if run.Operation == "rename" {
+		verb = "rename to"
 	}
-	return fmt.Sprintf(
-		"executor %s to %s: %q → %s outcome=%s",
-		run.Operation,
-		dest,
-		src,
-		selected,
-		run.Outcome,
-	)
+	line := fmt.Sprintf("Failed to %s %q on %s", verb, src, service)
+	if run.Error != "" {
+		line += ": " + run.Error
+	}
+	return line
+}
+
+func serviceLabel(service string) string {
+	switch service {
+	case "youtube":
+		return "YouTube"
+	case "spotify":
+		return "Spotify"
+	}
+	return service
 }
 
 // AnalysisItemContext stores the full match decision on a sync item row.

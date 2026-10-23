@@ -112,7 +112,7 @@ func (s *Scheduler) Stop() error {
 	s.wg.Wait()
 	s.started = false
 
-	s.activityLogger.RecordInfo("Job scheduler stopped", "", "system")
+	s.activityLogger.RecordInfo("Sync scheduler stopped", "", "system")
 
 	return nil
 }

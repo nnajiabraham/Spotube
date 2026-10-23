@@ -1,25 +1,29 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { http, HttpResponse } from 'msw';
 import { Route } from '../../../routes/_authenticated/logs.lazy';
 
-// Extract the component from the Route
+vi.mock('@tanstack/react-router', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@tanstack/react-router')>();
+  return {
+    ...actual,
+    Link: ({ to, children, className }: { to: string; children: React.ReactNode; className?: string }) => (
+      <a href={to} className={className}>
+        {children}
+      </a>
+    ),
+  };
+});
+
 const ActivityLogsPage = (Route.options.component ?? (() => null)) as React.ComponentType;
 
 const renderWithProviders = (ui: React.ReactElement) => {
   const queryClient = new QueryClient({
-    defaultOptions: {
-      queries: { retry: false },
-    },
+    defaultOptions: { queries: { retry: false } },
   });
-  
-  return render(
-    <QueryClientProvider client={queryClient}>
-      {ui}
-    </QueryClientProvider>
-  );
+  return render(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>);
 };
 
 const mockActivityLogs = {
@@ -32,14 +36,14 @@ const mockActivityLogs = {
       id: 'log1',
       level: 'info' as const,
       message: 'Starting sync analysis job',
-      sync_item_id: '',
+      mapping_id: 'mapping1',
       job_type: 'analysis' as const,
       created: 1704110400,
     },
     {
       id: 'log2',
-      level: 'warn' as const,
-      message: 'Rate limit encountered, retrying in 30 seconds',
+      level: 'info' as const,
+      message: 'Added "Test Song" to YouTube',
       sync_item_id: 'sync_item_1',
       job_type: 'executor' as const,
       created: 1704110700,
@@ -52,9 +56,9 @@ const mockActivityLogs = {
     {
       id: 'log3',
       level: 'error' as const,
-      message: 'Failed to add track: Track not found',
-      sync_item_id: 'sync_item_2',
-      job_type: 'executor' as const,
+      message: 'Sync failed: reconnect required (spotify): oauth2: "invalid_grant"',
+      mapping_id: 'mapping1',
+      job_type: 'analysis' as const,
       created: 1704111000,
     },
   ],
@@ -63,312 +67,135 @@ const mockActivityLogs = {
 const mockSyncItem = {
   id: 'sync_item_1',
   mapping_id: 'mapping1',
-  service: 'spotify',
-  action: 'add',
-  status: 'running',
-  track_id: 'youtube_video_456',
+  service: 'youtube',
+  operation: 'add',
+  status: 'done',
+  track_id: 'spotify_track_1',
   track_title: 'Test Song',
   track_artist: 'Test Artist',
-  error_message: 'Rate limit exceeded',
-  attempt_count: 2,
-  last_attempt_at: 1704111000,
+  attempt_count: 1,
   created: 1704109000,
   updated: 1704111000,
 };
 
-describe('Activity Logs Page', () => {
-  const server = globalThis.mswServer;
+const server = globalThis.mswServer;
 
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
+const serveLogs = (handler?: (url: URL) => object) =>
+  server?.use(
+    http.get('*/api/collections/activity_logs/records', ({ request }) =>
+      HttpResponse.json(handler?.(new URL(request.url)) ?? mockActivityLogs),
+    ),
+  );
 
-  it('renders activity logs table with data', async () => {
-    server?.use(
-      http.get('*/api/collections/activity_logs/records', () => {
-        return HttpResponse.json(mockActivityLogs);
-      })
-    );
-
+describe('Activity page', () => {
+  it('lists log entries with their job type and mapping name', async () => {
+    serveLogs();
     renderWithProviders(<ActivityLogsPage />);
 
-    // Check page title and description
-    expect(screen.getByText('Activity Logs')).toBeInTheDocument();
-    expect(screen.getByText('Monitor system activity and sync job execution')).toBeInTheDocument();
-
-    // Wait for data to load and check table content
+    expect(screen.getByRole('heading', { name: 'Activity' })).toBeInTheDocument();
+    expect(await screen.findByText('Starting sync analysis job')).toBeInTheDocument();
+    expect(screen.getByText('Added "Test Song" to YouTube')).toBeInTheDocument();
+    expect(screen.getByText('Track copy')).toBeInTheDocument();
+    expect(screen.getAllByText('Sync run')).toHaveLength(2);
     await waitFor(() => {
-      expect(screen.getByText('Starting sync analysis job')).toBeInTheDocument();
+      expect(screen.getAllByText('My Spotify Playlist ⇄ My YouTube Playlist')).toHaveLength(2);
     });
-
-    expect(screen.getByText('Rate limit encountered, retrying in 30 seconds')).toBeInTheDocument();
-    expect(screen.getByText('Failed to add track: Track not found')).toBeInTheDocument();
-
-    // Check that levels are displayed with badges
-    expect(screen.getByText('INFO')).toBeInTheDocument();
-    expect(screen.getByText('WARN')).toBeInTheDocument();
-    expect(screen.getByText('ERROR')).toBeInTheDocument();
-
-    // Check that job types are displayed
-    expect(screen.getByText('ANALYSIS')).toBeInTheDocument();
-    expect(screen.getAllByText('EXECUTOR')).toHaveLength(2);
+    expect(screen.getByText('3 entries')).toBeInTheDocument();
   });
 
-  it('filters logs by level correctly', async () => {
+  it('links reconnect errors to the dashboard', async () => {
+    serveLogs();
+    renderWithProviders(<ActivityLogsPage />);
+
+    const link = await screen.findByRole('link', { name: 'Reconnect Spotify' });
+    expect(link).toHaveAttribute('href', '/dashboard');
+  });
+
+  it('filters by tab', async () => {
     const user = userEvent.setup();
-
-    server?.use(
-      http.get('*/api/collections/activity_logs/records', ({ request }) => {
-        const url = new URL(request.url);
-        const level = url.searchParams.get('level');
-
-        if (level === 'error') {
-          return HttpResponse.json({
-            ...mockActivityLogs,
-            totalItems: 1,
-            items: [mockActivityLogs.items[2]], // Only error log
-          });
-        }
-
-        return HttpResponse.json(mockActivityLogs);
-      })
-    );
-
-    renderWithProviders(<ActivityLogsPage />);
-
-    // Wait for initial data
-    await waitFor(() => {
-      expect(screen.getByText('Starting sync analysis job')).toBeInTheDocument();
+    const seen: string[] = [];
+    serveLogs((url) => {
+      seen.push(url.search);
+      if (url.searchParams.get('level') === 'error') {
+        return { ...mockActivityLogs, totalItems: 1, items: [mockActivityLogs.items[2]] };
+      }
+      if (url.searchParams.get('job_type') === 'executor') {
+        return { ...mockActivityLogs, totalItems: 1, items: [mockActivityLogs.items[1]] };
+      }
+      return mockActivityLogs;
     });
+    renderWithProviders(<ActivityLogsPage />);
+    await screen.findByText('Starting sync analysis job');
 
-    // Filter by error level
-    const levelFilter = screen.getByDisplayValue('All Levels');
-    await user.selectOptions(levelFilter, 'error');
-
-    // Wait for filtered results
+    await user.click(screen.getByRole('tab', { name: 'Errors' }));
     await waitFor(() => {
       expect(screen.queryByText('Starting sync analysis job')).not.toBeInTheDocument();
-      expect(screen.queryByText('Rate limit encountered, retrying in 30 seconds')).not.toBeInTheDocument();
-      expect(screen.getByText('Failed to add track: Track not found')).toBeInTheDocument();
     });
+    expect(screen.getByText(/Sync failed: reconnect required/)).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Errors' })).toHaveAttribute('aria-selected', 'true');
+
+    await user.click(screen.getByRole('tab', { name: 'Track copies' }));
+    await waitFor(() => {
+      expect(screen.queryByText(/Sync failed/)).not.toBeInTheDocument();
+    });
+    expect(screen.getByText('Added "Test Song" to YouTube')).toBeInTheDocument();
+    expect(seen.some((s) => s.includes('job_type=executor'))).toBe(true);
   });
 
-  it('filters logs by job type correctly', async () => {
+  it('opens the sync item drawer from "View track" and closes it', async () => {
     const user = userEvent.setup();
-
+    serveLogs();
     server?.use(
-      http.get('*/api/collections/activity_logs/records', ({ request }) => {
-        const url = new URL(request.url);
-        const jobType = url.searchParams.get('job_type');
-
-        if (jobType === 'analysis') {
-          return HttpResponse.json({
-            ...mockActivityLogs,
-            totalItems: 1,
-            items: [mockActivityLogs.items[0]], // Only analysis log
-          });
-        }
-
-        return HttpResponse.json(mockActivityLogs);
-      })
+      http.get('*/api/collections/sync_items/records/sync_item_1', () => HttpResponse.json(mockSyncItem)),
     );
-
     renderWithProviders(<ActivityLogsPage />);
 
-    // Wait for initial data
-    await waitFor(() => {
-      expect(screen.getByText('Starting sync analysis job')).toBeInTheDocument();
-    });
+    await user.click(await screen.findByRole('button', { name: 'View track' }));
+    const dialog = await screen.findByRole('dialog');
+    await waitFor(() => expect(dialog).toHaveTextContent('Test Song'));
 
-    // Filter by analysis job type
-    const jobTypeFilter = screen.getByDisplayValue('All Job Types');
-    await user.selectOptions(jobTypeFilter, 'analysis');
-
-    // Wait for filtered results
-    await waitFor(() => {
-      expect(screen.getByText('Starting sync analysis job')).toBeInTheDocument();
-      expect(screen.queryByText('Rate limit encountered, retrying in 30 seconds')).not.toBeInTheDocument();
-      expect(screen.queryByText('Failed to add track: Track not found')).not.toBeInTheDocument();
-    });
+    await user.click(screen.getByRole('button', { name: 'Close' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
   });
 
-  it('opens sync item modal when clicking on log with sync_item_id', async () => {
+  it('expands details', async () => {
     const user = userEvent.setup();
-
-    server?.use(
-      http.get('*/api/collections/activity_logs/records', () => {
-        return HttpResponse.json(mockActivityLogs);
-      }),
-      http.get('*/api/collections/sync_items/records/sync_item_1', () => {
-        return HttpResponse.json(mockSyncItem);
-      })
-    );
-
+    serveLogs();
     renderWithProviders(<ActivityLogsPage />);
 
-    // Wait for data to load
-    await waitFor(() => {
-      expect(screen.getByText('Rate limit encountered, retrying in 30 seconds')).toBeInTheDocument();
-    });
-
-    // Click on the log message with sync_item_id
-    const logWithSyncItem = screen.getByText('Rate limit encountered, retrying in 30 seconds');
-    await user.click(logWithSyncItem);
-
-    // Wait for modal to appear
-    await waitFor(() => {
-      expect(screen.getByText('Sync Item Details')).toBeInTheDocument();
-    });
-
-    // Check modal content
-    expect(screen.getByText('Test Song')).toBeInTheDocument();
-    expect(screen.getByText('running')).toBeInTheDocument();
-    expect(screen.getByText('Rate limit exceeded')).toBeInTheDocument();
-    expect(screen.getAllByText(/Spotify/i).length).toBeGreaterThan(0);
+    await user.click(await screen.findByRole('button', { name: /details/i }));
+    expect(screen.getByText(/executor_run/)).toBeInTheDocument();
+    expect(screen.getByText(/"outcome": "added"/)).toBeInTheDocument();
   });
 
-  it('closes sync item modal when clicking close button', async () => {
+  it('shows loading, error and empty states', async () => {
+    server?.use(
+      http.get('*/api/collections/activity_logs/records', () =>
+        HttpResponse.json({ error: 'Internal server error' }, { status: 500 }),
+      ),
+    );
+    const { unmount } = renderWithProviders(<ActivityLogsPage />);
+    expect(screen.getByRole('status')).toHaveTextContent('Loading activity');
+    expect(await screen.findByText(/Couldn't load activity/)).toBeInTheDocument();
+    unmount();
+
+    serveLogs(() => ({ page: 1, perPage: 50, totalItems: 0, totalPages: 0, items: [] }));
+    renderWithProviders(<ActivityLogsPage />);
+    expect(await screen.findByText('Nothing has run yet.')).toBeInTheDocument();
+  });
+
+  it('refetches when Refresh is clicked', async () => {
     const user = userEvent.setup();
-
-    server?.use(
-      http.get('*/api/collections/activity_logs/records', () => {
-        return HttpResponse.json(mockActivityLogs);
-      }),
-      http.get('*/api/collections/sync_items/records/sync_item_1', () => {
-        return HttpResponse.json(mockSyncItem);
-      })
-    );
-
+    let calls = 0;
+    serveLogs(() => {
+      calls++;
+      return mockActivityLogs;
+    });
     renderWithProviders(<ActivityLogsPage />);
+    await screen.findByText('Starting sync analysis job');
+    expect(calls).toBe(1);
 
-    // Wait for data and open modal
-    await waitFor(() => {
-      expect(screen.getByText('Rate limit encountered, retrying in 30 seconds')).toBeInTheDocument();
-    });
-
-    const logWithSyncItem = screen.getByText('Rate limit encountered, retrying in 30 seconds');
-    await user.click(logWithSyncItem);
-
-    await waitFor(() => {
-      expect(screen.getByText('Sync Item Details')).toBeInTheDocument();
-    });
-
-    // Close modal
-    const closeButton = screen.getByRole('button', { name: 'Close modal' });
-    await user.click(closeButton);
-
-    // Modal should be gone
-    await waitFor(() => {
-      expect(screen.queryByText('Sync Item Details')).not.toBeInTheDocument();
-    });
+    await user.click(screen.getByRole('button', { name: /refresh/i }));
+    await waitFor(() => expect(calls).toBe(2));
   });
-
-  it('shows loading state while fetching data', () => {
-    server?.use(
-      http.get('*/api/collections/activity_logs/records', async () => {
-        await new Promise(resolve => setTimeout(resolve, 100));
-        return HttpResponse.json(mockActivityLogs);
-      })
-    );
-
-    renderWithProviders(<ActivityLogsPage />);
-
-    // Check for loading state (shimmer effects)
-    const loadingElements = screen.getAllByRole('status', { hidden: true });
-    expect(loadingElements.length).toBeGreaterThan(0);
-  });
-
-  it('shows error state when API fails', async () => {
-    server?.use(
-      http.get('*/api/collections/activity_logs/records', () => {
-        return HttpResponse.json(
-          { error: 'Internal server error' },
-          { status: 500 }
-        );
-      })
-    );
-
-    renderWithProviders(<ActivityLogsPage />);
-
-    await waitFor(() => {
-      expect(screen.getByText('Error loading activity logs')).toBeInTheDocument();
-    });
-
-    expect(screen.getByText('Unable to fetch activity logs. Please try refreshing.')).toBeInTheDocument();
-  });
-
-  it('shows empty state when no logs are found', async () => {
-    server?.use(
-      http.get('*/api/collections/activity_logs/records', () => {
-        return HttpResponse.json({
-          page: 1,
-          perPage: 50,
-          totalItems: 0,
-          totalPages: 0,
-          items: [],
-        });
-      })
-    );
-
-    renderWithProviders(<ActivityLogsPage />);
-
-    await waitFor(() => {
-      expect(screen.getByText('No activity logs found')).toBeInTheDocument();
-    });
-
-    expect(screen.getByText('Activity logs will appear here when system operations occur.')).toBeInTheDocument();
-  });
-
-  it('expands details_json when JSON toggle is clicked', async () => {
-    const user = userEvent.setup()
-
-    server?.use(
-      http.get('*/api/collections/activity_logs/records', () => {
-        return HttpResponse.json(mockActivityLogs)
-      }),
-    )
-
-    renderWithProviders(<ActivityLogsPage />)
-
-    await waitFor(() => {
-      expect(screen.getByText('Rate limit encountered, retrying in 30 seconds')).toBeInTheDocument()
-    })
-
-    await user.click(screen.getAllByRole('button', { name: /json/i })[0])
-
-    await waitFor(() => {
-      expect(screen.getByText(/executor_run/)).toBeInTheDocument()
-      expect(screen.getByText(/"outcome": "added"/)).toBeInTheDocument()
-    })
-  })
-
-  it('refreshes data when refresh button is clicked', async () => {
-    const user = userEvent.setup();
-    let callCount = 0;
-
-    server?.use(
-      http.get('*/api/collections/activity_logs/records', () => {
-        callCount++;
-        return HttpResponse.json(mockActivityLogs);
-      })
-    );
-
-    renderWithProviders(<ActivityLogsPage />);
-
-    // Wait for initial load
-    await waitFor(() => {
-      expect(screen.getByText('Starting sync analysis job')).toBeInTheDocument();
-    });
-
-    expect(callCount).toBe(1);
-
-    // Click refresh button
-    const refreshButton = screen.getByText('Refresh');
-    await user.click(refreshButton);
-
-    // Should trigger another API call
-    await waitFor(() => {
-      expect(callCount).toBe(2);
-    });
-  });
-}); 
+});

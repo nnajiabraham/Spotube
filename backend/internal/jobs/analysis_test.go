@@ -381,3 +381,67 @@ func TestReconcileQueuedAdds_SkipsItemsNoLongerNeeded(t *testing.T) {
 	s, _ = status("finished")
 	assert.Equal(t, "done", s)
 }
+
+func newTestAnalysisJob(db *sql.DB) *AnalysisJob {
+	clientFactory := auth.NewClientFactory(db, &testAnalysisCredentialsRepo{}, auth.NewSQLiteTokenRepository(db))
+	return NewAnalysisJob(JobDeps{DB: db, Logger: zerolog.Nop(), ActivityLogger: activitylogger.New(db)}, clientFactory)
+}
+
+func loadTestMapping(t *testing.T, db *sql.DB, id string) model.Mappings {
+	t.Helper()
+	var m model.Mappings
+	var lastErr sql.NullString
+	require.NoError(t, db.QueryRow(`SELECT id, sync_tracks, sync_name, last_sync_error FROM mappings WHERE id = ?`, id).
+		Scan(&id, &m.SyncTracks, &m.SyncName, &lastErr))
+	m.ID = &id
+	if lastErr.Valid {
+		m.LastSyncError = &lastErr.String
+	}
+	return m
+}
+
+func TestSyncMapping_RepeatedFailureLoggedOnce(t *testing.T) {
+	db, cleanup := setupAnalysisTestDB(t)
+	defer cleanup()
+
+	now := time.Now().Unix()
+	_, err := db.Exec(`INSERT INTO mappings (id, spotify_playlist_id, youtube_playlist_id, sync_name, sync_tracks, interval_minutes, tracks_count, created, updated) VALUES ('m1','sp','yt',0,1,5,0,?,?)`, now, now)
+	require.NoError(t, err)
+
+	job := newTestAnalysisJob(db)
+	for i := 0; i < 3; i++ {
+		// No tokens are stored, so every run fails the same way.
+		job.SyncMapping(context.Background(), loadTestMapping(t, db, "m1"))
+	}
+
+	var errors int
+	require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM activity_logs WHERE mapping_id = 'm1' AND level = 'error'`).Scan(&errors))
+	assert.Equal(t, 1, errors)
+
+	var status string
+	require.NoError(t, db.QueryRow(`SELECT last_sync_status FROM mappings WHERE id = 'm1'`).Scan(&status))
+	assert.NotEqual(t, "ok", status)
+}
+
+func TestPruneActivityLogs(t *testing.T) {
+	db, cleanup := setupAnalysisTestDB(t)
+	defer cleanup()
+
+	old := time.Now().Add(-activityLogRetention - time.Hour).Unix()
+	recent := time.Now().Unix()
+	_, err := db.Exec(`INSERT INTO activity_logs (id, level, message, job_type, created) VALUES ('old','error','x','analysis',?), ('new','info','y','analysis',?)`, old, recent)
+	require.NoError(t, err)
+
+	newTestAnalysisJob(db).pruneActivityLogs()
+
+	var ids []string
+	rows, err := db.Query(`SELECT id FROM activity_logs`)
+	require.NoError(t, err)
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		require.NoError(t, rows.Scan(&id))
+		ids = append(ids, id)
+	}
+	assert.Equal(t, []string{"new"}, ids)
+}

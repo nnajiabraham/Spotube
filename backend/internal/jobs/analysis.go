@@ -59,6 +59,8 @@ const defaultApplyLimit = 25
 
 // Run analyzes every mapping that is due and applies its queue when auto-apply is enabled.
 func (j *AnalysisJob) Run(ctx context.Context) error {
+	j.pruneActivityLogs()
+
 	mappings, err := j.getMappingsForAnalysis(ctx)
 	if err != nil {
 		j.logger.Error().Err(err).Msg("failed to get mappings for analysis")
@@ -103,7 +105,11 @@ func (j *AnalysisJob) SyncMapping(ctx context.Context, mapping model.Mappings) {
 			status = "reconnect_required"
 		}
 		j.logger.Error().Err(err).Str("mapping_id", mappingID).Msg("mapping sync failed")
-		j.activityLogger.RecordError("Sync failed: "+err.Error(), mappingID, "analysis")
+		// A failure that repeats every run (e.g. a revoked token) is already shown on the
+		// mapping; only log it to the activity feed when it first appears or changes.
+		if errMsg != lo.FromPtr(mapping.LastSyncError) {
+			j.activityLogger.RecordError("Sync failed: "+err.Error(), mappingID, "analysis")
+		}
 	}
 	// Stamp the run even on failure so a broken mapping waits for its interval instead of
 	// retrying (and logging an error) on every cron tick.
@@ -574,6 +580,22 @@ func (j *AnalysisJob) refreshMappingPlaylistNames(
 		mapping.SpotifyPlaylistName, mapping.YoutubePlaylistName, lo.FromPtr(mapping.ID),
 	)
 	return err
+}
+
+// activityLogRetention is how long activity log rows are kept.
+const activityLogRetention = 30 * 24 * time.Hour
+
+// pruneActivityLogs deletes activity logs older than activityLogRetention.
+func (j *AnalysisJob) pruneActivityLogs() {
+	cutoff := time.Now().Add(-activityLogRetention).Unix()
+	res, err := j.db.Exec("DELETE FROM activity_logs WHERE created < ?", cutoff)
+	if err != nil {
+		j.logger.Error().Err(err).Msg("failed to prune activity logs")
+		return
+	}
+	if n, _ := res.RowsAffected(); n > 0 {
+		j.logger.Info().Int64("deleted", n).Msg("pruned old activity logs")
+	}
 }
 
 func (j *AnalysisJob) recordSyncResult(mappingID, status, errMsg string) error {

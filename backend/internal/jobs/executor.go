@@ -95,7 +95,7 @@ func (e *Executor) ExecuteOne(ctx context.Context, itemID string) (model.SyncIte
 
 	run, execErr := e.runOperation(ctx, item, mapping)
 	run.SyncItemID = itemID
-	e.recordExecutorLog(mappingID, itemID, run, execErr)
+	e.recordExecutorLog(mappingID, itemID, item.Service, run, execErr)
 
 	if errors.Is(execErr, ErrAlreadyInDestination) {
 		updated, skipErr := e.markSkipped(itemID, "already in destination playlist")
@@ -402,17 +402,15 @@ func playlistContainsID(tracks []matching.Track, id string) bool {
 	return false
 }
 
-func (e *Executor) recordExecutorLog(mappingID, itemID string, run synccontext.ExecutorRun, execErr error) {
+func (e *Executor) recordExecutorLog(mappingID, itemID, dest string, run synccontext.ExecutorRun, execErr error) {
 	level := "info"
-	message := synccontext.BriefExecutorLine(run)
 	if execErr != nil && !errors.Is(execErr, ErrAlreadyInDestination) {
 		level = "error"
-		if run.Error != "" {
-			message = message + ": " + run.Error
-		} else {
-			message = message + ": " + execErr.Error()
+		if run.Error == "" {
+			run.Error = execErr.Error()
 		}
 	}
+	message := synccontext.BriefExecutorLine(run, dest)
 	details := synccontext.Envelope{
 		Version: synccontext.Version,
 		Kind:    "executor_run",
