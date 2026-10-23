@@ -1,11 +1,13 @@
 import { createLazyFileRoute, useNavigate } from '@tanstack/react-router'
-import { useForm } from 'react-hook-form'
+import { useForm, type UseFormRegisterReturn } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { useState } from 'react'
-import { api, ApiError } from '../../lib/api'
+import { KeyRound } from 'lucide-react'
+import { setupAPI } from '../../lib/api'
+import { inputClass } from '../../lib/format'
+import { Button, Card, Notice, ServiceIcon, SpotubeMark } from '../../components/ui'
 
-// Zod schema for form validation
 const SetupSchema = z.object({
   spotifyId: z.string().min(1, 'Spotify Client ID is required'),
   spotifySecret: z.string().min(1, 'Spotify Client Secret is required'),
@@ -15,161 +17,112 @@ const SetupSchema = z.object({
 
 type SetupFormData = z.infer<typeof SetupSchema>
 
+const apiBase = import.meta.env.VITE_PUBLIC_URL || import.meta.env.VITE_API_URL || 'http://127.0.0.1:8090'
+
+function Input({
+  id,
+  label,
+  type = 'text',
+  error,
+  registration,
+}: {
+  id: string
+  label: string
+  type?: string
+  error?: string
+  registration: UseFormRegisterReturn
+}) {
+  return (
+    <label htmlFor={id} className="block">
+      <span className="mb-1 block text-xs font-medium text-gray-500">{label}</span>
+      <input id={id} type={type} autoComplete="off" className={inputClass} aria-invalid={!!error} {...registration} />
+      {error && <span className="mt-1 block text-xs text-youtube-700">{error}</span>}
+    </label>
+  )
+}
+
+function ProviderSection({ service, title, redirect, children }: { service: string; title: string; redirect: string; children: React.ReactNode }) {
+  return (
+    <section className="space-y-3">
+      <h2 className="flex items-center gap-2 text-sm font-semibold text-ink">
+        <ServiceIcon service={service} className="h-4 w-4" />
+        {title}
+      </h2>
+      {children}
+      <p className="text-xs text-gray-500">
+        Redirect URI: <code className="rounded bg-gray-100 px-1 py-0.5 text-[11px] text-ink">{redirect}</code>
+      </p>
+    </section>
+  )
+}
+
 function SetupWizard() {
   const navigate = useNavigate()
-  const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
-
   const {
     register,
     handleSubmit,
-    formState: { errors },
-  } = useForm<SetupFormData>({
-    resolver: zodResolver(SetupSchema),
-  })
+    formState: { errors, isSubmitting },
+  } = useForm<SetupFormData>({ resolver: zodResolver(SetupSchema) })
 
   const onSubmit = async (data: SetupFormData) => {
-    setIsSubmitting(true)
     setError(null)
-
     try {
-      await api.saveSetupCredentials({
+      await setupAPI.save({
         spotify_client_id: data.spotifyId,
         spotify_client_secret: data.spotifySecret,
         google_client_id: data.googleClientId,
         google_client_secret: data.googleClientSecret,
       })
-
-      // Navigate to success page
       navigate({ to: '/setup/success' })
     } catch (err) {
-      if (err instanceof ApiError) {
-        setError(err.message)
-      } else if (err instanceof Error) {
-        setError(err.message)
-      } else {
-        setError('An unknown error occurred')
-      }
-    } finally {
-      setIsSubmitting(false)
+      setError(err instanceof Error ? err.message : 'Something went wrong saving the credentials.')
     }
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-md w-full space-y-8">
+    <main className="mx-auto flex min-h-screen max-w-lg flex-col justify-center px-4 py-12">
+      <div className="mb-6 flex items-center gap-3">
+        <SpotubeMark className="h-9 w-9" />
         <div>
-          <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
-            Welcome to Spotube
-          </h2>
-          <p className="mt-2 text-center text-sm text-gray-600">
-            Please configure your OAuth credentials to get started
-          </p>
+          <h1 className="text-xl font-semibold text-ink">Set up Spotube</h1>
+          <p className="text-sm text-gray-500">Add the OAuth apps Spotube signs in with. They're stored in the local database.</p>
         </div>
-
-        <form className="mt-8 space-y-6" onSubmit={handleSubmit(onSubmit)}>
-          <div className="rounded-md shadow-sm space-y-4">
-            {/* Spotify Credentials */}
-            <div>
-              <h3 className="text-lg font-medium text-gray-900 mb-4">Spotify Credentials</h3>
-              <div className="space-y-4">
-                <div>
-                  <label htmlFor="spotifyId" className="block text-sm font-medium text-gray-700">
-                    Spotify Client ID
-                  </label>
-                  <input
-                    {...register('spotifyId')}
-                    type="text"
-                    className="mt-1 appearance-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-ink focus:border-ink sm:text-sm"
-                    placeholder="Enter your Spotify Client ID"
-                  />
-                  {errors.spotifyId && (
-                    <p className="mt-2 text-sm text-youtube-700">{errors.spotifyId.message}</p>
-                  )}
-                </div>
-
-                <div>
-                  <label htmlFor="spotifySecret" className="block text-sm font-medium text-gray-700">
-                    Spotify Client Secret
-                  </label>
-                  <input
-                    {...register('spotifySecret')}
-                    type="password"
-                    className="mt-1 appearance-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-ink focus:border-ink sm:text-sm"
-                    placeholder="Enter your Spotify Client Secret"
-                  />
-                  {errors.spotifySecret && (
-                    <p className="mt-2 text-sm text-youtube-700">{errors.spotifySecret.message}</p>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* Google Credentials */}
-            <div>
-              <h3 className="text-lg font-medium text-gray-900 mb-4">Google Credentials</h3>
-              <div className="space-y-4">
-                <div>
-                  <label htmlFor="googleClientId" className="block text-sm font-medium text-gray-700">
-                    Google Client ID
-                  </label>
-                  <input
-                    {...register('googleClientId')}
-                    type="text"
-                    className="mt-1 appearance-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-ink focus:border-ink sm:text-sm"
-                    placeholder="Enter your Google Client ID"
-                  />
-                  {errors.googleClientId && (
-                    <p className="mt-2 text-sm text-youtube-700">{errors.googleClientId.message}</p>
-                  )}
-                </div>
-
-                <div>
-                  <label htmlFor="googleClientSecret" className="block text-sm font-medium text-gray-700">
-                    Google Client Secret
-                  </label>
-                  <input
-                    {...register('googleClientSecret')}
-                    type="password"
-                    className="mt-1 appearance-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-ink focus:border-ink sm:text-sm"
-                    placeholder="Enter your Google Client Secret"
-                  />
-                  {errors.googleClientSecret && (
-                    <p className="mt-2 text-sm text-youtube-700">{errors.googleClientSecret.message}</p>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {error && (
-            <div className="rounded-md bg-youtube-50 p-4">
-              <div className="flex">
-                <div className="ml-3">
-                  <h3 className="text-sm font-medium text-youtube-700">Error</h3>
-                  <div className="mt-2 text-sm text-youtube-700">
-                    <p>{error}</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          <div>
-            <button
-              type="submit"
-              disabled={isSubmitting}
-              className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-ink hover:bg-ink-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-ink disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {isSubmitting ? 'Saving...' : 'Save Credentials'}
-            </button>
-          </div>
-        </form>
       </div>
-    </div>
+      <Card className="p-6">
+        <form className="space-y-6" onSubmit={handleSubmit(onSubmit)} noValidate>
+          <ProviderSection service="spotify" title="Spotify app" redirect={`${apiBase}/api/auth/spotify/callback`}>
+            <Input id="spotifyId" label="Client ID" error={errors.spotifyId?.message} registration={register('spotifyId')} />
+            <Input
+              id="spotifySecret"
+              label="Client secret"
+              type="password"
+              error={errors.spotifySecret?.message}
+              registration={register('spotifySecret')}
+            />
+          </ProviderSection>
+          <div className="border-t border-gray-200" />
+          <ProviderSection service="youtube" title="Google OAuth client" redirect={`${apiBase}/api/auth/youtube/callback`}>
+            <Input id="googleClientId" label="Client ID" error={errors.googleClientId?.message} registration={register('googleClientId')} />
+            <Input
+              id="googleClientSecret"
+              label="Client secret"
+              type="password"
+              error={errors.googleClientSecret?.message}
+              registration={register('googleClientSecret')}
+            />
+          </ProviderSection>
+          {error && <Notice tone="error">{error}</Notice>}
+          <Button type="submit" variant="primary" className="w-full" loading={isSubmitting} icon={<KeyRound className="h-4 w-4" />}>
+            Save credentials
+          </Button>
+        </form>
+      </Card>
+      <p className="mt-4 text-center text-xs text-gray-500">Step-by-step instructions are in the README under “OAuth setup”.</p>
+    </main>
   )
 }
 
 export const Route = createLazyFileRoute('/setup/')({
   component: SetupWizard,
-}) 
+})

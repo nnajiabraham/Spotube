@@ -69,12 +69,12 @@ export class APIClient {
       } | null;
 
       if (errorData?.error?.code) {
-        throw new APIClientError(errorData.error.code, errorData.error.message ?? response.statusText);
+        throw new APIClientError(errorData.error.code, errorData.error.message ?? response.statusText, response.status);
       }
 
       const message = errorData?.message ?? response.statusText;
       const code = httpStatusToErrorCode(response.status);
-      throw new APIClientError(code, message);
+      throw new APIClientError(code, message, response.status);
     }
 
     return response;
@@ -129,7 +129,8 @@ export class APIClient {
 }
 
 export class APIClientError extends Error {
-  constructor(public code: string, message: string) {
+  /** HTTP status of the failed response (0 when unknown). */
+  constructor(public code: string, message: string, public status = 0) {
     super(message);
     this.name = 'APIClientError';
   }

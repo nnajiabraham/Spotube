@@ -16,6 +16,8 @@ commands are in the [README](../README.md); colours and components are in
 | **Track link** | Spotube's memory that a Spotify track and a YouTube video are the same song, or that a song is **not on** a service. Links are global: they apply to every mapping. |
 | **Review** | Where a track waits when Spotube searched but wasn't confident. Only you can settle it. |
 | **Blocked track** | A track you never want synced for one mapping. |
+| **Backup** | A playlist on either service whose track list Spotube saves over time. Independent of mappings: any playlist can be backed up. |
+| **Snapshot** | The playlist's name and tracks, in order, at one point in time, with each track's Spotify and YouTube IDs where Spotube knows both. A new snapshot is saved only when something changed. |
 
 ## 2. Workflows
 
@@ -91,10 +93,42 @@ review items back to pending; they are then added from the link without a search
 If a provider revokes a token, the mapping shows **Reconnect needed** and the Dashboard
 account card offers **Reconnect**.
 
+### 2.7 Back up a playlist
+
+1. **Backups → Add playlist** (or **Back up** on a Settings playlist page) picks any playlist
+   from either account. Spotube reads it straight away and saves the first snapshot.
+2. After that, the playlist is checked:
+   - **on its schedule** (every 6 h to weekly, daily by default). A background check runs every
+     10 minutes, whether or not sync workers are on (`BACKUPS_ENABLED`);
+   - **whenever a sync reads it**, if the playlist is in a mapping. This is free, because the
+     sync already fetched the tracks;
+   - **when you press Back up now**.
+3. If the name and track order are unchanged, the latest snapshot is marked "unchanged until"
+   that check and nothing is added. Otherwise a new snapshot is saved, with what was added and
+   removed. The oldest snapshots past the keep limit (30 by default) are deleted.
+4. A YouTube check costs about 2 quota units per 50 videos. Spotify is free.
+
+### 2.8 Restore a snapshot
+
+Open a backup, pick a snapshot and choose **Restore…**:
+
+- **Put back missing tracks** adds the snapshot's tracks that are no longer in the original
+  playlist, at the end. Nothing is removed or reordered.
+- **New playlist on the same service** creates a copy with every track in order. On YouTube it
+  is private. Spotify currently ignores the private flag for apps, so the copy shows as public.
+- **New playlist on the other service** uses the counterpart IDs from Matches. Tracks without
+  a known counterpart are listed afterwards instead of being searched for.
+
+On YouTube a restore costs 50 units per track added (plus 50 for a new playlist). The dialog
+shows the estimate and refuses if it would exceed the quota left today. Each snapshot can also
+be downloaded as **JSON** (complete, for scripts) or **CSV**.
+
 ## 3. Pages
 
-The header is black. Its nav reads Dashboard · Mappings · Review (count badge) · Sync Queue ·
-Matches · Activity.
+The header is light, with a green → red rule along the top. Its nav reads dashboard ·
+mappings · review · queue · matches · backups · activity. A status bar along the bottom
+shows API health, review / pending / failed counts, today's YouTube quota and the number of
+backups.
 
 ### Dashboard `/dashboard`
 - **Accounts**: Spotify and YouTube connection state, with Playlists and Reconnect buttons.
@@ -146,8 +180,21 @@ Matches · Activity.
   **View track** button that opens the sync item drawer. A reconnect link appears when a
   provider needs one. Pagination is 50 per page; logs older than 30 days are pruned.
 
+### Backups `/backups`, `/backups/:id`
+- **List**: each backed-up playlist with its service and schedule, track count and last change
+  (+added / −removed, or "first"), snapshots kept out of the limit, when it was last checked,
+  **Back up now** and **Open**. **Add playlist** opens a picker with a Spotify and a YouTube
+  tab that filters the account's playlists.
+- **Detail**: the playlist ID linked to the service, **Back up now** and **Delete** (deletes the
+  backup and its snapshots, never the playlist). Settings: scheduled on/off, how often, how
+  many snapshots to keep.
+- **Snapshots** timeline, newest first, each with track count, change and source (first backup,
+  scheduled, sync, manual). The selected snapshot shows its tracks with length, Spotify ID and
+  YouTube ID, what changed since the one before, **JSON** / **CSV** downloads and **Restore…**.
+
 ### Settings `/settings/spotify`, `/settings/youtube`
-- Connection status for one provider, with its playlists.
+- Every playlist in the connected account, filterable, with "⇄ synced with …" for paired ones
+  and **Back up** (or the backup's state, linking to it).
 
 ### Setup `/setup`
 - OAuth credentials form, shown until credentials exist.
@@ -172,4 +219,6 @@ Matches · Activity.
 | `blacklist` | Blocked tracks per mapping |
 | `activity_logs` | Sync, executor and system events with JSON details (30-day retention) |
 | `api_usage` | YouTube units and calls per Pacific day |
+| `playlist_backups` | Backed-up playlists: service, playlist ID, schedule, keep limit, last check and error |
+| `playlist_snapshots` | One row per distinct version: name, counts, change, source, content hash, `confirmed_at`, and the tracks as JSON |
 | `oauth_tokens`, `settings` | Tokens and OAuth client credentials |

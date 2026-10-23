@@ -83,7 +83,7 @@ function DesignPage() {
             </Card>
           ))}
         </div>
-        <div className="mt-4 flex items-center gap-4 rounded-xl bg-ink p-4 text-white">
+        <div className="mt-4 flex items-center gap-4 rounded-lg bg-ink p-4 text-white">
           <SpotubeMark className="h-10 w-10 rounded-lg ring-1 ring-white/15" />
           <div>
             <div className="font-semibold">Spotube</div>

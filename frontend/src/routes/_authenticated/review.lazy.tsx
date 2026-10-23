@@ -84,7 +84,7 @@ function ReviewPage() {
       {isLoading ? (
         <p className="py-10 text-center text-sm text-gray-500">Loading…</p>
       ) : items.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-gray-300 bg-white">
+        <div className="rounded-lg border border-dashed border-gray-300 bg-white">
           <EmptyState icon={<CheckCircle2 className="text-spotify" />} title="Nothing to review">
             Every track either synced or has a decision.{' '}
             <Link to="/matches" className={linkClass}>
@@ -98,7 +98,7 @@ function ReviewPage() {
           {items.map((item) => (
             <ReviewCard key={item.id} item={item} onOutcome={setOutcome} />
           ))}
-          <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
+          <div className="overflow-hidden rounded-lg border border-gray-200 bg-white">
             <Pagination
               page={page}
               totalPages={data?.totalPages ?? 1}

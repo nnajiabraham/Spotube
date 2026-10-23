@@ -1,7 +1,7 @@
 import { createLazyFileRoute, Link } from '@tanstack/react-router'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeftRight, ExternalLink, Pencil, Plus, Trash2 } from 'lucide-react'
-import { api, type Mapping } from '../../../lib/api'
+import { mappingsAPI, type Mapping } from '../../../lib/api'
 import { MappingSyncStatus, SyncNowButton } from '../../../components/MappingSync'
 import { Card, Page, Pill, ServiceIcon } from '../../../components/ui'
 import { buttonClass, timeAgo } from '../../../lib/format'
@@ -37,7 +37,7 @@ function nextSyncLabel(mapping: Mapping): string {
 function MappingCard({ mapping, sync }: { mapping: Mapping; sync: ReturnType<typeof useSyncNow> }) {
   const queryClient = useQueryClient()
   const remove = useMutation({
-    mutationFn: api.deleteMapping,
+    mutationFn: (id: string) => mappingsAPI.delete(id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['mappings'] }),
   })
 
@@ -102,7 +102,7 @@ function MappingsList() {
   const sync = useSyncNow()
   const { data, isLoading, error } = useQuery({
     queryKey: ['mappings'],
-    queryFn: () => api.getMappings(),
+    queryFn: () => mappingsAPI.getList({ per_page: 30 }),
   })
   const mappings = data?.items ?? []
 
@@ -121,7 +121,7 @@ function MappingsList() {
           Loading mappings…
         </p>
       ) : error ? (
-        <div className="rounded-lg border border-youtube/30 bg-youtube-50 px-4 py-3 text-sm text-youtube-700">
+        <div className="rounded-lg border border-youtube-100 bg-youtube-50 px-4 py-3 text-sm text-youtube-700">
           Error loading mappings: {error.message}
         </div>
       ) : mappings.length === 0 ? (
@@ -134,7 +134,7 @@ function MappingsList() {
       ) : (
         <div className="space-y-3">
           {sync.error && (
-            <div className="rounded-lg border border-youtube/30 bg-youtube-50 px-4 py-3 text-sm text-youtube-700">
+            <div className="rounded-lg border border-youtube-100 bg-youtube-50 px-4 py-3 text-sm text-youtube-700">
               Sync failed: {sync.error.message}
             </div>
           )}

@@ -5,7 +5,7 @@ import type { ScoreBreakdown } from '../../lib/api/tracks'
 export const MATCH_THRESHOLD = 0.85
 
 function tone(value: number) {
-  if (value >= MATCH_THRESHOLD) return 'bg-spotify-50 text-spotify-700 ring-spotify/40'
+  if (value >= MATCH_THRESHOLD) return 'bg-spotify-50 text-spotify-700 ring-spotify-100'
   if (value >= 0.6) return 'bg-amber-50 text-amber-800 ring-amber-200'
   return 'bg-gray-100 text-gray-600 ring-gray-200'
 }
@@ -22,7 +22,7 @@ function pct(v: number) {
 export function ScoreBadge({ value, breakdown }: { value: number; breakdown?: ScoreBreakdown | null }) {
   const [open, setOpen] = useState(false)
   const id = useId()
-  const badge = `inline-flex items-center rounded-md px-1.5 py-0.5 text-xs font-semibold tabular-nums ring-1 ring-inset ${tone(value)}`
+  const badge = `inline-flex items-center rounded px-1.5 py-0.5 text-[11px] font-semibold tabular-nums ring-1 ring-inset ${tone(value)}`
   if (!breakdown) return <span className={badge} title="Match score">{pct(value)}</span>
 
   return (

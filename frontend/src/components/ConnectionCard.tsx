@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { api, oauthAPI } from '../lib/api'
+import { oauthAPI } from '../lib/api'
 import { shouldRetryConnectionCheck } from '../lib/connectionCheckQuery'
 import { Card, ServiceIcon } from './ui'
 import { buttonClass, serviceName } from '../lib/format'
@@ -8,8 +8,8 @@ import { buttonClass, serviceName } from '../lib/format'
 type Service = 'spotify' | 'youtube'
 
 const probes: Record<Service, () => Promise<unknown>> = {
-  spotify: () => api.getSpotifyPlaylists({ limit: 1 }),
-  youtube: () => api.getYouTubePlaylists(),
+  spotify: oauthAPI.spotify.getPlaylists,
+  youtube: oauthAPI.youtube.getPlaylists,
 }
 
 /** Shows whether an OAuth provider is usable, by probing its playlist endpoint. */

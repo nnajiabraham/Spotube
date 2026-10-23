@@ -13,9 +13,9 @@ function useEscape(onClose: () => void) {
 
 function Header({ id, title, subtitle, onClose }: { id: string; title: ReactNode; subtitle?: ReactNode; onClose: () => void }) {
   return (
-    <div className="flex items-start justify-between gap-4 border-b border-gray-200 px-6 py-4">
+    <div className="flex items-start justify-between gap-4 border-b border-gray-200 px-5 py-3.5">
       <div className="min-w-0">
-        <h2 id={id} className="truncate text-lg font-semibold text-ink">
+        <h2 id={id} className="truncate text-base font-semibold text-ink">
           {title}
         </h2>
         {subtitle && <div className="mt-0.5 text-sm text-gray-500">{subtitle}</div>}
@@ -44,17 +44,17 @@ export function Drawer({
   const id = useId()
   useEscape(onClose)
   return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-ink/40" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex justify-end bg-ink/25 backdrop-blur-[2px]" onClick={onClose}>
       <aside
         role="dialog"
         aria-modal="true"
         aria-labelledby={id}
-        className="flex h-full w-full max-w-2xl flex-col bg-white shadow-2xl"
+        className="flex h-full w-full max-w-2xl flex-col border-l border-gray-200 bg-white shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
         <Header id={id} title={title} subtitle={subtitle} onClose={onClose} />
-        <div className="flex-1 overflow-y-auto px-6 py-5 text-sm">{children}</div>
-        {footer && <div className="border-t border-gray-200 px-6 py-3">{footer}</div>}
+        <div className="flex-1 overflow-y-auto px-5 py-4 text-sm">{children}</div>
+        {footer && <div className="border-t border-gray-200 px-5 py-3">{footer}</div>}
       </aside>
     </div>
   )
@@ -79,17 +79,17 @@ export function Dialog({
   const id = useId()
   useEscape(onClose)
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-ink/40 p-4 sm:pt-16" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-ink/25 p-4 backdrop-blur-[2px] sm:pt-16" onClick={onClose}>
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby={id}
-        className={`flex max-h-[85vh] w-full flex-col overflow-hidden rounded-2xl bg-white shadow-2xl ${size === 'lg' ? 'max-w-3xl' : 'max-w-xl'}`}
+        className={`flex max-h-[85vh] w-full flex-col overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xl ${size === 'lg' ? 'max-w-3xl' : 'max-w-xl'}`}
         onClick={(e) => e.stopPropagation()}
       >
         <Header id={id} title={title} subtitle={subtitle} onClose={onClose} />
-        <div className="flex-1 overflow-y-auto px-6 py-5 text-sm">{children}</div>
-        {footer && <div className="flex justify-end gap-2 border-t border-gray-200 bg-gray-50 px-6 py-3">{footer}</div>}
+        <div className="flex-1 overflow-y-auto px-5 py-4 text-sm">{children}</div>
+        {footer && <div className="flex justify-end gap-2 border-t border-gray-200 bg-gray-50 px-5 py-3">{footer}</div>}
       </div>
     </div>
   )

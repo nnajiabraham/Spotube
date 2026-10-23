@@ -49,7 +49,7 @@ export function TrackRow({
     formatDuration(track.duration_ms),
   ].filter(Boolean)
   return (
-    <div className={`flex items-center gap-3 rounded-lg px-3 py-2.5 ${highlight ? 'bg-spotify-50 ring-1 ring-spotify/40' : ''}`}>
+    <div className={`flex items-center gap-3 rounded-lg px-3 py-2.5 ${highlight ? 'bg-spotify-50 ring-1 ring-spotify-100' : ''}`}>
       {showArt && <TrackArt service={service} image={track.image} />}
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5">

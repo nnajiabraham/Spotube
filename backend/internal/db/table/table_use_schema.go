@@ -16,6 +16,8 @@ func UseSchema(schema string) {
 	GooseDbVersion = GooseDbVersion.FromSchema(schema)
 	Mappings = Mappings.FromSchema(schema)
 	OAuthTokens = OAuthTokens.FromSchema(schema)
+	PlaylistBackups = PlaylistBackups.FromSchema(schema)
+	PlaylistSnapshots = PlaylistSnapshots.FromSchema(schema)
 	Settings = Settings.FromSchema(schema)
 	SyncItems = SyncItems.FromSchema(schema)
 	TrackLinks = TrackLinks.FromSchema(schema)

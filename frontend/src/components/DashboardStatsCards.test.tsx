@@ -37,7 +37,7 @@ describe('DashboardStatsCards', () => {
   it('shows measured YouTube quota use against the daily limit', () => {
     render(<DashboardStatsCards stats={stats} isLoading={false} />)
 
-    expect(screen.getByText('YouTube quota today')).toBeInTheDocument()
+    expect(screen.getByText('YouTube quota')).toBeInTheDocument()
     expect(screen.getByText('2,500')).toBeInTheDocument()
     expect(screen.getByLabelText('25% of daily quota')).toBeInTheDocument()
   })

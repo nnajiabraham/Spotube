@@ -2,20 +2,13 @@ import { describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { ConnectionCard } from './ConnectionCard'
-import { api, ApiError } from '../lib/api'
+import { oauthAPI } from '../lib/api'
+import { APIClientError } from '../lib/api/client'
 
 vi.mock('../lib/api', () => ({
-  api: { getSpotifyPlaylists: vi.fn(), getYouTubePlaylists: vi.fn() },
   oauthAPI: {
-    spotify: { getLoginURL: () => '/api/auth/spotify/login' },
-    youtube: { getLoginURL: () => '/api/auth/youtube/login' },
-  },
-  ApiError: class ApiError extends Error {
-    status: number
-    constructor(status: number, message: string) {
-      super(message)
-      this.status = status
-    }
+    spotify: { getLoginURL: () => '/api/auth/spotify/login', getPlaylists: vi.fn() },
+    youtube: { getLoginURL: () => '/api/auth/youtube/login', getPlaylists: vi.fn() },
   },
 }))
 
@@ -34,7 +27,7 @@ function renderCard(service: 'spotify' | 'youtube') {
 
 describe('ConnectionCard', () => {
   it('offers to connect when the provider rejects the probe', async () => {
-    vi.mocked(api.getYouTubePlaylists).mockRejectedValueOnce(new ApiError(401, 'reconnect required'))
+    vi.mocked(oauthAPI.youtube.getPlaylists).mockRejectedValueOnce(new APIClientError('unauthorized', 'reconnect required', 401))
     renderCard('youtube')
 
     expect(await screen.findByText('Not connected')).toBeInTheDocument()
@@ -42,7 +35,7 @@ describe('ConnectionCard', () => {
   })
 
   it('links to playlists and allows reconnecting when connected', async () => {
-    vi.mocked(api.getSpotifyPlaylists).mockResolvedValueOnce({ items: [], total: 0, limit: 1, offset: 0, next: '' })
+    vi.mocked(oauthAPI.spotify.getPlaylists).mockResolvedValueOnce([])
     renderCard('spotify')
 
     expect(await screen.findByText('Connected')).toBeInTheDocument()
@@ -51,7 +44,7 @@ describe('ConnectionCard', () => {
   })
 
   it('shows a loading state while probing', () => {
-    vi.mocked(api.getSpotifyPlaylists).mockImplementation(() => new Promise(() => {}))
+    vi.mocked(oauthAPI.spotify.getPlaylists).mockImplementation(() => new Promise(() => {}))
     renderCard('spotify')
 
     expect(screen.getByRole('status')).toBeInTheDocument()

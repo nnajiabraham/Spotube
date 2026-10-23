@@ -66,6 +66,25 @@ cron tick (SYNC_ANALYSIS_CRON_SPEC, default every minute)
 - **Sync now:** the refresh button on the Mappings page runs steps 1–5 for that mapping
   immediately (`POST /api/collections/mappings/records/:id/sync`), even if cron workers are off.
 
+## Playlist backups
+
+Any playlist on either service can be backed up (Backups → **Add playlist**), whether or not it
+is in a mapping. Design: [RFC-012](./docs/rfcs/RFC-012-playlist-backups.md).
+
+- A **snapshot** is the playlist's name and ordered tracks, with each track's Spotify and
+  YouTube IDs where `track_links` knows both (`playlist_snapshots.tracks_json`).
+- **When:** right away, then on each backup's own interval (daily by default; checked every 10
+  minutes, independent of `SYNC_WORKERS_ENABLED`), whenever a sync run reads the playlist (free),
+  and on **Back up now**.
+- **Only changes are stored.** Each check hashes the name and track order. If nothing changed,
+  the latest snapshot's `confirmed_at` moves forward instead of adding a row. The newest 30
+  snapshots are kept (configurable per backup).
+- **Restore** (`POST /api/backups/snapshots/:id/restore`): put missing tracks back into the
+  original (never removes), or create a new playlist on the same or the other service from the
+  counterpart IDs. YouTube restores are checked against today's remaining quota first.
+- **Export:** `GET /api/backups/snapshots/:id/export?format=json|csv`.
+- Cost: a YouTube check is about 2 units per 50 videos; Spotify is free.
+
 ## Quick start
 
 Prerequisites: Go (version in `backend/go.mod`), Node (version in `.nvmrc`), Make.
@@ -120,6 +139,7 @@ Refreshed access tokens — and Spotify's rotated refresh tokens — are written
 | `SYNC_WORKERS_ENABLED` | `false` | Run the scheduled sync |
 | `SYNC_ANALYSIS_CRON_SPEC` | `0 * * * * *` | Scheduler tick (6-field cron); each mapping still honours its own interval |
 | `SYNC_EXECUTOR_AUTO_ENABLED` | `true` | Apply queued items automatically after analysis (otherwise use Sync Queue → Execute) |
+| `BACKUPS_ENABLED` | `true` | Run scheduled playlist backups (Back up now and sync-time snapshots work regardless) |
 | `DB_PATH` | `./data/spotube.db` | SQLite file |
 | `LOG_LEVEL` | `info` | `debug` logs every match decision |
 
@@ -133,6 +153,9 @@ Refreshed access tokens — and Spotify's rotated refresh tokens — are written
   - the analysis decision (best match and score);
   - each executor run (search query, candidates and scores, outcome).
 - **Matches:** every remembered pair and "not on {service}" decision, with **Forget**.
+- **Backups:** each backed-up playlist's snapshots, what changed between them, and its last
+  check or error.
+- **Status bar:** API health, queue counts, today's YouTube quota and backups, on every page.
 - **Activity:** `activity_logs` for analysis runs, executor runs and scheduler events.
 - **Design system:** `/design` shows every UI component (see
   [`docs/design-system.md`](./docs/design-system.md)).
@@ -162,6 +185,7 @@ config tests.
 | `backend/internal/jobs` | Scheduler, analysis (diff + queue), executor (apply items) |
 | `backend/internal/matching` | Cross-platform track matching and scoring |
 | `backend/internal/tracklinks` | Remembered track pairs and "not on service" decisions |
+| `backend/internal/backups` | Playlist snapshots: store, schedule, restore, export |
 | `backend/internal/platform` | Playlist/track fetching and link/ID parsing for both services |
 | `backend/internal/apiusage` | Measures YouTube quota per API call |
 | `backend/internal/auth` | OAuth credentials, token storage, API client factory |
@@ -174,6 +198,8 @@ config tests.
 ## Known gaps
 
 - Removals are not propagated (by design for now).
+- Spotify ignores the "private" flag when Spotube creates a playlist (on restore), so restored
+  Spotify playlists show as public; change it in Spotify if needed.
 - Correcting a wrong automatic match (Matches → Forget) does not remove the track that was
   already added; remove it by hand on that service.
 - Single user: no app login; anyone who can reach the server can use the connected accounts.

@@ -1,14 +1,14 @@
 // Formatting helpers and shared class names used across pages.
 
 const buttonBase =
-  'inline-flex items-center justify-center gap-1.5 rounded-lg px-3.5 py-2 text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink disabled:cursor-not-allowed disabled:opacity-50'
+  'inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-md border px-3 py-1.5 text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink disabled:cursor-not-allowed disabled:opacity-50'
 
 export const buttonClass = {
-  primary: `${buttonBase} bg-ink text-white shadow-sm hover:bg-ink-700`,
-  secondary: `${buttonBase} border border-gray-300 bg-white text-ink shadow-sm hover:bg-gray-50`,
-  ghost: `${buttonBase} !px-2 !py-1.5 text-gray-600 hover:bg-gray-100 hover:text-ink`,
-  danger: `${buttonBase} bg-youtube-700 text-white shadow-sm hover:bg-youtube-600`,
-  spotify: `${buttonBase} bg-spotify text-ink shadow-sm hover:bg-spotify-600`,
+  primary: `${buttonBase} border-ink bg-ink text-white hover:border-ink-700 hover:bg-ink-700`,
+  secondary: `${buttonBase} border-gray-300 bg-white text-ink hover:border-gray-400 hover:bg-gray-50`,
+  ghost: `${buttonBase} border-transparent !px-2 !py-1 text-gray-600 hover:bg-gray-100 hover:text-ink`,
+  danger: `${buttonBase} border-youtube-700 bg-youtube-700 text-white hover:bg-youtube-600`,
+  spotify: `${buttonBase} border-spotify-600 bg-spotify text-ink hover:bg-spotify-600`,
 }
 
 export type ButtonVariant = keyof typeof buttonClass
@@ -17,11 +17,11 @@ export type ButtonVariant = keyof typeof buttonClass
 export const linkClass = 'font-medium text-ink underline decoration-gray-300 underline-offset-4 hover:decoration-ink'
 
 /** Header link next to a section title ("Open queue →"). */
-export const sectionLinkClass = 'text-sm font-medium text-gray-500 hover:text-ink'
+export const sectionLinkClass = 'text-xs font-medium text-gray-500 hover:text-ink'
 
 /** Text inputs and selects. */
 export const inputClass =
-  'block w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-ink placeholder:text-gray-400 focus:border-ink focus:outline-none focus:ring-1 focus:ring-ink'
+  'block w-full rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm text-ink placeholder:text-gray-400 focus:border-ink focus:outline-none focus:ring-1 focus:ring-ink'
 
 export function serviceName(service: string): string {
   return service === 'youtube' ? 'YouTube' : service === 'spotify' ? 'Spotify' : service

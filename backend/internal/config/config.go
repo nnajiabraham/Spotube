@@ -29,6 +29,8 @@ type Config struct {
 	SyncWorkersEnabled      bool
 	SyncAnalysisCronSpec    string
 	SyncExecutorAutoEnabled bool
+	// BackupsEnabled runs scheduled playlist backups (independent of the sync workers).
+	BackupsEnabled bool
 }
 
 const (
@@ -88,6 +90,12 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("invalid SYNC_EXECUTOR_AUTO_ENABLED: %w", err)
 	}
 	cfg.SyncExecutorAutoEnabled = executorAuto
+
+	backupsEnabled, err := parseBoolEnv("BACKUPS_ENABLED", true)
+	if err != nil {
+		return nil, fmt.Errorf("invalid BACKUPS_ENABLED: %w", err)
+	}
+	cfg.BackupsEnabled = backupsEnabled
 
 	if err := validate(cfg); err != nil {
 		return nil, err

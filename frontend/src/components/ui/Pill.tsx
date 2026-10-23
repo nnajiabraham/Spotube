@@ -1,10 +1,10 @@
 import type { ReactNode } from 'react'
 
 const pillTones = {
-  gray: 'bg-gray-100 text-gray-700 ring-gray-200',
-  green: 'bg-spotify-50 text-spotify-700 ring-spotify/40',
+  gray: 'bg-gray-100 text-gray-600 ring-gray-200',
+  green: 'bg-spotify-50 text-spotify-700 ring-spotify-100',
   yellow: 'bg-amber-50 text-amber-800 ring-amber-200',
-  red: 'bg-youtube-50 text-youtube-700 ring-youtube/30',
+  red: 'bg-youtube-50 text-youtube-700 ring-youtube-100',
   ink: 'bg-ink text-white ring-ink',
   blue: 'bg-sky-50 text-sky-700 ring-sky-200',
 }
@@ -15,7 +15,7 @@ export function Pill({ tone = 'gray', children, title }: { tone?: PillTone; chil
   return (
     <span
       title={title}
-      className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${pillTones[tone]}`}
+      className={`inline-flex items-center gap-1 whitespace-nowrap rounded px-1.5 py-0.5 text-[11px] font-medium ring-1 ring-inset ${pillTones[tone]}`}
     >
       {children}
     </span>

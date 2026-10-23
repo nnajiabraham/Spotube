@@ -17,6 +17,7 @@ import (
 
 	"github.com/manlikeabro/spotube/internal/activitylogger"
 	"github.com/manlikeabro/spotube/internal/auth"
+	"github.com/manlikeabro/spotube/internal/backups"
 	"github.com/manlikeabro/spotube/internal/db/model"
 	"github.com/manlikeabro/spotube/internal/db/table"
 	"github.com/manlikeabro/spotube/internal/matching"
@@ -31,6 +32,8 @@ type AnalysisJob struct {
 	logger         zerolog.Logger
 	activityLogger *activitylogger.Logger
 	clientFactory  *auth.ClientFactory
+	// backups records a free snapshot of backed-up playlists that analysis already fetched.
+	backups *backups.Store
 
 	// applier applies queued items right after analysis; nil disables auto-apply.
 	applier    *Executor
@@ -43,6 +46,7 @@ func NewAnalysisJob(deps JobDeps, clientFactory *auth.ClientFactory) *AnalysisJo
 		logger:         deps.Logger,
 		activityLogger: deps.ActivityLogger,
 		clientFactory:  clientFactory,
+		backups:        &backups.Store{DB: deps.DB},
 	}
 }
 
@@ -178,12 +182,13 @@ func (j *AnalysisJob) analyzeMapping(ctx context.Context, mapping model.Mappings
 	}
 
 	var links *tracklinks.Index
+	var sp, yt []matching.Track
 	if mapping.SyncTracks != 0 {
-		sp, err := platform.SpotifyPlaylistTracks(ctx, spotifyClient, mapping.SpotifyPlaylistID)
+		sp, err = platform.SpotifyPlaylistTracks(ctx, spotifyClient, mapping.SpotifyPlaylistID)
 		if err != nil {
 			return nil, err
 		}
-		yt, err := platform.YouTubePlaylistTracks(ctx, youtubeService, mapping.YoutubePlaylistID)
+		yt, err = platform.YouTubePlaylistTracks(ctx, youtubeService, mapping.YoutubePlaylistID)
 		if err != nil {
 			return nil, err
 		}
@@ -197,6 +202,11 @@ func (j *AnalysisJob) analyzeMapping(ctx context.Context, mapping model.Mappings
 	result := j.generateSyncItems(mapping, spotifyTracks, youtubeTracks, links)
 	if err := j.rememberPairs(ctx, result.pairs); err != nil {
 		return nil, err
+	}
+	if mapping.SyncTracks != 0 {
+		// Analysis runs before anything is applied, so this is the state before Spotube's changes.
+		j.observeBackup(ctx, "spotify", mapping.SpotifyPlaylistID, lo.FromPtr(mapping.SpotifyPlaylistName), sp)
+		j.observeBackup(ctx, "youtube", mapping.YoutubePlaylistID, lo.FromPtr(mapping.YoutubePlaylistName), yt)
 	}
 
 	inserted := 0
@@ -248,6 +258,22 @@ func (j *AnalysisJob) analyzeMapping(ctx context.Context, mapping model.Mappings
 		snapshot.YouTube = map[string][]matching.Track{mapping.YoutubePlaylistID: trackInfosToYouTubeMatching(youtubeTracks)}
 	}
 	return snapshot, nil
+}
+
+// observeBackup snapshots a backed-up playlist from tracks already fetched. A failure is
+// logged and never fails the sync.
+func (j *AnalysisJob) observeBackup(ctx context.Context, service, playlistID, name string, tracks []matching.Track) {
+	if j.backups == nil {
+		return
+	}
+	created, err := j.backups.Observe(ctx, service, playlistID, name, tracks)
+	if err != nil {
+		j.logger.Warn().Err(err).Str("service", service).Str("playlist_id", playlistID).Msg("backup snapshot during sync failed")
+		return
+	}
+	if created {
+		j.logger.Info().Str("service", service).Str("playlist_id", playlistID).Int("tracks", len(tracks)).Msg("playlist backup updated during sync")
+	}
 }
 
 // rememberPairs links tracks already present on both sides, so later runs (and other

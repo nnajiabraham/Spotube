@@ -22,7 +22,7 @@ function AuthNotice() {
     <div
       role="status"
       className={`mb-6 rounded-lg border px-4 py-3 text-sm ${
-        ok ? 'border-spotify/40 bg-spotify-50 text-spotify-700' : 'border-youtube/30 bg-youtube-50 text-youtube-700'
+        ok ? 'border-spotify-100 bg-spotify-50 text-spotify-700' : 'border-youtube-100 bg-youtube-50 text-youtube-700'
       }`}
     >
       <span className="font-medium">{service}:</span>{' '}

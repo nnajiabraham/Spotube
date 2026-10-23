@@ -19,6 +19,7 @@ import (
 	"github.com/manlikeabro/spotube/internal/activitylogger"
 	"github.com/manlikeabro/spotube/internal/apiusage"
 	"github.com/manlikeabro/spotube/internal/auth"
+	"github.com/manlikeabro/spotube/internal/backups"
 	"github.com/manlikeabro/spotube/internal/config"
 	"github.com/manlikeabro/spotube/internal/handlers"
 	"github.com/manlikeabro/spotube/internal/httpserver"
@@ -27,6 +28,10 @@ import (
 	"github.com/manlikeabro/spotube/internal/platform"
 	"github.com/manlikeabro/spotube/internal/sqliteconn"
 )
+
+// backupCheckInterval is how often due playlist backups are looked for; each backup has its
+// own interval (24 hours by default).
+const backupCheckInterval = 10 * time.Minute
 
 func main() {
 	_ = godotenv.Load()
@@ -148,6 +153,22 @@ func main() {
 		&platform.Spotify{Factory: clientFactory}, &platform.YouTube{Factory: clientFactory})
 	handlers.RegisterTracksRoutes(srv.Group("/api"), tracksHandler)
 
+	// Playlist backups: snapshots on their own schedule (and free ones during sync), restore
+	backupService := &backups.Service{
+		Store:     &backups.Store{DB: db},
+		Reader:    &platform.Playlists{Factory: clientFactory},
+		Writer:    &platform.Playlists{Factory: clientFactory},
+		Activity:  activityLogger,
+		Logger:    logger,
+		QuotaLeft: func() int { return apiusage.Remaining(db) },
+	}
+	handlers.RegisterBackupsRoutes(srv.Group("/api/backups"), handlers.NewBackupsHandler(backupService))
+	backupCtx, stopBackups := context.WithCancel(context.Background())
+	defer stopBackups()
+	if cfg.BackupsEnabled {
+		backupService.Start(backupCtx, backupCheckInterval)
+	}
+
 	// Dashboard Stats (unauthenticated)
 	dashboardHandler := handlers.NewDashboardHandler(db)
 	dashboardGroup := srv.Group("/api/dashboard")
@@ -184,6 +205,7 @@ func main() {
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 	<-stop
 
+	stopBackups()
 	if jobScheduler != nil {
 		if err := jobScheduler.Stop(); err != nil {
 			logger.Error().Err(err).Msg("sync worker shutdown failed")

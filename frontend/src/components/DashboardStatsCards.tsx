@@ -15,7 +15,7 @@ const tiles: Array<{ key: QueueKey; label: string; hint: string; accent: string 
 export function DashboardStatsCards({ stats, isLoading }: { stats?: DashboardStats; isLoading: boolean }) {
   const value = (n: number | undefined) =>
     isLoading ? (
-      <span className="inline-block h-7 w-10 animate-pulse rounded bg-gray-200" role="status" aria-label="Loading" />
+      <span className="inline-block h-8 w-10 animate-pulse rounded bg-gray-200" role="status" aria-label="Loading" />
     ) : (
       (n ?? 0).toLocaleString()
     )
@@ -32,29 +32,29 @@ export function DashboardStatsCards({ stats, isLoading }: { stats?: DashboardSta
             review > 0 ? 'border-amber-300 bg-amber-50 hover:border-amber-400' : 'hover:border-gray-300'
           }`}
         >
-          <div className="flex items-center gap-2 text-sm font-medium text-gray-700">
+          <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-gray-600">
             <span className="h-2 w-2 rounded-full bg-amber-400" />
             Needs review
           </div>
-          <div className="mt-2 text-2xl font-semibold tabular-nums text-ink">{value(stats?.queue.review)}</div>
+          <div className="mt-3 text-3xl font-medium tracking-tight tabular-nums text-ink">{value(stats?.queue.review)}</div>
           <p className="mt-1 text-xs text-gray-600">{review > 0 ? 'Pick the right track →' : 'No decisions waiting'}</p>
         </Card>
       </Link>
       {tiles.map((tile) => (
         <Link key={tile.key} to="/sync-queue" search={{ status: tile.key }} className="block">
           <Card className="h-full p-4 transition-colors hover:border-gray-300">
-            <div className="flex items-center gap-2 text-sm font-medium text-gray-600">
+            <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-gray-500">
               <span className={`h-2 w-2 rounded-full ${tile.accent}`} />
               {tile.label}
             </div>
-            <div className="mt-2 text-2xl font-semibold tabular-nums text-ink">{value(stats?.queue[tile.key])}</div>
+            <div className="mt-3 text-3xl font-medium tracking-tight tabular-nums text-ink">{value(stats?.queue[tile.key])}</div>
             <p className="mt-1 text-xs text-gray-500">{tile.hint}</p>
           </Card>
         </Link>
       ))}
       <Card className="h-full p-4">
-        <div className="text-sm font-medium text-gray-600">YouTube quota today</div>
-        <div className="mt-2 text-2xl font-semibold tabular-nums text-ink">
+        <div className="text-xs font-medium uppercase tracking-wider text-gray-500">YouTube quota</div>
+        <div className="mt-3 text-3xl font-medium tracking-tight tabular-nums text-ink">
           {value(quota?.used)}
           <span className="text-sm font-normal text-gray-400"> / {(quota?.limit ?? 10000).toLocaleString()}</span>
         </div>
@@ -64,7 +64,7 @@ export function DashboardStatsCards({ stats, isLoading }: { stats?: DashboardSta
             style={{ width: `${quotaPct}%` }}
           />
         </div>
-        <p className="mt-1 text-xs text-gray-500">Measured · resets midnight PT</p>
+        <p className="mt-1 text-xs text-gray-500">Today · resets midnight PT</p>
       </Card>
     </div>
   )

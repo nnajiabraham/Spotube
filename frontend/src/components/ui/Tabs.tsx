@@ -17,7 +17,7 @@ export function Tabs<T extends string>({
   size?: 'sm' | 'md'
 }) {
   return (
-    <div className="inline-flex flex-wrap rounded-lg border border-gray-200 bg-white p-1" role="tablist" aria-label={label}>
+    <div className="inline-flex flex-wrap gap-0.5 rounded-md bg-gray-100 p-0.5" role="tablist" aria-label={label}>
       {items.map((tab) => {
         const active = tab.value === value
         return (
@@ -27,9 +27,9 @@ export function Tabs<T extends string>({
             role="tab"
             aria-selected={active}
             onClick={() => onChange(tab.value)}
-            className={`inline-flex items-center rounded-md font-medium transition-colors ${
-              size === 'sm' ? 'px-2.5 py-1 text-xs' : 'px-3 py-1.5 text-sm'
-            } ${active ? 'bg-ink text-white' : 'text-gray-600 hover:bg-gray-100 hover:text-ink'}`}
+            className={`inline-flex items-center rounded font-medium transition-colors ${
+              size === 'sm' ? 'px-2.5 py-1 text-xs' : 'px-3 py-1 text-sm'
+            } ${active ? 'bg-white text-ink shadow-[0_0_0_1px_var(--color-gray-200)]' : 'text-gray-500 hover:text-ink'}`}
           >
             {tab.label}
           </button>

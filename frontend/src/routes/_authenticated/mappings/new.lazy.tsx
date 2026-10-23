@@ -180,7 +180,7 @@ function NewMapping() {
       </Card>
 
       {create.error && (
-        <div className="mt-4 rounded-lg border border-youtube/30 bg-youtube-50 px-4 py-3 text-sm text-youtube-700">
+        <div className="mt-4 rounded-lg border border-youtube-100 bg-youtube-50 px-4 py-3 text-sm text-youtube-700">
           {create.error.message}
         </div>
       )}
