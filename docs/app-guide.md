@@ -17,6 +17,9 @@ commands are in the [README](../README.md); colours and components are in
 | **Review** | Where a track waits when Spotube searched but wasn't confident. Only you can settle it. |
 | **Blocked track** | A track you never want synced for one mapping. |
 | **Backup** | A playlist on either service whose track list Spotube saves over time. Independent of mappings: any playlist can be backed up. |
+| **Schedule** | When a mapping is checked: every N minutes from a start time on chosen days, in your time zone (daily = once at the start time). |
+| **Quota budget** | How much of today's 10,000 YouTube units each kind of work may use, so copying never starves scheduled checks or your own searches. |
+| **Setting** | An app-wide option on the Settings page. A value set in `backend/.env` is used at startup; changing it on the page lasts until the next restart. Other settings are saved in the database. |
 | **Snapshot** | The playlist's name and tracks, in order, at one point in time, with each track's Spotify and YouTube IDs where Spotube knows both. A new snapshot is saved only when something changed. |
 
 ## 2. Workflows
@@ -31,8 +34,20 @@ commands are in the [README](../README.md); colours and components are in
 ### 2.2 Pair two playlists
 
 **Mappings → Pair playlists**: pick one playlist from each account, choose whether to sync
-names and tracks, and set the interval (5 minutes to once a day). The mapping syncs on its
-first run.
+names and tracks, and set the schedule.
+
+- **Schedule.** Spotube recommends one as soon as both playlists are picked: how often by size
+  (small playlists every 30 minutes, very large ones daily), less often while all your mappings'
+  daily checks would use more than 15% of the YouTube quota, and a start time spaced away from
+  your other mappings. Change the interval, start time or days to override it; **Use
+  recommended** goes back. A warning appears when even a daily check is over that share.
+- **Estimate.** Below the form: the YouTube units the copy needs (searching, adding, reading,
+  creating) and when it will be done behind the work already queued. For a Spotify playlist
+  copied to a new YouTube playlist it is near-exact (songs Spotube already matched don't need
+  a search); otherwise it says "Up to". Over 5,000 videos it warns that YouTube playlists stop
+  there.
+- **Start syncing now** (default from Settings) runs the first sync in the background straight
+  away; off, it waits for the first scheduled run. The mapping shows **Syncing** meanwhile.
 
 - A playlist can be in only one mapping; already-paired playlists are greyed out (the API
   returns 409 for them).
@@ -42,22 +57,57 @@ first run.
   is private; Spotify ignores the private flag for apps, so a new Spotify playlist is public.
   Videos with no confident match (talks, mixes) go to Review as usual.
 
+### 2.2a Mirror several playlists
+
+**Mappings → Mirror playlists** (or **Mirror several** on the pairing page): choose a direction
+(Spotify → YouTube or YouTube → Spotify), tick playlists (search and **Select all** help), and
+**Create … copies**. Each playlist becomes its own mapping with a new playlist on the other side
+and its own recommended, spaced schedule.
+
+- Playlists already in a mapping are listed last, greyed out with **Already paired**; mappings
+  are strictly one-to-one. **Same name on …** flags a playlist whose name already exists on the
+  other side, in case pairing them is what you want.
+- The estimate covers all selected playlists.
+- Results list each playlist: **created**, **already paired**, **waiting for quota** (not
+  enough YouTube quota left today to create the playlist; those stay ticked so you can retry
+  after the reset) or **failed** with the reason. Nothing is half-created: if a mapping can't be
+  saved, the new playlist is deleted again.
+
+### 2.2b Delete a mapping
+
+The trash icon opens a dialog. Both playlists are kept by default; tick **Also delete the
+Spotify playlist** (unfollows it, which for someone else's playlist only removes it from your
+library) and/or **Also delete the YouTube playlist** (permanent, 50 units). The mapping is
+deleted first; if a playlist can't be deleted the dialog says why.
+
 ### 2.3 A sync run
 
-A run starts on the cron schedule, when a mapping's interval has elapsed and
-`SYNC_WORKERS_ENABLED=true`, or straight away with **Sync now**.
+A run starts when a mapping's next run time comes and **Background sync** is on, or straight
+away with **Sync now**.
 
 ```
-1. Read both playlists                          Spotify: free · YouTube: 1 unit per 50 videos (+1 for durations)
+1. Read Spotify in full                         free
+   Probe YouTube                                1 unit: title and video count
+   Read YouTube in full only if the count changed, nothing is cached, or the cache is stale
+                                                ~1.5 units per 50 videos (durations only for unmatched videos)
 2. Rename the YouTube playlist if needed        50 units, only when names differ and sync_name is on
 3. For each track on each side:
      a. linked?  counterpart present → nothing to do
                  marked "not on <service>" → nothing to do, never searched
      b. otherwise fuzzy-match against the other playlist (score ≥ 85% → present, and remembered as a link)
      c. otherwise queue an `add` sync item
-4. Apply the queue (auto-apply, up to 25 items per mapping)
-5. Stamp the mapping with last sync time and status
+4. Stamp the mapping with last sync time, status and next run
+   Sync now also applies this mapping's queue straight away
 ```
+
+Spotube's own additions don't count as changes. A cached read is "stale" after a day per 1,000
+videos (at most a week); Sync now re-reads unless the last read is under 10 minutes old.
+
+**Applying the queue.** With **Apply changes automatically** on, every minute Spotube applies
+up to 100 queued items across all mappings: renames first, then songs it already knows on the
+other side (50 units each), then the rest, taking turns between mappings so one huge playlist
+doesn't hold up the others. It stops YouTube work when the quota budget says so; Spotify work
+continues. This runs even when Background sync is off.
 
 **Applying one add item:**
 
@@ -66,10 +116,16 @@ linked to a known counterpart?   → add it directly (no search)
 marked not on the destination?   → skip ("not on YouTube")
 already in the destination?      → skip, and remember the pair
 search the destination           Spotify: free · YouTube: 101 units
-best result ≥ 85%                → add it (YouTube: 50 units) and remember the pair
+best result ≥ 85%                → remember the pair, then add it (YouTube: 50 units)
 nothing confident                → status "Needs review" (never retried automatically)
-API error                        → status "Failed", retried up to 3 times
+not enough quota / rate limited  → stays "Pending" (attempts unchanged), tried again later
+YouTube playlist full (5,000)    → skipped; YouTube adds for this mapping pause ("Playlist full")
+YouTube playlist gone            → mapping shows "Playlist missing"; its items wait
+API error                        → status "Failed", tried up to 3 times (15 min, then 1 h apart)
 ```
+
+Before starting an add, Spotube checks that the quota can cover all of it (151 units for a
+search and insert), so it never pays for a search and then can't add the result.
 
 Because pairs are remembered by ID, a track Spotube copied is never copied back, and a song is
 added to a playlist at most once, even if its title differs on the two services.
@@ -135,7 +191,7 @@ be downloaded as **JSON** (complete, for scripts) or **CSV**.
 ## 3. Pages
 
 The header is light, with a green → red rule along the top. Its nav reads dashboard ·
-mappings · review · queue · matches · backups · activity. A status bar along the bottom
+mappings · review · queue · matches · backups · activity · settings. A status bar along the bottom
 shows API health, review / pending / failed counts, today's YouTube quota and the number of
 backups.
 
@@ -144,16 +200,23 @@ backups.
 - **Sync queue tiles**:
   - **Needs review** (amber when there is something to review; links to Review);
   - **Pending**, **Synced**, **Skipped** and **Failed**, each linking to the filtered queue;
-  - **YouTube quota today**: measured units against 10,000; resets at midnight Pacific.
-- **Paired playlists**: each mapping with its interval, last sync status and **Sync now**.
+  - **YouTube quota today**: measured units against the daily limit; resets at midnight Pacific.
+- **YouTube quota today** panel: units used, a bar split into used / scheduled checks still to
+  come / free / kept for you, what the queue can still use today, scheduled checks per day, the
+  YouTube work queued (items and units) and when it finishes. When Google reports the quota
+  used up it says Spotube is waiting.
+- **Paired playlists**: each mapping with how often it runs, last sync status and **Sync now**.
 - **Recent activity**: the latest sync, executor and error messages.
 
 ### Mappings `/mappings`, `/mappings/new`, `/mappings/:id/edit`, `/mappings/:id/blacklist`
-- **List**: playlist names with links to each service, options, last sync status and time,
-  **Sync now**, **Edit**, **Blocked tracks** and **Delete**.
-- **New** (`/mappings/new`): pick a Spotify playlist and a YouTube playlist, or create one side
-  from the other, plus sync options.
-- **Edit**: sync names, sync tracks and interval.
+- **List**: playlist names with links to each service, options, last sync status and time
+  (OK, Syncing, Failed, Reconnect needed, Waiting for quota, Playlist missing, Playlist full),
+  the schedule and next run, tracks on each side, and queue counts (queued, to review, failed)
+  that open the Queue or Review filtered to that mapping. **Sync now**, **Edit**, **Blocked
+  tracks** and **Delete** (§2.2b). **Mirror playlists** and **Pair playlists** at the top.
+- **New** (`/mappings/new`): §2.2.
+- **Mirror** (`/mappings/mirror`): §2.2a.
+- **Edit**: sync names, sync tracks and schedule, with each side's track count and the next run.
 - **Blocked tracks**: tracks never synced for this mapping, with **Unblock**.
 
 ### Review `/review`
@@ -170,7 +233,8 @@ backups.
 
 ### Sync Queue `/sync-queue`
 - Status tabs: All, **Needs review**, Pending, Synced, Failed, Skipped. There is also a
-  destination filter.
+  destination filter, and a mapping filter (`?mapping=…`, set from the Mappings page) shown as
+  a removable chip.
 - Each row shows the track, direction and destination playlist, status and reason, and the
   last update. **Run now** or **Retry** appears on pending and failed rows; **Review** appears
   on review rows.
@@ -202,7 +266,15 @@ backups.
   scheduled, sync, manual). The selected snapshot shows its tracks with length, Spotify ID and
   YouTube ID, what changed since the one before, **JSON** / **CSV** downloads and **Restore…**.
 
-### Settings `/settings/spotify`, `/settings/youtube`
+### Settings `/settings`
+- Grouped: **Sync**, **YouTube quota** (with the quota panel) and **Backups**. Switches for
+  on/off settings, a number and **Save** for the rest.
+- Each shows where its value comes from: **default**, **saved** (database), **.env** (set at
+  startup), or **until restart** (changed here while `.env` sets it; the `.env` value returns on
+  restart, and the row says so).
+- Links to the playlist libraries.
+
+### Playlist libraries `/settings/spotify`, `/settings/youtube`
 - Every playlist in the connected account, filterable, with "⇄ synced with …" for paired ones
   and **Back up** (or the backup's state, linking to it).
 
@@ -216,14 +288,16 @@ backups.
 
 | Service | Limit | How Spotube stays inside it |
 |---|---|---|
-| YouTube Data API | 10,000 units/day (search 100, insert 50, list 1) | Remembered links skip searches; review items are never auto-retried; in-app search only runs on submit and is cached for 30 minutes; YouTube search is refused above 95% of the day's quota; usage is measured per call and shown on the Dashboard; a run stops on `quotaExceeded`. |
+| YouTube Data API | 10,000 units/day (search 100, insert 50, list 1); setting **YouTube daily quota** | One budget gates every call (interactive / scheduled reads / queue), keeping a reserve for you and room for the day's scheduled checks; jobs are pre-checked so nothing is half-paid; quota refusals defer instead of failing and are re-checked after 30 minutes; checks probe for 1 unit and re-read only on change; remembered links skip searches; review items are never auto-retried; in-app search runs on submit, is cached for 30 minutes and is refused (429) when the quota can't cover it. |
 | Spotify Web API | Rolling rate limit (HTTP 429) | The client retries with back-off; searches are free. |
 
 ## 5. Data
 
 | Table | Holds |
 |---|---|
-| `mappings` | Playlist pairs, options, last sync status |
+| `mappings` | Playlist pairs (each playlist at most once), options, schedule and next run, track counts per side, the YouTube video count Spotube expects, last sync status |
+| `playlist_cache` | The latest full read of each mapped playlist, so unchanged checks and restarts don't re-read |
+| `app_settings` | Settings saved from the Settings page |
 | `sync_items` | Queued changes: `pending`, `running`, `done`, `error`, `skipped` or `review` |
 | `track_links` | Song pairs (`auto` or `manual`); a NULL side means "not on that service" |
 | `blacklist` | Blocked tracks per mapping |

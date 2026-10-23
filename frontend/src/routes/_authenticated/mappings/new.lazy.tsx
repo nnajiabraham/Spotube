@@ -1,12 +1,14 @@
 import { createLazyFileRoute, Link, useNavigate } from '@tanstack/react-router'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Check, Link2, Plus, Search } from 'lucide-react'
-import { mappingsAPI, oauthAPI } from '../../../lib/api/index'
+import { Check, Copy, Link2, Plus, Search, Sparkles } from 'lucide-react'
+import { mappingsAPI, oauthAPI, settingsAPI, type EstimatePair } from '../../../lib/api/index'
 import type { Service } from '../../../lib/api/tracks'
 import { MappingOptions, type MappingOptionsValue } from '../../../components/MappingOptions'
+import { QuotaEstimate } from '../../../components/QuotaEstimate'
 import { Button, Card, Notice, Page, Pill, ServiceIcon } from '../../../components/ui'
-import { buttonClass, inputClass, serviceName } from '../../../lib/format'
+import { buttonClass, inputClass, linkClass, serviceName } from '../../../lib/format'
+import { EVERY_DAY, browserTimeZone, describeSchedule } from '../../../lib/schedule'
 
 type PickerItem = { id: string; name: string; detail: string; paired: boolean; sameName?: boolean }
 
@@ -166,11 +168,19 @@ function NewMapping() {
     sync_tracks: true,
     sync_name: false,
     interval_minutes: 60,
+    schedule_start: '00:00',
+    schedule_days: EVERY_DAY,
+    schedule_tz: browserTimeZone(),
   })
+  // The schedule follows the recommendation until the user changes it.
+  const [scheduleEdited, setScheduleEdited] = useState(false)
+  const [syncNow, setSyncNow] = useState<boolean | null>(null)
 
   const spotify = useQuery({ queryKey: ['spotify-playlists'], queryFn: oauthAPI.spotify.getPlaylists })
   const youtube = useQuery({ queryKey: ['youtube-playlists'], queryFn: oauthAPI.youtube.getPlaylists })
   const existing = useQuery({ queryKey: ['mappings', 'all'], queryFn: () => mappingsAPI.getList({ per_page: 200 }) })
+  const settings = useQuery({ queryKey: ['settings'], queryFn: settingsAPI.list })
+  const syncNowDefault = settings.data?.find((s) => s.key === 'sync_new_mappings_now')?.value !== 'false'
 
   const pairedSpotify = new Set(existing.data?.items.map((m) => m.spotify_playlist_id))
   const pairedYouTube = new Set(existing.data?.items.map((m) => m.youtube_playlist_id))
@@ -204,6 +214,28 @@ function NewMapping() {
     spotifyName,
   )
 
+  const spotifyTracks = selectedSpotify?.track_count ?? 0
+  const youtubeVideos = selectedYouTube?.itemCount ?? 0
+  const tz = options.schedule_tz ?? ''
+  const recommendation = useQuery({
+    queryKey: ['schedule-recommendation', spotifyTracks, youtubeVideos, tz],
+    queryFn: () => mappingsAPI.recommend({ spotify_tracks: spotifyTracks, youtube_videos: youtubeVideos, tz }),
+  })
+  const recommended = recommendation.data?.schedule
+  useEffect(() => {
+    if (recommended && !scheduleEdited) setOptions((o) => ({ ...o, ...recommended, schedule_tz: recommended.schedule_tz || o.schedule_tz }))
+  }, [recommended, scheduleEdited])
+  const changeOptions = (next: MappingOptionsValue) => {
+    if (
+      next.interval_minutes !== options.interval_minutes ||
+      next.schedule_start !== options.schedule_start ||
+      next.schedule_days !== options.schedule_days
+    ) {
+      setScheduleEdited(true)
+    }
+    setOptions(next)
+  }
+
   const otherName = creating === 'youtube' ? spotifyName : youtubeName
   const finalNewName = newName.trim() || otherName
   const ready = creating
@@ -220,6 +252,18 @@ function NewMapping() {
     else setYoutubeId(id)
   }
 
+  const estimatePairs: EstimatePair[] = ready
+    ? [
+        {
+          spotify_playlist_id: creating === 'spotify' ? undefined : spotifyId,
+          spotify_tracks: creating === 'spotify' ? 0 : spotifyTracks,
+          youtube_videos: creating === 'youtube' ? 0 : youtubeVideos,
+          create: creating ?? undefined,
+        },
+      ]
+    : []
+
+  const startNow = syncNow ?? syncNowDefault
   const create = useMutation({
     mutationFn: () =>
       mappingsAPI.create({
@@ -228,6 +272,7 @@ function NewMapping() {
         spotify_playlist_name: creating === 'spotify' ? finalNewName : spotifyName,
         youtube_playlist_name: creating === 'youtube' ? finalNewName : youtubeName,
         create_playlist: creating ?? undefined,
+        sync_now: startNow,
         ...options,
       }),
     onSuccess: () => {
@@ -252,7 +297,12 @@ function NewMapping() {
   return (
     <Page
       title="Pair playlists"
-      description="Choose a playlist on each side, or let Spotube create one side from the other. With sync workers on, the first sync runs within a minute; otherwise press Sync now on Mappings."
+      description="Choose a playlist on each side, or let Spotube create one side from the other. Each playlist can be in one mapping."
+      actions={
+        <Link to="/mappings/mirror" className={buttonClass.secondary}>
+          <Copy className="h-4 w-4" /> Mirror several
+        </Link>
+      }
     >
       <div className="grid gap-4 md:grid-cols-2">
         <PlaylistPicker {...pickerProps('spotify')} items={spotifyItems} isLoading={spotify.isLoading} error={spotify.error} />
@@ -276,8 +326,50 @@ function NewMapping() {
       )}
 
       <Card className="mt-4 p-5">
-        <MappingOptions value={options} onChange={setOptions} />
+        <MappingOptions
+          value={options}
+          onChange={changeOptions}
+          scheduleNote={
+            recommendation.data && (
+              <div className="space-y-2">
+                <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-600">
+                  <Sparkles className="h-3.5 w-3.5 text-amber-500" aria-hidden="true" />
+                  <span>
+                    Recommended: {describeSchedule(recommendation.data.schedule)}. {recommendation.data.reason}; spaced
+                    away from your other {existing.data?.totalItems ?? 0} mappings.
+                  </span>
+                  {scheduleEdited && (
+                    <button type="button" className={linkClass} onClick={() => setScheduleEdited(false)}>
+                      Use recommended
+                    </button>
+                  )}
+                </p>
+                {recommendation.data.warning && <Notice tone="warning">{recommendation.data.warning}</Notice>}
+              </div>
+            )
+          }
+        />
+        <label className="mt-5 flex cursor-pointer items-start gap-3 border-t border-gray-100 pt-5">
+          <input
+            type="checkbox"
+            checked={startNow}
+            onChange={(e) => setSyncNow(e.target.checked)}
+            className="mt-0.5 h-4 w-4 accent-ink"
+          />
+          <span>
+            <span className="block text-sm font-medium text-gray-900">Start syncing now</span>
+            <span className="block text-sm text-gray-500">
+              Run the first sync in the background straight away. Off: it waits for the first scheduled run.
+            </span>
+          </span>
+        </label>
       </Card>
+
+      {ready && (
+        <div className="mt-4">
+          <QuotaEstimate pairs={estimatePairs} />
+        </div>
+      )}
 
       {create.error && (
         <Notice tone="error" className="mt-4">

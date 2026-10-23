@@ -19,6 +19,7 @@ import (
 	"github.com/manlikeabro/spotube/internal/jobs"
 	"github.com/manlikeabro/spotube/internal/matching"
 	"github.com/manlikeabro/spotube/internal/platform"
+	"github.com/manlikeabro/spotube/internal/quota"
 	"github.com/manlikeabro/spotube/internal/tracklinks"
 
 	"github.com/go-jet/jet/v2/sqlite"
@@ -39,9 +40,6 @@ type YouTubeCatalog interface {
 const (
 	searchLimit    = 10
 	searchCacheTTL = 30 * time.Minute
-	// youtubeSearchGuard refuses in-app YouTube searches once 95% of the daily quota is
-	// used, keeping the rest for syncing.
-	youtubeSearchGuard = apiusage.YouTubeDailyQuota * 95 / 100
 )
 
 // TracksHandler serves in-app track search and the remembered track links.
@@ -49,6 +47,9 @@ type TracksHandler struct {
 	DB      *sql.DB
 	Spotify SpotifyCatalog
 	YouTube YouTubeCatalog
+	// Budget refuses a YouTube search (search plus durations, 101 units) that won't fit
+	// before any of it is spent; nil leaves it to the transport.
+	Budget *quota.Budget
 
 	mu    sync.Mutex
 	cache map[string]cachedSearch
@@ -110,16 +111,17 @@ func (h *TracksHandler) Search(c echo.Context) error {
 	cost := 0
 	if !cached {
 		if service == "youtube" {
-			used, err := apiusage.Today(h.DB, "youtube")
-			if err == nil && used >= youtubeSearchGuard {
-				return echo.NewHTTPError(http.StatusTooManyRequests,
-					"YouTube quota is almost used up for today; paste a video link instead (it costs 1 unit)")
+			// The quota budget refuses the search (429) when it won't fit; see searchError.
+			if h.Budget != nil {
+				if err := h.Budget.Allows(quota.Interactive, quota.SearchCost); err != nil {
+					return searchError(err)
+				}
 			}
 			hits, err = h.YouTube.Search(c.Request().Context(), query, searchLimit)
 			if err != nil {
 				return searchError(err)
 			}
-			cost = 101
+			cost = quota.SearchCost
 		} else {
 			hits, err = h.Spotify.Search(c.Request().Context(), query, searchLimit)
 			if err != nil {
@@ -237,8 +239,9 @@ func (h *TracksHandler) store(key string, hits []platform.SearchHit) {
 
 func searchError(err error) error {
 	msg := err.Error()
-	if strings.Contains(msg, "quotaExceeded") || strings.Contains(msg, "dailyLimitExceeded") {
-		return echo.NewHTTPError(http.StatusTooManyRequests, "YouTube quota exceeded for today")
+	if errors.Is(err, quota.ErrBudget) || apiusage.IsQuotaExhaustedMessage(msg) {
+		return echo.NewHTTPError(http.StatusTooManyRequests,
+			"YouTube quota is almost used up for today; paste a video link instead (it costs 1 unit)")
 	}
 	if errors.Is(err, context.Canceled) {
 		return echo.NewHTTPError(http.StatusRequestTimeout, "search cancelled")

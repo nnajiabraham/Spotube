@@ -242,7 +242,8 @@ func TestMappingsDelete(t *testing.T) {
 
 	e.ServeHTTP(rec, req)
 
-	assert.Equal(t, http.StatusNoContent, rec.Code)
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.JSONEq(t, `{"deleted":true,"playlists":[]}`, rec.Body.String())
 
 	// Verify deletion
 	req = httptest.NewRequest(http.MethodGet, "/api/collections/mappings/records/test-mapping", nil)

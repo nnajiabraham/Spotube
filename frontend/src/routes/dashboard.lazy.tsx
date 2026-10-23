@@ -3,8 +3,10 @@ import { useQuery } from '@tanstack/react-query'
 import { ArrowLeftRight, Plus, RefreshCw } from 'lucide-react'
 import { ConnectionCard } from '../components/ConnectionCard'
 import { DashboardStatsCards } from '../components/DashboardStatsCards'
+import { QuotaPanel } from '../components/QuotaPanel'
 import { MappingSyncStatus, SyncNowButton } from '../components/MappingSync'
 import { useSyncNow } from '../lib/useSyncNow'
+import { describeSchedule, intervalLabel } from '../lib/schedule'
 import { Card, Page, SectionTitle, ServiceIcon } from '../components/ui'
 import { buttonClass, fullTime, sectionLinkClass, timeAgo } from '../lib/format'
 import { dashboardAPI, mappingsAPI } from '../lib/api/index'
@@ -69,7 +71,9 @@ function MappingsPanel() {
                 <ServiceIcon service="youtube" />
                 <span className="truncate">{m.youtube_playlist_name || m.youtube_playlist_id}</span>
               </Link>
-              <span className="text-xs text-gray-500">every {m.interval_minutes} min</span>
+              <span className="text-xs text-gray-500" title={describeSchedule(m)}>
+                {intervalLabel(m.interval_minutes).toLowerCase()}
+              </span>
               <MappingSyncStatus mapping={m} />
               <SyncNowButton mappingId={m.id} sync={sync} compact />
             </li>
@@ -87,7 +91,13 @@ const levelDot: Record<string, string> = {
 }
 
 function Dashboard() {
-  const { data: stats, isLoading, dataUpdatedAt, refetch, isFetching } = useQuery({
+  const {
+    data: stats,
+    isLoading,
+    dataUpdatedAt,
+    refetch,
+    isFetching,
+  } = useQuery({
     queryKey: ['dashboard-stats'],
     queryFn: dashboardAPI.getStats,
     refetchInterval: REFRESH_MS,
@@ -99,9 +109,7 @@ function Dashboard() {
       description="Keeps paired Spotify and YouTube playlists in sync."
       actions={
         <>
-          {dataUpdatedAt > 0 && (
-            <span className="text-xs text-gray-400">Updated {timeAgo(dataUpdatedAt / 1000)}</span>
-          )}
+          {dataUpdatedAt > 0 && <span className="text-xs text-gray-400">Updated {timeAgo(dataUpdatedAt / 1000)}</span>}
           <button type="button" onClick={() => refetch()} className={buttonClass.secondary} disabled={isFetching}>
             <RefreshCw className={`h-4 w-4 ${isFetching ? 'animate-spin' : ''}`} /> Refresh
           </button>
@@ -129,6 +137,19 @@ function Dashboard() {
           Sync queue
         </SectionTitle>
         <DashboardStatsCards stats={stats} isLoading={isLoading} />
+      </section>
+
+      <section className="mb-8">
+        <SectionTitle
+          action={
+            <Link to="/settings" className={sectionLinkClass}>
+              Quota settings →
+            </Link>
+          }
+        >
+          YouTube quota today
+        </SectionTitle>
+        <QuotaPanel />
       </section>
 
       <div className="grid gap-8 lg:grid-cols-5">

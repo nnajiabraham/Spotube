@@ -45,22 +45,22 @@ func TestSchedulerStartStop(t *testing.T) {
 	credsRepo := &testSchedulerCredentialsRepo{}
 	clientFactory := auth.NewClientFactory(db, credsRepo, tokenRepo)
 
-	scheduler := New(JobDeps{
+	scheduler := New(NewAnalysisJob(JobDeps{
 		DB:             db,
 		Logger:         logger,
 		ActivityLogger: activityLogger,
-	}, clientFactory)
+	}, clientFactory))
 
 	// Initially not running
 	assert.False(t, scheduler.IsRunning())
 
 	// Start scheduler
-	err := scheduler.Start("0 * * * * *", nil)
+	err := scheduler.Start("0 * * * * *")
 	require.NoError(t, err)
 	assert.True(t, scheduler.IsRunning())
 
 	// Starting again should be no-op
-	err = scheduler.Start("0 * * * * *", nil)
+	err = scheduler.Start("0 * * * * *")
 	require.NoError(t, err)
 	assert.True(t, scheduler.IsRunning())
 
@@ -75,38 +75,6 @@ func TestSchedulerStartStop(t *testing.T) {
 	assert.False(t, scheduler.IsRunning())
 }
 
-func TestSchedulerLogsStartupAndShutdown(t *testing.T) {
-	db, cleanup := setupJobsTestDB(t)
-	defer cleanup()
-
-	logger := zerolog.Nop()
-	activityLogger := activitylogger.New(db)
-
-	// Mock client factory for tests
-	tokenRepo := auth.NewSQLiteTokenRepository(db)
-	credsRepo := &testSchedulerCredentialsRepo{}
-	clientFactory := auth.NewClientFactory(db, credsRepo, tokenRepo)
-
-	scheduler := New(JobDeps{
-		DB:             db,
-		Logger:         logger,
-		ActivityLogger: activityLogger,
-	}, clientFactory)
-
-	// Start and stop scheduler
-	err := scheduler.Start("0 * * * * *", nil)
-	require.NoError(t, err)
-
-	err = scheduler.Stop()
-	require.NoError(t, err)
-
-	// Verify activity logs were created
-	var logCount int
-	err = db.QueryRow(`SELECT COUNT(*) FROM activity_logs WHERE job_type = 'system' AND (message LIKE '%scheduler started%' OR message LIKE '%scheduler stopped%')`).Scan(&logCount)
-	require.NoError(t, err)
-	assert.Equal(t, 2, logCount) // start + stop
-}
-
 func TestSchedulerJobsRun(t *testing.T) {
 	db, cleanup := setupJobsTestDB(t)
 	defer cleanup()
@@ -119,13 +87,13 @@ func TestSchedulerJobsRun(t *testing.T) {
 	credsRepo := &testSchedulerCredentialsRepo{}
 	clientFactory := auth.NewClientFactory(db, credsRepo, tokenRepo)
 
-	scheduler := New(JobDeps{
+	scheduler := New(NewAnalysisJob(JobDeps{
 		DB:             db,
 		Logger:         logger,
 		ActivityLogger: activityLogger,
-	}, clientFactory)
+	}, clientFactory))
 
-	err := scheduler.Start("0 * * * * *", nil)
+	err := scheduler.Start("0 * * * * *")
 	require.NoError(t, err)
 
 	// Wait a bit for jobs to potentially run (they are placeholders for now)
@@ -150,14 +118,14 @@ func TestSchedulerGracefulShutdown(t *testing.T) {
 	credsRepo := &testSchedulerCredentialsRepo{}
 	clientFactory := auth.NewClientFactory(db, credsRepo, tokenRepo)
 
-	scheduler := New(JobDeps{
+	scheduler := New(NewAnalysisJob(JobDeps{
 		DB:             db,
 		Logger:         logger,
 		ActivityLogger: activityLogger,
-	}, clientFactory)
+	}, clientFactory))
 
 	// Start scheduler
-	err := scheduler.Start("0 * * * * *", nil)
+	err := scheduler.Start("0 * * * * *")
 	require.NoError(t, err)
 
 	// Schedule stop in background to test graceful shutdown

@@ -33,6 +33,8 @@ type Track struct {
 	Channel string `json:"channel,omitempty"`
 	// DurationMs is 0 when unknown.
 	DurationMs int `json:"duration_ms,omitempty"`
+	// Image is artwork (Spotify album thumbnail, YouTube video thumbnail) when the read had it.
+	Image string `json:"image,omitempty"`
 }
 
 // Decision captures whether a source track exists in a destination playlist.

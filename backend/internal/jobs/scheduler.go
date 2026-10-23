@@ -10,16 +10,16 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/manlikeabro/spotube/internal/activitylogger"
-	"github.com/manlikeabro/spotube/internal/auth"
+	"github.com/manlikeabro/spotube/internal/quota"
+	"github.com/manlikeabro/spotube/internal/settings"
 )
 
-// Scheduler manages background jobs using robfig/cron.
+// Scheduler runs the sync runner on a cron tick. It always runs; each tick checks the runtime
+// settings (background sync, auto-apply) to decide what to do.
 type Scheduler struct {
 	cron           *cron.Cron
-	db             *sql.DB
 	logger         zerolog.Logger
 	activityLogger *activitylogger.Logger
-	clientFactory  *auth.ClientFactory
 	analysisJob    *AnalysisJob
 	ctx            context.Context
 	cancel         context.CancelFunc
@@ -34,57 +34,45 @@ type JobDeps struct {
 	DB             *sql.DB
 	Logger         zerolog.Logger
 	ActivityLogger *activitylogger.Logger
+	// Cache, Budget and Settings are optional (nil in most tests).
+	Cache    *PlaylistCache
+	Budget   *quota.Budget
+	Settings *settings.Store
 }
 
-// New creates a new job scheduler with default configuration.
-func New(deps JobDeps, clientFactory *auth.ClientFactory) *Scheduler {
+// New creates a scheduler for the shared runner.
+func New(runner *AnalysisJob) *Scheduler {
 	ctx, cancel := context.WithCancel(context.Background())
-
-	// Create cron with second precision for fine-grained scheduling
-	cronInstance := cron.New(cron.WithSeconds())
-
-	// Create job instances
-	analysisJob := NewAnalysisJob(deps, clientFactory)
-
 	return &Scheduler{
-		cron:           cronInstance,
-		db:             deps.DB,
-		logger:         deps.Logger,
-		activityLogger: deps.ActivityLogger,
-		clientFactory:  clientFactory,
-		analysisJob:    analysisJob,
+		// Second precision for fine-grained scheduling.
+		cron:           cron.New(cron.WithSeconds()),
+		logger:         runner.logger,
+		activityLogger: runner.activityLogger,
+		analysisJob:    runner,
 		ctx:            ctx,
 		cancel:         cancel,
 	}
 }
 
-// Start registers the sync run on cronSpec (6-field syntax, seconds included). When applier is
-// non-nil, each run applies queued items right after analysing a mapping.
-func (s *Scheduler) Start(cronSpec string, applier *Executor) error {
+// Start registers the tick on cronSpec (6-field syntax, seconds included).
+func (s *Scheduler) Start(cronSpec string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	if s.started {
 		return nil
 	}
-
-	if applier != nil {
-		s.analysisJob.EnableAutoApply(applier, defaultApplyLimit)
-	}
-
 	if _, err := s.cron.AddFunc(cronSpec, s.runAnalysisJob); err != nil {
 		return err
 	}
-
 	s.cron.Start()
 	s.started = true
 
 	s.logger.Info().
 		Str("cron", cronSpec).
-		Bool("auto_apply", applier != nil).
+		Bool("background_sync", s.analysisJob.workersEnabled()).
+		Bool("auto_apply", s.analysisJob.autoApplyEnabled()).
 		Msg("sync scheduler started")
-	s.activityLogger.RecordInfo("Sync scheduler started", "", "system")
-
 	return nil
 }
 
@@ -111,8 +99,6 @@ func (s *Scheduler) Stop() error {
 
 	s.wg.Wait()
 	s.started = false
-
-	s.activityLogger.RecordInfo("Sync scheduler stopped", "", "system")
 
 	return nil
 }

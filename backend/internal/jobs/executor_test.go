@@ -327,7 +327,9 @@ func TestExecuteOne_ReExecuteFromError(t *testing.T) {
 func TestIsIdempotentSuccess(t *testing.T) {
 	assert.True(t, isIdempotentSuccess(errors.New("Item already exists")))
 	assert.False(t, isIdempotentSuccess(errors.New("network timeout")))
-	assert.True(t, isIdempotentSuccess(&googleapi.Error{Code: 409}))
+	assert.True(t, isIdempotentSuccess(&googleapi.Error{Code: 409, Message: "Video already in playlist."}))
+	// A 409 for anything else (e.g. a conflicting edit) is a real failure.
+	assert.False(t, isIdempotentSuccess(&googleapi.Error{Code: 409, Message: "Conflict"}))
 	assert.False(t, isIdempotentSuccess(&googleapi.Error{Code: 400, Message: "invalid playlist"}))
 }
 
@@ -350,7 +352,7 @@ func insertPendingItem(t *testing.T, db *sql.DB, mappingID, itemID, service, tit
 	require.NoError(t, err)
 }
 
-func TestExecutePending_UsesSeedAndSkipsDuplicatesWithinBatch(t *testing.T) {
+func TestExecutePending_UsesCacheAndSkipsDuplicatesWithinBatch(t *testing.T) {
 	db, cleanup := setupExecutorTestDB(t)
 	defer cleanup()
 
@@ -362,16 +364,19 @@ func TestExecutePending_UsesSeedAndSkipsDuplicatesWithinBatch(t *testing.T) {
 		searchHits: []platformSearchHit{{ID: "yt-new", Title: "Song A", Artist: "Artist A"}},
 	}}
 	e := newTestExecutor(t, db, &mockSpotifyPlatform{}, yt)
+	e.cache = NewPlaylistCache(db)
+	e.cache.Put(context.Background(), "youtube", "yt-pl", nil) // read by analysis
 
-	seed := &PlaylistSnapshot{YouTube: map[string][]matching.Track{"yt-pl": {}}}
-	result, err := e.ExecutePending(context.Background(), "map-b", 10, seed)
+	result, err := e.ExecutePending(context.Background(), "map-b", 10)
 	require.NoError(t, err)
-	assert.Equal(t, BatchResult{Attempted: 2, Done: 1, Skipped: 1}, result)
-	assert.Equal(t, 0, yt.listCalls, "seeded playlist should not be re-listed")
+	assert.Equal(t, 2, result.Attempted)
+	assert.Equal(t, 1, result.Done)
+	assert.Equal(t, 1, result.Skipped)
+	assert.Equal(t, 0, yt.listCalls, "cached playlist should not be re-listed")
 	assert.Equal(t, []string{"yt-new"}, yt.addCalls)
 }
 
-func TestExecutePending_StopsOnQuotaExceeded(t *testing.T) {
+func TestExecutePending_DefersOnQuotaExceeded(t *testing.T) {
 	db, cleanup := setupExecutorTestDB(t)
 	defer cleanup()
 
@@ -382,14 +387,24 @@ func TestExecutePending_StopsOnQuotaExceeded(t *testing.T) {
 	yt := &mockYouTubePlatform{searchErr: quota}
 	e := newTestExecutor(t, db, &mockSpotifyPlatform{}, yt)
 
-	result, err := e.ExecutePending(context.Background(), "map-q", 10, nil)
+	result, err := e.ExecutePending(context.Background(), "map-q", 10)
 	require.Error(t, err)
-	assert.Equal(t, 1, result.Attempted)
-	assert.Equal(t, 1, result.Failed)
+	assert.Equal(t, 0, result.Attempted, "a quota refusal is not an attempt")
+	assert.Equal(t, 1, result.Deferred)
+	assert.Len(t, yt.addCalls, 0)
 
-	var status string
-	require.NoError(t, db.QueryRow(`SELECT status FROM sync_items WHERE id = 'item-q2'`).Scan(&status))
-	assert.Equal(t, "pending", status)
+	// Both items wait in the queue with their attempts intact; the second was never tried.
+	for _, id := range []string{"item-q1", "item-q2"} {
+		var status string
+		var attempts int
+		var msg sql.NullString
+		require.NoError(t, db.QueryRow(`SELECT status, attempt_count, error_message FROM sync_items WHERE id = ?`, id).Scan(&status, &attempts, &msg))
+		assert.Equal(t, "pending", status, id)
+		assert.Equal(t, 0, attempts, id)
+		if id == "item-q1" {
+			assert.Contains(t, msg.String, "Waiting for YouTube quota")
+		}
+	}
 }
 
 func TestExecutePending_SkipsItemsOverAttemptLimit(t *testing.T) {
@@ -401,7 +416,7 @@ func TestExecutePending_SkipsItemsOverAttemptLimit(t *testing.T) {
 	require.NoError(t, err)
 
 	e := newTestExecutor(t, db, &mockSpotifyPlatform{}, &mockYouTubePlatform{})
-	result, err := e.ExecutePending(context.Background(), "map-r", 10, nil)
+	result, err := e.ExecutePending(context.Background(), "map-r", 10)
 	require.NoError(t, err)
 	assert.Equal(t, 0, result.Attempted)
 }

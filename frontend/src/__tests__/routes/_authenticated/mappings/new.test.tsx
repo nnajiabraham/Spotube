@@ -162,4 +162,40 @@ describe('New mapping page', () => {
       create_playlist: 'spotify',
     });
   });
+
+  it('uses the recommended schedule until edited and sends it with sync_now', async () => {
+    const created = useApi();
+    const user = userEvent.setup();
+    render(
+      <QueryClientProvider client={newClient()}>
+        <NewMapping />
+      </QueryClientProvider>,
+    );
+    const spotifyList = await screen.findByRole('radiogroup', { name: 'spotify playlists' });
+    await user.click(await within(spotifyList).findByRole('radio', { name: /Road Trip/ }));
+    const youtubeList = screen.getByRole('radiogroup', { name: 'youtube playlists' });
+    await user.click(within(youtubeList).getByRole('radio', { name: /Other/ }));
+
+    // The default recommendation handler suggests every 2 hours from 00:20.
+    await waitFor(() => expect(screen.getByRole('combobox', { name: 'Check for changes' })).toHaveValue('120'));
+    expect(screen.getByLabelText('Start time')).toHaveValue('00:20');
+    expect(screen.getByText(/Recommended: Every 2 hours from 00:20, every day/)).toBeInTheDocument();
+    expect(await screen.findByLabelText('Quota estimate')).toHaveTextContent('1,550');
+
+    // Override: once a day, weekdays only, and don't start now.
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Check for changes' }), '1440');
+    await user.click(screen.getByRole('button', { name: 'Weekdays' }));
+    await user.click(screen.getByRole('button', { name: 'Sat' })); // adds Saturday
+    await user.click(screen.getByRole('checkbox', { name: /Start syncing now/ }));
+    expect(screen.getByRole('button', { name: 'Use recommended' })).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Pair playlists' }));
+    await waitFor(() => expect(created).toHaveLength(1));
+    expect(created[0]).toMatchObject({
+      interval_minutes: 1440,
+      schedule_start: '00:20',
+      schedule_days: 0b0111110 | (1 << 6),
+      sync_now: false,
+    });
+  });
 });

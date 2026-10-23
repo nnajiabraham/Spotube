@@ -7,7 +7,7 @@ BACKEND_PID := $(REPO_ROOT)/.backend-dev.pid
 BACKEND_PORT := 8090
 
 .PHONY: backend/install backend/dev backend/dev-bg backend/dev-stop backend/test backend/build backend/lint backend/clean
-.PHONY: backend/db/create backend/db/up backend/db/down backend/db/gen
+.PHONY: backend/db/create backend/db/up backend/db/down backend/db/gen backend/db/backup
 
 backend/install: ## Install backend dependencies
 	@cd $(BACKEND_DIR) && go mod download
@@ -48,10 +48,13 @@ backend/clean: ## Clean backend build artifacts
 backend/db/create: ## Create new migration (usage: make backend/db/create NAME=xyz)
 	@cd $(BACKEND_DIR) && go run github.com/pressly/goose/v3/cmd/goose@latest -dir ./migrations create $(NAME) sql
 
-backend/db/up: ## Apply pending migrations
+backend/db/backup: ## Back up the database to data/backups (up/down also do this before changing the schema)
+	@cd $(BACKEND_DIR) && mkdir -p $(dir $(DB_PATH)) && DB_PATH=$(DB_PATH) go run ./cmd/migrate backup
+
+backend/db/up: ## Apply pending migrations (backs up the database first when any are pending)
 	@cd $(BACKEND_DIR) && mkdir -p $(dir $(DB_PATH)) && DB_PATH=$(DB_PATH) go run ./cmd/migrate up
 
-backend/db/down: ## Roll back one migration
+backend/db/down: ## Roll back one migration (backs up the database first)
 	@cd $(BACKEND_DIR) && DB_PATH=$(DB_PATH) go run ./cmd/migrate down
 
 backend/db/gen: ## Run Jet codegen

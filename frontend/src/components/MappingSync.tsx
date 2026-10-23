@@ -4,7 +4,21 @@ import type { useSyncNow } from '../lib/useSyncNow'
 import { Pill } from './ui'
 import { buttonClass, fullTime, timeAgo } from '../lib/format'
 
+// Statuses that pause part of a mapping until something changes.
+const pausedStatus: Record<string, { tone: 'yellow' | 'red'; label: string }> = {
+  waiting_quota: { tone: 'yellow', label: 'Waiting for quota' },
+  playlist_missing: { tone: 'red', label: 'Playlist missing' },
+  playlist_full: { tone: 'yellow', label: 'YouTube playlist full' },
+}
+
 export function MappingSyncStatus({ mapping }: { mapping: Mapping }) {
+  if (mapping.syncing) {
+    return (
+      <Pill tone="blue">
+        <RefreshCw className="h-3 w-3 animate-spin" aria-hidden="true" /> Syncing
+      </Pill>
+    )
+  }
   if (!mapping.last_analysis_at) {
     return <Pill>Never synced</Pill>
   }
@@ -17,6 +31,15 @@ export function MappingSyncStatus({ mapping }: { mapping: Mapping }) {
     return (
       <span className="inline-flex flex-wrap items-center gap-2" title={mapping.last_sync_error}>
         <Pill tone="yellow">Reconnect needed</Pill>
+        {when}
+      </span>
+    )
+  }
+  const paused = pausedStatus[mapping.last_sync_status ?? '']
+  if (paused) {
+    return (
+      <span className="inline-flex flex-wrap items-center gap-2" title={mapping.last_sync_error}>
+        <Pill tone={paused.tone}>{paused.label}</Pill>
         {when}
       </span>
     )

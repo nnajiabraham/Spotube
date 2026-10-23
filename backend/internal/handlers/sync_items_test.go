@@ -42,7 +42,7 @@ func insertSyncItemFixture(t *testing.T, db *sql.DB, itemID, mappingID, operatio
 	t.Helper()
 	now := time.Now().Unix()
 	_, err := db.Exec(`INSERT INTO mappings (id, spotify_playlist_id, youtube_playlist_id, spotify_playlist_name, youtube_playlist_name, sync_name, sync_tracks, interval_minutes, tracks_count, created, updated) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		mappingID, "sp-1", "yt-1", "Spotify Hits", "YouTube Mix", 1, 1, 60, 0, now, now)
+		mappingID, "sp-"+mappingID, "yt-"+mappingID, "Spotify Hits", "YouTube Mix", 1, 1, 60, 0, now, now)
 	require.NoError(t, err)
 
 	_, err = db.Exec(`INSERT INTO sync_items (id, mapping_id, operation, service, track_id, track_title, track_artist, status, error_message, attempt_count, created, updated) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,

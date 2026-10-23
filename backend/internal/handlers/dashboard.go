@@ -95,7 +95,7 @@ func (h *DashboardHandler) GetStats(c echo.Context) error {
 	}
 	youtubeQuota := YouTubeQuotaStats{
 		Used:  int64(quotaUsed),
-		Limit: apiusage.YouTubeDailyQuota,
+		Limit: int64(apiusage.Limit()),
 	}
 
 	response := DashboardStatsResponse{

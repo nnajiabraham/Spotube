@@ -1,6 +1,8 @@
 package backups
 
 import (
+	"github.com/manlikeabro/spotube/internal/quota"
+
 	"context"
 	"fmt"
 	"time"
@@ -84,10 +86,18 @@ func (s *Service) RunDue(ctx context.Context) {
 	}
 }
 
-// Start runs RunDue now and then every interval until ctx is done.
-func (s *Service) Start(ctx context.Context, interval time.Duration) {
+// Start runs RunDue now and then every interval until ctx is done, while enabled (checked on
+// every tick, so the Settings page can switch scheduled backups on and off) returns true.
+// Scheduled reads are background work for the quota budget.
+func (s *Service) Start(ctx context.Context, interval time.Duration, enabled func() bool) {
+	ctx = quota.WithClass(ctx, quota.Read)
+	run := func() {
+		if enabled == nil || enabled() {
+			s.RunDue(ctx)
+		}
+	}
 	go func() {
-		s.RunDue(ctx)
+		run()
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 		for {
@@ -95,7 +105,7 @@ func (s *Service) Start(ctx context.Context, interval time.Duration) {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				s.RunDue(ctx)
+				run()
 			}
 		}
 	}()

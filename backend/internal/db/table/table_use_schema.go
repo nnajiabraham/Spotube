@@ -12,11 +12,13 @@ package table
 func UseSchema(schema string) {
 	ActivityLogs = ActivityLogs.FromSchema(schema)
 	APIUsage = APIUsage.FromSchema(schema)
+	AppSettings = AppSettings.FromSchema(schema)
 	Blacklist = Blacklist.FromSchema(schema)
 	GooseDbVersion = GooseDbVersion.FromSchema(schema)
 	Mappings = Mappings.FromSchema(schema)
 	OAuthTokens = OAuthTokens.FromSchema(schema)
 	PlaylistBackups = PlaylistBackups.FromSchema(schema)
+	PlaylistCache = PlaylistCache.FromSchema(schema)
 	PlaylistSnapshots = PlaylistSnapshots.FromSchema(schema)
 	Settings = Settings.FromSchema(schema)
 	SyncItems = SyncItems.FromSchema(schema)

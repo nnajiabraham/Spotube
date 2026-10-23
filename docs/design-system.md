@@ -69,8 +69,26 @@ and `gray` scale, so existing `bg-white` and `text-gray-*` classes pick up the w
 | `Pagination` | Count and previous/next |
 | `ServiceIcon`, `SpotifyLogo`, `YoutubeLogo`, `SpotubeMark` | Brand marks |
 
+`TrackArt` falls back to the video's YouTube thumbnail (built from its ID, no quota) when no
+artwork is stored.
+
+## Feature components (`frontend/src/components`)
+
+| Component | Use |
+|---|---|
+| `QuotaPanel` | Today's YouTube budget: used / limit, a bar (ink used, sky scheduled checks still to come, pale green free, amber kept for you), what the queue can use, queued work and when it finishes. Dashboard and Settings |
+| `QuotaEstimate` | Units and days a proposed pairing or mirror needs, with a warning past 5,000 videos |
+| `ScheduleFields`, `MappingOptions` | Interval select, start time, day toggles (`aria-pressed`) with Every day / Weekdays / Weekends presets, and a one-line description; options add the sync toggles and a note slot for the recommendation |
+| `DeleteMappingDialog` | Delete a mapping; checkboxes (off by default) to also delete either playlist; per-playlist results |
+
+The Settings page uses a switch (`role="switch"`, ink when on) for on/off settings and a
+number field with **Save** for the rest. A setting's source is a pill: grey **default** or
+**.env**, green **saved**, amber **until restart**.
+
 Class helpers live in `frontend/src/lib/format.ts`: `buttonClass` (for links styled as
-buttons), `linkClass`, `sectionLinkClass`, `inputClass`, `formatDuration` and `trackURL`.
+buttons), `linkClass`, `sectionLinkClass`, `inputClass`, `formatDuration`, `trackURL` and
+`youtubeThumbnail`. Schedule labels (`describeSchedule`, `intervalLabel`, `nextRunLabel`,
+`daysLabelFromNow`) are in `frontend/src/lib/schedule.ts`.
 
 ## Writing
 

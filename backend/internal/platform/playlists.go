@@ -142,3 +142,27 @@ func (p *Playlists) AddTracks(ctx context.Context, service, playlistID string, i
 	}
 	return 0, errors.New("unknown service: " + service)
 }
+
+// DeletePlaylist removes a playlist. Spotify has no delete: unfollowing removes it from the
+// user's library (and is what the Spotify app's "Delete" does). YouTube deletes it (50 units).
+func (p *Playlists) DeletePlaylist(ctx context.Context, service, playlistID string) error {
+	switch service {
+	case "spotify":
+		client, err := p.Factory.GetSpotifyClient(ctx)
+		if err != nil {
+			return err
+		}
+		return client.UnfollowPlaylist(ctx, spotify.ID(playlistID))
+	case "youtube":
+		svc, err := p.Factory.GetYouTubeService(ctx)
+		if err != nil {
+			return err
+		}
+		err = svc.Playlists.Delete(playlistID).Context(ctx).Do()
+		if isNotFound(err) {
+			return nil // already gone
+		}
+		return err
+	}
+	return errors.New("unknown service: " + service)
+}

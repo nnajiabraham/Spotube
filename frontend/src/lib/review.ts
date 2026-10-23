@@ -2,7 +2,7 @@ import type { QueryClient } from '@tanstack/react-query'
 import type { SyncItemDetails } from './api/sync-items'
 import type { TrackLike } from '../components/ui'
 
-type AnalysisSource = { title?: string; artist?: string; channel?: string; duration_ms?: number }
+type AnalysisSource = { title?: string; artist?: string; channel?: string; duration_ms?: number; image?: string }
 
 /** The source track of an add item, with duration and channel when analysis recorded them. */
 export function sourceTrackOf(item: SyncItemDetails): TrackLike {
@@ -14,6 +14,7 @@ export function sourceTrackOf(item: SyncItemDetails): TrackLike {
     artist: source.artist || item.track_artist,
     channel: source.channel,
     duration_ms: source.duration_ms,
+    image: source.image,
   }
 }
 

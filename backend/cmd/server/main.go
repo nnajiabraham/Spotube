@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -26,6 +27,8 @@ import (
 	"github.com/manlikeabro/spotube/internal/jobs"
 	"github.com/manlikeabro/spotube/internal/logging"
 	"github.com/manlikeabro/spotube/internal/platform"
+	"github.com/manlikeabro/spotube/internal/quota"
+	"github.com/manlikeabro/spotube/internal/settings"
 	"github.com/manlikeabro/spotube/internal/sqliteconn"
 )
 
@@ -50,6 +53,20 @@ func main() {
 	defer db.Close()
 	// Every YouTube API call is metered into api_usage so the dashboard shows real quota.
 	apiusage.SetDB(db)
+
+	// Runtime settings: .env wins at startup; the Settings page changes the rest (stored) or,
+	// for env-pinned ones, until the next restart.
+	appSettings, err := settings.Load(db, nil)
+	if err != nil {
+		logger.Fatal().Err(err).Msg("failed to load settings")
+	}
+	apiusage.SetLimit(func() int { return appSettings.Int(settings.YouTubeDailyQuota) })
+	// The quota budget gates every YouTube call (see internal/quota).
+	budget := quota.New(db,
+		func() int { return appSettings.Int(settings.YouTubeDailyQuota) },
+		func() int { return appSettings.Int(settings.YouTubeInteractiveReserve) },
+		nil)
+	apiusage.SetGate(budget)
 
 	srv := httpserver.New(cfg, logger)
 
@@ -122,29 +139,40 @@ func main() {
 	activityLogsGroup := srv.Group("/api/collections/activity_logs/records")
 	handlers.RegisterActivityLogsRoutes(activityLogsGroup, activityLogsHandler)
 
-	// Sync items + manual executor
+	// One sync runner shared by the scheduler, Sync now and new mappings, so per-mapping locks
+	// and the playlist cache are shared too.
 	activityLogger := activitylogger.New(db)
 	clientFactory := auth.NewClientFactory(db, settingsRepo, tokenRepo)
-	syncExecutor := jobs.NewExecutor(jobs.JobDeps{
+	jobDeps := jobs.JobDeps{
 		DB:             db,
 		Logger:         logger,
 		ActivityLogger: activityLogger,
-	}, clientFactory)
-	// Mappings CRUD + on-demand "Sync now" (works even when the cron workers are disabled)
-	manualSync := jobs.NewAnalysisJob(jobs.JobDeps{
-		DB:             db,
-		Logger:         logger,
-		ActivityLogger: activityLogger,
-	}, clientFactory)
-	if cfg.SyncExecutorAutoEnabled {
-		manualSync.EnableAutoApply(syncExecutor, 0)
+		Cache:          jobs.NewPlaylistCache(db),
+		Budget:         budget,
+		Settings:       appSettings,
 	}
+	syncExecutor := jobs.NewExecutor(jobDeps, clientFactory)
+	if n, err := syncExecutor.ResetInterrupted(context.Background()); err != nil {
+		logger.Error().Err(err).Msg("failed to requeue interrupted items")
+	} else if n > 0 {
+		logger.Info().Int64("items", n).Msg("requeued items interrupted by the last shutdown")
+	}
+	runner := jobs.NewAnalysisJob(jobDeps, clientFactory)
+	runner.EnableAutoApply(syncExecutor, 0)
+	budget.DailyReads = cachedFor(time.Minute, runner.DailyReadUnits)
+
 	mappingsHandler := handlers.NewMappingsHandler(db)
-	mappingsHandler.Syncer = manualSync
-	mappingsHandler.Creator = &platform.Playlists{Factory: clientFactory}
-	mappingsHandler.QuotaLeft = func() int { return apiusage.Remaining(db) }
+	mappingsHandler.Syncer = runner
+	mappingsHandler.Playlists = &platform.Playlists{Factory: clientFactory}
+	mappingsHandler.Budget = budget
+	mappingsHandler.SyncNowDefault = func() bool { return appSettings.Bool(settings.SyncNewMappingsNow) }
 	mappingsGroup := srv.Group("/api/collections/mappings/records")
 	handlers.RegisterMappingsRoutes(mappingsGroup, mappingsHandler)
+
+	handlers.RegisterQuotaRoutes(srv.Group("/api/quota"), &handlers.QuotaHandler{
+		DB: db, Budget: budget, Spotify: &platform.Spotify{Factory: clientFactory},
+	})
+	handlers.RegisterAppSettingsRoutes(srv.Group("/api/settings"), &handlers.AppSettingsHandler{Store: appSettings})
 
 	syncItemsHandler := handlers.NewSyncItemsHandler(db, syncExecutor)
 	syncItemsGroup := srv.Group("/api/collections/sync_items/records")
@@ -153,6 +181,7 @@ func main() {
 	// In-app track search for the review queue, and remembered track links
 	tracksHandler := handlers.NewTracksHandler(db,
 		&platform.Spotify{Factory: clientFactory}, &platform.YouTube{Factory: clientFactory})
+	tracksHandler.Budget = budget
 	handlers.RegisterTracksRoutes(srv.Group("/api"), tracksHandler)
 
 	// Playlist backups: snapshots on their own schedule (and free ones during sync), restore
@@ -162,37 +191,23 @@ func main() {
 		Writer:    &platform.Playlists{Factory: clientFactory},
 		Activity:  activityLogger,
 		Logger:    logger,
-		QuotaLeft: func() int { return apiusage.Remaining(db) },
+		QuotaLeft: func() int { return budget.Status().Available },
 	}
 	handlers.RegisterBackupsRoutes(srv.Group("/api/backups"), handlers.NewBackupsHandler(backupService))
 	backupCtx, stopBackups := context.WithCancel(context.Background())
 	defer stopBackups()
-	if cfg.BackupsEnabled {
-		backupService.Start(backupCtx, backupCheckInterval)
-	}
+	backupService.Start(backupCtx, backupCheckInterval, func() bool { return appSettings.Bool(settings.BackupsEnabled) })
 
 	// Dashboard Stats (unauthenticated)
 	dashboardHandler := handlers.NewDashboardHandler(db)
 	dashboardGroup := srv.Group("/api/dashboard")
 	handlers.RegisterDashboardRoutes(dashboardGroup, dashboardHandler)
 
-	var jobScheduler *jobs.Scheduler
-	if cfg.SyncWorkersEnabled {
-		jobScheduler = jobs.New(jobs.JobDeps{
-			DB:             db,
-			Logger:         logger,
-			ActivityLogger: activityLogger,
-		}, clientFactory)
-		var applier *jobs.Executor
-		if cfg.SyncExecutorAutoEnabled {
-			applier = syncExecutor
-		}
-		if err := jobScheduler.Start(cfg.SyncAnalysisCronSpec, applier); err != nil {
-			logger.Fatal().Err(err).Msg("failed to start sync workers")
-		}
-	} else {
-		logger.Info().
-			Msg("mapping sync workers disabled (set SYNC_WORKERS_ENABLED=true in backend/.env to enable)")
+	// The scheduler always ticks; the background sync and auto-apply settings decide what a
+	// tick does, so they can be switched on the Settings page without a restart.
+	jobScheduler := jobs.New(runner)
+	if err := jobScheduler.Start(cfg.SyncAnalysisCronSpec); err != nil {
+		logger.Fatal().Err(err).Msg("failed to start sync scheduler")
 	}
 
 	address := ":" + cfg.Port
@@ -208,10 +223,8 @@ func main() {
 	<-stop
 
 	stopBackups()
-	if jobScheduler != nil {
-		if err := jobScheduler.Stop(); err != nil {
-			logger.Error().Err(err).Msg("sync worker shutdown failed")
-		}
+	if err := jobScheduler.Stop(); err != nil {
+		logger.Error().Err(err).Msg("sync worker shutdown failed")
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -222,6 +235,21 @@ func main() {
 	}
 
 	logger.Info().Msg("server stopped")
+}
+
+// cachedFor memoizes f for ttl (it is read on every quota decision).
+func cachedFor(ttl time.Duration, f func() int) func() int {
+	var mu sync.Mutex
+	var value int
+	var at time.Time
+	return func() int {
+		mu.Lock()
+		defer mu.Unlock()
+		if at.IsZero() || time.Since(at) > ttl {
+			value, at = f(), time.Now()
+		}
+		return value
+	}
 }
 
 func nullableString(value string) sql.NullString {

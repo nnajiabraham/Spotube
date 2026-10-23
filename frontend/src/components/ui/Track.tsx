@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import { ExternalLink, Music2 } from 'lucide-react'
 import { ServiceIcon } from './icons'
-import { formatDuration, trackURL } from '../../lib/format'
+import { formatDuration, trackURL, youtubeThumbnail } from '../../lib/format'
 
 export type TrackLike = {
   id?: string
@@ -14,9 +14,10 @@ export type TrackLike = {
 }
 
 /** Square artwork for Spotify, 16:9 thumbnail for YouTube, or a placeholder. */
-export function TrackArt({ service, image, size = 'md' }: { service: string; image?: string; size?: 'sm' | 'md' }) {
+export function TrackArt({ service, image, id, size = 'md' }: { service: string; image?: string; id?: string; size?: 'sm' | 'md' }) {
   const box = size === 'sm' ? 'h-9' : 'h-12'
   const shape = service === 'youtube' ? `${box} aspect-video` : `${box} aspect-square`
+  if (!image && service === 'youtube') image = youtubeThumbnail(id)
   if (image) return <img src={image} alt="" loading="lazy" className={`${shape} shrink-0 rounded-md bg-gray-100 object-cover`} />
   return (
     <div className={`${shape} flex shrink-0 items-center justify-center rounded-md bg-gray-100 text-gray-300`}>
@@ -50,7 +51,7 @@ export function TrackRow({
   ].filter(Boolean)
   return (
     <div className={`flex items-center gap-3 rounded-lg px-3 py-2.5 ${highlight ? 'bg-spotify-50 ring-1 ring-spotify-100' : ''}`}>
-      {showArt && <TrackArt service={service} image={track.image} />}
+      {showArt && <TrackArt service={service} image={track.image} id={track.id} />}
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5">
           <ServiceIcon service={service} className="h-3.5 w-3.5 shrink-0" />

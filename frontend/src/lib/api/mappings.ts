@@ -1,9 +1,13 @@
 import { apiClient } from './client';
-import type { 
-  Mapping, 
-  MappingsResponse, 
-  CreateMappingRequest, 
-  UpdateMappingRequest 
+import type {
+  Mapping,
+  MappingsResponse,
+  CreateMappingRequest,
+  UpdateMappingRequest,
+  DeleteMappingResult,
+  MirrorRequest,
+  MirrorResult,
+  ScheduleRecommendation,
 } from './types';
 
 export interface MappingsListOptions {
@@ -47,8 +51,30 @@ export const mappingsAPI = {
     return apiClient.post<Mapping>(`/api/collections/mappings/records/${id}/sync`, {});
   },
 
-  // Delete a mapping
-  async delete(id: string): Promise<void> {
-    return apiClient.delete(`/api/collections/mappings/records/${id}`);
+  // Delete a mapping, and optionally the playlists on either side
+  async delete(
+    id: string,
+    options: { spotify?: boolean; youtube?: boolean } = {},
+  ): Promise<DeleteMappingResult> {
+    const url = apiClient.buildURL(`/api/collections/mappings/records/${id}`, {
+      delete_spotify_playlist: options.spotify ? 'true' : '',
+      delete_youtube_playlist: options.youtube ? 'true' : '',
+    });
+    return apiClient.deleteJSON<DeleteMappingResult>(url);
+  },
+
+  // A schedule for a new mapping that keeps reads affordable and spaces it from the others
+  async recommend(params: { spotify_tracks: number; youtube_videos: number; tz?: string }): Promise<ScheduleRecommendation> {
+    const url = apiClient.buildURL('/api/collections/mappings/records/schedule-recommendation', {
+      spotify_tracks: params.spotify_tracks,
+      youtube_videos: params.youtube_videos,
+      tz: params.tz ?? '',
+    });
+    return apiClient.get<ScheduleRecommendation>(url);
+  },
+
+  // Create the other side of each playlist, each as its own mapping
+  async mirror(data: MirrorRequest): Promise<{ items: MirrorResult[] }> {
+    return apiClient.post('/api/collections/mappings/records/mirror', data);
   },
 };

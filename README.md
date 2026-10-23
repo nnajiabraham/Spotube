@@ -15,15 +15,21 @@ The full walkthrough (every workflow and page) is in [`docs/app-guide.md`](./doc
 
 ```
 cron tick (SYNC_ANALYSIS_CRON_SPEC, default every minute)
-  └─ for each mapping whose interval_minutes has elapsed:
-       1. fetch both playlists (once)
-       2. refresh playlist names; queue a YouTube rename if sync_name and titles differ
-       3. for each track: check remembered track links first, then fuzzy-match the other
-          playlist; queue an `add` sync_item for anything missing
-       4. auto-apply (SYNC_EXECUTOR_AUTO_ENABLED, default on): search the destination service,
-          add the best confident match — up to 25 items per mapping per run
-       5. record last_sync_status / last_sync_error on the mapping
+  ├─ if Background sync is on: for each mapping whose next_run_at has come
+  │    1. read Spotify in full (free); probe YouTube (1 unit) and read it in full only if its
+  │       video count changed, there is no cached read, or the cache is stale
+  │    2. refresh playlist names; queue a YouTube rename if sync_name and titles differ
+  │    3. for each track: check remembered track links first, then fuzzy-match the other
+  │       playlist; queue an `add` sync_item for anything missing
+  │    4. record last_sync_status / last_sync_error and the next run time
+  └─ if Apply automatically is on: drain the queue across all mappings (renames, then songs
+     already matched, then the rest, taking turns between mappings), up to 100 items a tick,
+     while the YouTube quota budget allows
 ```
+
+Both toggles are settings (Settings page; `.env` sets the startup value, see
+[Settings](#settings)). The full design of quota, schedules and settings is
+[RFC-013](./docs/rfcs/RFC-013-quota-scheduling-settings.md).
 
 - **Track links** (`track_links`, `backend/internal/tracklinks`). Every confident pair is
   remembered by ID: a Spotify track and the YouTube video it was matched to, and vice versa.
@@ -54,21 +60,76 @@ cron tick (SYNC_ANALYSIS_CRON_SPEC, default every minute)
     [RFC-011](./docs/rfcs/RFC-011-track-matching-review-and-links.md).
 - **Playlist names:** Spotify is the source of truth; with `sync_name` on, the YouTube playlist is
   renamed to match.
-- **Failures:** a failed run is stamped, so it waits for the mapping's interval before retrying.
-  API errors on an item are retried automatically up to 3 times; after that use **Retry** in the
-  Sync Queue. Expired/revoked OAuth shows as **Reconnect needed** on the Mappings page.
-- **YouTube quota** (10,000 units/day, resets at midnight Pacific):
-  - Costs: a search is 100 units, an insert 50, a list call 1.
-  - Usage is measured per API call into `api_usage` and shown on the Dashboard.
-  - In-app searches run only on submit and are cached for 30 minutes.
-  - YouTube search is refused once 95% of the day's quota is used.
-  - A run stops early when the quota is exhausted.
-- **Pairing:** a playlist can be in one mapping only. If a playlist exists on just one service,
-  `POST /api/collections/mappings/records` with `create_playlist: "youtube"` (or `"spotify"`)
-  and an empty ID for that side creates the playlist first (YouTube: 50 units, refused when
-  the quota can't cover it). The first sync fills it.
-- **Sync now:** the refresh button on the Mappings page runs steps 1–5 for that mapping
-  immediately (`POST /api/collections/mappings/records/:id/sync`), even if cron workers are off.
+- **Failures:** a failed run is stamped, so it waits for the mapping's next run. An item whose
+  API call fails is tried up to 3 times automatically (15 min, then 1 h apart); after that use
+  **Retry** in the Sync Queue. Expired/revoked OAuth shows as **Reconnect needed** on the
+  Mappings page. A missing YouTube playlist shows **Playlist missing**; a YouTube playlist at its
+  5,000-video limit shows **Playlist full** and only its YouTube adds pause.
+- **Pairing:** each playlist can be in one mapping only (enforced by unique indexes; pickers grey
+  out paired playlists). If a playlist exists on just one service, Spotube can create the other
+  side (`create_playlist: "youtube"` or `"spotify"`; YouTube costs 50 units). **Mirror
+  playlists** does this for many playlists at once, each as its own mapping. "Start syncing now"
+  runs the first sync straight away (default from the `sync_new_mappings_now` setting).
+- **Deleting a mapping** keeps both playlists unless you tick one or both in the dialog
+  (Spotify unfollows; YouTube deletes, 50 units).
+- **Sync now:** the refresh button on the Mappings page analyses and applies that mapping
+  immediately (`POST /api/collections/mappings/records/:id/sync`), even if Background sync is
+  off. It re-reads YouTube unless that happened in the last 10 minutes, and doesn't move the
+  schedule.
+
+## YouTube quota and schedules
+
+The YouTube Data API allows 10,000 units a day per Google Cloud project (resets at midnight
+Pacific). A search costs 100 (+1 for durations), adding a video 50, creating/renaming/deleting a
+playlist 50, listing 1 per 50 items. Copying a song Spotube hasn't matched before costs about
+151 units, so roughly 60 new songs a day reach YouTube; big copies take days and Spotube plans
+for that:
+
+- **One budget for every YouTube call** (`internal/quota`), enforced in the HTTP transport.
+  Usage is counted before each request (refunded if it never reached Google or was refused for
+  quota) and persisted in `api_usage`. Work has three classes:
+  - *interactive* (searches, Sync now's read, creating playlists, restores) may use the limit
+    minus 50;
+  - *read* (scheduled checks, backups) may use the limit minus the **reserve** kept for you
+    (setting, default 500);
+  - *drain* (applying the queue) may use the limit minus the reserve minus the scheduled checks
+    still expected before the reset, so evening syncs still run.
+- **Running out defers, never fails.** Items wait as pending with their attempts unchanged and
+  continue after the reset. If Google says the quota is used up, YouTube calls stop and are
+  re-tried after 30 minutes (Google's count can differ). Spotify work carries on.
+- **Cheap checks.** A scheduled run probes the YouTube playlist (1 unit) and re-reads it only
+  when its video count changed (Spotube's own adds don't count), there is no cached read, or the
+  cached read is older than a day per 1,000 videos (max a week). Reads are cached in SQLite
+  (`playlist_cache`), so a restart costs nothing. Durations are fetched only for unmatched
+  videos.
+- **Estimates.** Pairing and mirroring show the YouTube units a copy needs and when it will be
+  done behind the current queue (`POST /api/quota/estimate`). The Dashboard and Settings show
+  today's budget and when the queue finishes (`GET /api/quota`).
+- **Schedules.** Each mapping runs every N minutes from a start time on chosen days, in your
+  time zone (daily = once at the start time). When pairing, Spotube recommends one: shorter
+  intervals for small playlists, longer ones while all mappings' daily checks would exceed 15%
+  of the quota, and a start time spaced away from your other mappings. You can override it.
+- **Searches in the app** run only on submit, are cached for 30 minutes, and are refused (429,
+  with the reset time) when the quota can't cover one.
+
+## Settings
+
+The **Settings** page (`/settings`, API `GET`/`PATCH /api/settings`) changes these without a
+restart:
+
+| Setting | Env var | Default |
+|---|---|---|
+| Background sync | `SYNC_WORKERS_ENABLED` | off |
+| Apply changes automatically | `SYNC_EXECUTOR_AUTO_ENABLED` | on |
+| Sync new mappings straight away | — | on |
+| Tracks applied per minute | — | 100 |
+| YouTube daily quota | `YOUTUBE_DAILY_QUOTA` | 10,000 |
+| Units kept for you | — | 500 |
+| Scheduled backups | `BACKUPS_ENABLED` | on |
+
+If the env var is set when the server starts, that value is used and the page marks it
+**.env**; changing it there lasts until the next restart. Otherwise changes are saved in the
+database (`app_settings`). OAuth credentials are separate (setup wizard; database wins).
 
 ## Playlist backups
 
@@ -101,7 +162,8 @@ make dev                                 # backend :8090 + frontend :5173, tails
 ```
 
 Open http://127.0.0.1:5173, connect Spotify and YouTube on the dashboard, then create a mapping.
-Set `SYNC_WORKERS_ENABLED=true` in `backend/.env` to run the scheduled sync.
+Turn on **Background sync** in Settings (or set `SYNC_WORKERS_ENABLED=true` in `backend/.env`)
+to run mappings on their schedules.
 
 ### Hostnames: use 127.0.0.1
 
@@ -140,18 +202,24 @@ Refreshed access tokens — and Spotify's rotated refresh tokens — are written
 | `SPOTIFY_CLIENT_ID` / `_SECRET` | — | Spotify app credentials |
 | `GOOGLE_CLIENT_ID` / `_SECRET` | — | Google OAuth client credentials |
 | `SESSION_SECRET` | dev placeholder | Signs OAuth session cookies; set a long random value |
-| `SYNC_WORKERS_ENABLED` | `false` | Run the scheduled sync |
-| `SYNC_ANALYSIS_CRON_SPEC` | `0 * * * * *` | Scheduler tick (6-field cron); each mapping still honours its own interval |
-| `SYNC_EXECUTOR_AUTO_ENABLED` | `true` | Apply queued items automatically after analysis (otherwise use Sync Queue → Execute) |
-| `BACKUPS_ENABLED` | `true` | Run scheduled playlist backups (Back up now and sync-time snapshots work regardless) |
+| `SYNC_WORKERS_ENABLED` | `false` | Startup value of **Background sync** (run mappings on their schedules) |
+| `SYNC_ANALYSIS_CRON_SPEC` | `0 * * * * *` | Scheduler tick (6-field cron); each mapping still runs on its own schedule |
+| `SYNC_EXECUTOR_AUTO_ENABLED` | `true` | Startup value of **Apply changes automatically** (otherwise use Sync Queue → Execute) |
+| `YOUTUBE_DAILY_QUOTA` | `10000` | Startup value of the YouTube daily quota (raise it if Google granted more) |
+| `BACKUPS_ENABLED` | `true` | Startup value of **Scheduled backups** (Back up now and sync-time snapshots work regardless) |
 | `DB_PATH` | `./data/spotube.db` | SQLite file |
 | `LOG_LEVEL` | `info` | `debug` logs every match decision |
 
+Unset toggles fall back to the value saved on the Settings page, then the default.
+
 ## Observability
 
-- **Dashboard:** account status, queue counts (including **Needs review**), measured YouTube quota
-  for today, paired playlists and recent activity.
-- **Mappings page:** last sync time, status (OK / Failed / Reconnect needed) and error.
+- **Dashboard:** account status, queue counts (including **Needs review**), today's YouTube quota
+  budget (used, scheduled checks, kept for you, queued work and when it finishes), paired
+  playlists and recent activity.
+- **Mappings page:** last sync time, status (OK / Failed / Reconnect needed / Waiting for quota /
+  Playlist missing / Playlist full) and error, schedule and next run, track counts per side, and
+  queue counts linking to the Queue and Review filtered to that mapping.
 - **Review:** tracks Spotube couldn't match confidently, with the closest candidates and actions.
 - **Sync Queue:** every queued item with status and attempts. Its detail drawer shows:
   - the analysis decision (best match and score);
@@ -176,7 +244,13 @@ Refreshed access tokens — and Spotify's rotated refresh tokens — are written
 | `make lint` | `go fmt`/`go vet` + ESLint |
 | `make build` | Production builds |
 | `make backend/db/create NAME=x` | New Goose migration |
+| `make backend/db/up` / `down` | Apply / roll back migrations (backs up the database first) |
+| `make backend/db/backup` | Copy the database to `backend/data/backups/` |
 | `make backend/db/gen` | Apply migrations and regenerate Jet models in `backend/internal/db` |
+
+The database holds your OAuth tokens and mappings. Migrations back it up to
+`backend/data/backups/spotube-<time>-pre-up.db` (or `-pre-down`) before changing the schema;
+never delete `backend/data/spotube.db` to "reset" things.
 
 Tip: run backend tests with `LOG_LEVEL= make backend/test` so `backend/.env` doesn't leak into
 config tests.
@@ -191,7 +265,10 @@ config tests.
 | `backend/internal/tracklinks` | Remembered track pairs and "not on service" decisions |
 | `backend/internal/backups` | Playlist snapshots: store, schedule, restore, export |
 | `backend/internal/platform` | Playlist/track fetching and link/ID parsing for both services |
-| `backend/internal/apiusage` | Measures YouTube quota per API call |
+| `backend/internal/apiusage` | Measures YouTube quota per API call; the transport that enforces the budget |
+| `backend/internal/quota` | YouTube quota budget, work classes, backlog and estimates |
+| `backend/internal/schedule` | Mapping schedules: next run, reads per day, recommendations |
+| `backend/internal/settings` | Runtime settings (env at startup, else database, else default) |
 | `backend/internal/auth` | OAuth credentials, token storage, API client factory |
 | `backend/internal/handlers` | HTTP API |
 | `backend/migrations` | SQL migrations (Goose) |
@@ -201,7 +278,9 @@ config tests.
 
 ## Known gaps
 
-- Removals are not propagated (by design for now).
+- Removals are not propagated (by design: syncing adds; backups are for history).
+- Songs that exist on only one service each cost one YouTube search (101 units) and wait in
+  Review; there is no bulk "not available" action yet.
 - Spotify ignores the "private" flag when Spotube creates a playlist (on restore), so restored
   Spotify playlists show as public; change it in Spotify if needed.
 - Correcting a wrong automatic match (Matches → Forget) does not remove the track that was

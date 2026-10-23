@@ -44,7 +44,7 @@ function TrackCell({ item }: { item: SyncItemDetails }) {
 function SyncQueuePage() {
   const queryClient = useQueryClient()
   const navigate = useNavigate({ from: '/sync-queue' })
-  const { status } = useSearch({ from: '/_authenticated/sync-queue' })
+  const { status, mapping } = useSearch({ from: '/_authenticated/sync-queue' })
   const [destination, setDestination] = useState<SyncItemService | ''>('')
   const [page, setPage] = useState(1)
   const [detailItemId, setDetailItemId] = useState<string | null>(null)
@@ -52,16 +52,17 @@ function SyncQueuePage() {
 
   const setStatus = (value: SyncItemStatus | undefined) => {
     setPage(1)
-    navigate({ search: value ? { status: value } : {} })
+    navigate({ search: { ...(value ? { status: value } : {}), ...(mapping ? { mapping } : {}) } })
   }
 
   const { data, isLoading, error } = useQuery({
-    queryKey: ['sync-items', status, destination, page],
+    queryKey: ['sync-items', status, destination, page, mapping],
     queryFn: () =>
       syncItemsAPI.getList({
         page,
         per_page: PER_PAGE,
         status,
+        mapping_id: mapping,
         service: destination || undefined,
         order: 'desc',
       }),
@@ -99,6 +100,15 @@ function SyncQueuePage() {
           onChange={(v) => setStatus(v || undefined)}
           items={statusTabs}
         />
+        {mapping && (
+          <button
+            type="button"
+            className="inline-flex items-center gap-1 rounded-md bg-gray-100 px-2 py-1 text-xs text-gray-600 hover:text-ink"
+            onClick={() => navigate({ search: status ? { status } : {} })}
+          >
+            One mapping only · show all ×
+          </button>
+        )}
         <label className="flex items-center gap-2 text-sm text-gray-600">
           Copying to
           <select

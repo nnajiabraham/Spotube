@@ -6,20 +6,38 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 
 	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/manlikeabro/spotube/internal/quota"
 )
 
 type fakeCreator struct {
-	calls []string // "service:name"
+	calls   []string // "service:name"
+	deleted []string // "service:id"
+	fail    map[string]error
 }
 
 func (f *fakeCreator) CreatePlaylist(_ context.Context, service, name, _ string) (string, error) {
 	f.calls = append(f.calls, service+":"+name)
-	return "new-" + service, nil
+	return "new-" + service + "-" + strconv.Itoa(len(f.calls)), nil
+}
+
+func (f *fakeCreator) DeletePlaylist(_ context.Context, service, id string) error {
+	if err := f.fail[service]; err != nil {
+		return err
+	}
+	f.deleted = append(f.deleted, service+":"+id)
+	return nil
+}
+
+// testBudget is a budget with a fixed limit and no reserve.
+func testBudget(limit *int) *quota.Budget {
+	return quota.New(nil, func() int { return *limit }, func() int { return 0 }, nil)
 }
 
 func postMapping(t *testing.T, e *echo.Echo, payload map[string]any) *httptest.ResponseRecorder {
@@ -37,10 +55,10 @@ func TestMappingsCreate_CreatesMissingPlaylist(t *testing.T) {
 	defer cleanup()
 
 	creator := &fakeCreator{}
-	quota := 10000
+	limit := 10000
 	handler := NewMappingsHandler(db)
-	handler.Creator = creator
-	handler.QuotaLeft = func() int { return quota }
+	handler.Playlists = creator
+	handler.Budget = testBudget(&limit)
 	e := echo.New()
 	RegisterMappingsRoutes(e.Group("/api/collections/mappings/records"), handler)
 
@@ -53,7 +71,7 @@ func TestMappingsCreate_CreatesMissingPlaylist(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
 	var got MappingResponse
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
-	assert.Equal(t, "new-youtube", got.YoutubePlaylistID)
+	assert.Equal(t, "new-youtube-1", got.YoutubePlaylistID)
 	assert.Equal(t, "Road Trip", got.YoutubePlaylistName)
 
 	// New Spotify playlist with an explicit name.
@@ -65,11 +83,11 @@ func TestMappingsCreate_CreatesMissingPlaylist(t *testing.T) {
 	})
 	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
-	assert.Equal(t, "new-spotify", got.SpotifyPlaylistID)
+	assert.Equal(t, "new-spotify-2", got.SpotifyPlaylistID)
 	assert.Equal(t, []string{"youtube:Road Trip", "spotify:Worship (from YouTube)"}, creator.calls)
 
 	// Not enough YouTube quota: refused before anything is created.
-	quota = 10
+	limit = 60 // under the 50-unit insert plus the safety margin
 	rec = postMapping(t, e, map[string]any{"spotify_playlist_id": "sp3", "spotify_playlist_name": "X", "create_playlist": "youtube"})
 	assert.Equal(t, http.StatusTooManyRequests, rec.Code)
 	assert.Len(t, creator.calls, 2)
@@ -80,7 +98,7 @@ func TestMappingsCreate_Validation(t *testing.T) {
 	defer cleanup()
 
 	handler := NewMappingsHandler(db)
-	handler.Creator = &fakeCreator{}
+	handler.Playlists = &fakeCreator{}
 	e := echo.New()
 	RegisterMappingsRoutes(e.Group("/api/collections/mappings/records"), handler)
 

@@ -11,7 +11,66 @@ function isAuthenticated() {
   return false;
 }
 
+export const mockSettings = [
+  {
+    key: 'sync_workers_enabled', env: 'SYNC_WORKERS_ENABLED', kind: 'bool', default: 'false', group: 'sync',
+    label: 'Scheduled syncs', description: 'Check mappings on their schedules.',
+    value: 'true', source: 'env', env_pinned: true, env_value: 'true',
+  },
+  {
+    key: 'sync_new_mappings_now', kind: 'bool', default: 'true', group: 'sync',
+    label: 'Start new mappings straight away', description: 'Default for "Start syncing now".',
+    value: 'true', source: 'default', env_pinned: false,
+  },
+  {
+    key: 'youtube_interactive_reserve', kind: 'int', default: '500', min: 0, max: 10000000, group: 'quota',
+    label: 'Units kept for you', description: 'Background work leaves this much for searches and Sync now.',
+    value: '500', source: 'default', env_pinned: false,
+  },
+];
+
+export const mockQuota = {
+  day: '2024-01-01', used: 2500, limit: 10000, reserve: 500, daily_reads: 300, reads_still_expected: 120,
+  available: 7450, background_available: 6880, exhausted: false, reset_at: 1704096000,
+  backlog: { youtube_unlinked: 40, youtube_linked: 2, youtube_renames: 0, spotify: 5, units: 6140 },
+  daily_capacity: 9200, days_to_drain: 0,
+};
+
 export const handlers = [
+  // Settings and quota
+  http.get('*/api/settings', () => HttpResponse.json({ items: mockSettings })),
+  http.patch('*/api/settings', async ({ request }) => {
+    const body = await request.json() as Record<string, unknown>;
+    return HttpResponse.json({
+      items: mockSettings.map((s) =>
+        s.key in body ? { ...s, value: String(body[s.key]), source: s.env_pinned ? 'runtime' : 'database' } : s,
+      ),
+    });
+  }),
+  http.get('*/api/quota', () => HttpResponse.json(mockQuota)),
+  http.post('*/api/quota/estimate', () =>
+    HttpResponse.json({
+      units: 1550, search_units: 1010, insert_units: 500, read_units: 0, create_units: 50, backlog_units: 0,
+      daily_capacity: 9200, days: 0,
+      work: { to_youtube: 10, to_youtube_linked: 0, to_spotify: 0, youtube_read_videos: 0, youtube_playlists: 1 },
+      upper_bound: false, exact: true, over_youtube_limit: false,
+    }),
+  ),
+
+  // Mapping helpers (before the :id routes, which would match them)
+  http.get('*/api/collections/mappings/records/schedule-recommendation', () =>
+    HttpResponse.json({
+      schedule: { interval_minutes: 120, schedule_start: '00:20', schedule_days: 127, schedule_tz: 'UTC' },
+      reads_before: 200, reads_after: 212, reason: 'Every 2 hours suits a playlist of this size',
+    }),
+  ),
+  http.post('*/api/collections/mappings/records/mirror', async ({ request }) => {
+    const body = await request.json() as { playlists: Array<{ id: string; name: string }> };
+    return HttpResponse.json({
+      items: body.playlists.map((p) => ({ playlist_id: p.id, name: p.name, status: 'created' })),
+    });
+  }),
+
   // Setup required endpoint (updated path)
   http.get(`${API_BASE_URL}/api/setup/required`, () => {
     return HttpResponse.json({ required: false });
@@ -213,7 +272,7 @@ export const handlers = [
   }),
 
   http.delete('*/api/collections/mappings/records/:id', () => {
-    return new HttpResponse(null, { status: 204 })
+    return HttpResponse.json({ deleted: true, playlists: [] })
   }),
 
   // Blacklist handlers - updated for new API

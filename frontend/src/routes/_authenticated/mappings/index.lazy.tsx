@@ -1,10 +1,13 @@
 import { createLazyFileRoute, Link } from '@tanstack/react-router'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeftRight, ExternalLink, Pencil, Plus, Trash2 } from 'lucide-react'
+import { useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
+import { ArrowLeftRight, Copy, ExternalLink, Pencil, Plus, Trash2 } from 'lucide-react'
 import { mappingsAPI, type Mapping } from '../../../lib/api'
 import { MappingSyncStatus, SyncNowButton } from '../../../components/MappingSync'
+import { DeleteMappingDialog } from '../../../components/DeleteMappingDialog'
 import { Card, Page, Pill, ServiceIcon } from '../../../components/ui'
 import { buttonClass, timeAgo } from '../../../lib/format'
+import { describeSchedule, nextRunLabel } from '../../../lib/schedule'
 import { useSyncNow } from '../../../lib/useSyncNow'
 
 const playlistURL = {
@@ -27,19 +30,34 @@ function PlaylistName({ service, id, name }: { service: 'spotify' | 'youtube'; i
   )
 }
 
-function nextSyncLabel(mapping: Mapping): string {
-  if (!mapping.last_analysis_at) return 'within a minute'
-  const due = mapping.last_analysis_at + mapping.interval_minutes * 60
-  const minutes = Math.ceil((due - Date.now() / 1000) / 60)
-  return minutes <= 1 ? 'within a minute' : `in ${minutes} min`
+/** Queued work for one mapping, linking to the filtered queue and Review. */
+function QueueSummary({ mapping }: { mapping: Mapping }) {
+  const q = mapping.queue
+  if (!q || q.pending + q.review + q.error === 0) return null
+  return (
+    <>
+      <span className="text-gray-300">·</span>
+      {q.pending > 0 && (
+        <Link to="/sync-queue" search={{ status: 'pending', mapping: mapping.id }} className="hover:text-ink">
+          {q.pending.toLocaleString()} queued
+        </Link>
+      )}
+      {q.review > 0 && (
+        <Link to="/review" search={{ mapping: mapping.id }} className="font-medium text-amber-700 hover:text-ink">
+          {q.review} to review
+        </Link>
+      )}
+      {q.error > 0 && (
+        <Link to="/sync-queue" search={{ status: 'error', mapping: mapping.id }} className="text-youtube-700 hover:text-ink">
+          {q.error} failed
+        </Link>
+      )}
+    </>
+  )
 }
 
 function MappingCard({ mapping, sync }: { mapping: Mapping; sync: ReturnType<typeof useSyncNow> }) {
-  const queryClient = useQueryClient()
-  const remove = useMutation({
-    mutationFn: (id: string) => mappingsAPI.delete(id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['mappings'] }),
-  })
+  const [deleting, setDeleting] = useState(false)
 
   return (
     <Card className="p-4">
@@ -63,32 +81,30 @@ function MappingCard({ mapping, sync }: { mapping: Mapping; sync: ReturnType<typ
             className={`${buttonClass.ghost} hover:text-youtube-700`}
             aria-label="Delete mapping"
             title="Delete"
-            disabled={remove.isPending}
-            onClick={() => {
-              if (confirm('Stop syncing these playlists? The playlists themselves are not changed.')) {
-                remove.mutate(mapping.id)
-              }
-            }}
+            onClick={() => setDeleting(true)}
           >
             <Trash2 className="h-4 w-4" />
           </button>
         </div>
       </div>
+      {deleting && <DeleteMappingDialog mapping={mapping} onClose={() => setDeleting(false)} />}
 
       <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-gray-500">
         <MappingSyncStatus mapping={mapping} />
         <span className="text-gray-300">·</span>
-        <span>
-          every {mapping.interval_minutes} min · next {nextSyncLabel(mapping)}
+        <span title={mapping.schedule_tz ? `Times in ${mapping.schedule_tz}` : 'Server time'}>
+          {describeSchedule(mapping)} · next {nextRunLabel(mapping.next_run_at)}
         </span>
         <span className="text-gray-300">·</span>
         {mapping.sync_tracks && <Pill>Tracks</Pill>}
         {mapping.sync_name && <Pill>Name</Pill>}
-        {mapping.tracks_count > 0 && (
-          <span title={`Track count at last sync (${timeAgo(mapping.last_analysis_at)})`}>
-            {mapping.tracks_count} tracks
+        {mapping.last_analysis_at && (
+          <span title={`Playlist sizes at the last sync (${timeAgo(mapping.last_analysis_at)})`}>
+            {(mapping.spotify_tracks_count ?? 0).toLocaleString()} on Spotify ·{' '}
+            {(mapping.youtube_tracks_count ?? 0).toLocaleString()} on YouTube
           </span>
         )}
+        <QueueSummary mapping={mapping} />
       </div>
 
       {mapping.last_sync_error && (
@@ -101,8 +117,10 @@ function MappingCard({ mapping, sync }: { mapping: Mapping; sync: ReturnType<typ
 function MappingsList() {
   const sync = useSyncNow()
   const { data, isLoading, error } = useQuery({
-    queryKey: ['mappings'],
-    queryFn: () => mappingsAPI.getList({ per_page: 30 }),
+    queryKey: ['mappings', 'list'],
+    queryFn: () => mappingsAPI.getList({ per_page: 200 }),
+    // Poll while a first sync runs in the background so its progress shows up.
+    refetchInterval: (query) => (query.state.data?.items.some((m) => m.syncing) ? 5_000 : 60_000),
   })
   const mappings = data?.items ?? []
 
@@ -111,9 +129,14 @@ function MappingsList() {
       title="Mappings"
       description="Each mapping keeps one Spotify playlist and one YouTube playlist in sync."
       actions={
-        <Link to="/mappings/new" className={buttonClass.primary}>
-          <Plus className="h-4 w-4" /> Pair playlists
-        </Link>
+        <>
+          <Link to="/mappings/mirror" className={buttonClass.secondary}>
+            <Copy className="h-4 w-4" /> Mirror playlists
+          </Link>
+          <Link to="/mappings/new" className={buttonClass.primary}>
+            <Plus className="h-4 w-4" /> Pair playlists
+          </Link>
+        </>
       }
     >
       {isLoading ? (

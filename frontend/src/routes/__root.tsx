@@ -39,6 +39,7 @@ const navItems = [
   { to: '/matches', label: 'matches' },
   { to: '/backups', label: 'backups' },
   { to: '/logs', label: 'activity' },
+  { to: '/settings', label: 'settings' },
 ] as const
 
 /** Number of tracks waiting in Review, shown as a badge in the nav. */

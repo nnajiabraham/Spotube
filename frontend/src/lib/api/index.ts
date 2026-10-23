@@ -8,6 +8,8 @@ export { activityLogsAPI } from './activity-logs';
 export { dashboardAPI } from './dashboard';
 export { syncItemsAPI } from './sync-items';
 export { tracksAPI } from './tracks';
+export { settingsAPI } from './settings';
+export { quotaAPI } from './quota';
 import { apiClient } from './client';
 
 // Re-export types for convenience

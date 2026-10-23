@@ -23,6 +23,7 @@ const DesignLazyImport = createFileRoute('/design')()
 const DashboardLazyImport = createFileRoute('/dashboard')()
 const IndexLazyImport = createFileRoute('/')()
 const SetupIndexLazyImport = createFileRoute('/setup/')()
+const SettingsIndexLazyImport = createFileRoute('/settings/')()
 const SetupSuccessLazyImport = createFileRoute('/setup/success')()
 const SettingsYoutubeLazyImport = createFileRoute('/settings/youtube')()
 const SettingsSpotifyLazyImport = createFileRoute('/settings/spotify')()
@@ -38,6 +39,9 @@ const AuthenticatedBackupsIndexLazyImport = createFileRoute(
 )()
 const AuthenticatedMappingsNewLazyImport = createFileRoute(
   '/_authenticated/mappings/new',
+)()
+const AuthenticatedMappingsMirrorLazyImport = createFileRoute(
+  '/_authenticated/mappings/mirror',
 )()
 const AuthenticatedBackupsBackupIdLazyImport = createFileRoute(
   '/_authenticated/backups/$backupId',
@@ -80,6 +84,14 @@ const SetupIndexLazyRoute = SetupIndexLazyImport.update({
   path: '/',
   getParentRoute: () => SetupLazyRoute,
 } as any).lazy(() => import('./routes/setup/index.lazy').then((d) => d.Route))
+
+const SettingsIndexLazyRoute = SettingsIndexLazyImport.update({
+  id: '/settings/',
+  path: '/settings/',
+  getParentRoute: () => rootRoute,
+} as any).lazy(() =>
+  import('./routes/settings/index.lazy').then((d) => d.Route),
+)
 
 const SetupSuccessLazyRoute = SetupSuccessLazyImport.update({
   id: '/success',
@@ -160,6 +172,15 @@ const AuthenticatedMappingsNewLazyRoute =
     getParentRoute: () => rootRoute,
   } as any).lazy(() =>
     import('./routes/_authenticated/mappings/new.lazy').then((d) => d.Route),
+  )
+
+const AuthenticatedMappingsMirrorLazyRoute =
+  AuthenticatedMappingsMirrorLazyImport.update({
+    id: '/_authenticated/mappings/mirror',
+    path: '/mappings/mirror',
+    getParentRoute: () => rootRoute,
+  } as any).lazy(() =>
+    import('./routes/_authenticated/mappings/mirror.lazy').then((d) => d.Route),
   )
 
 const AuthenticatedBackupsBackupIdLazyRoute =
@@ -276,6 +297,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SetupSuccessLazyImport
       parentRoute: typeof SetupLazyImport
     }
+    '/settings/': {
+      id: '/settings/'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof SettingsIndexLazyImport
+      parentRoute: typeof rootRoute
+    }
     '/setup/': {
       id: '/setup/'
       path: '/'
@@ -288,6 +316,13 @@ declare module '@tanstack/react-router' {
       path: '/backups/$backupId'
       fullPath: '/backups/$backupId'
       preLoaderRoute: typeof AuthenticatedBackupsBackupIdLazyImport
+      parentRoute: typeof rootRoute
+    }
+    '/_authenticated/mappings/mirror': {
+      id: '/_authenticated/mappings/mirror'
+      path: '/mappings/mirror'
+      fullPath: '/mappings/mirror'
+      preLoaderRoute: typeof AuthenticatedMappingsMirrorLazyImport
       parentRoute: typeof rootRoute
     }
     '/_authenticated/mappings/new': {
@@ -356,8 +391,10 @@ export interface FileRoutesByFullPath {
   '/settings/spotify': typeof SettingsSpotifyLazyRoute
   '/settings/youtube': typeof SettingsYoutubeLazyRoute
   '/setup/success': typeof SetupSuccessLazyRoute
+  '/settings': typeof SettingsIndexLazyRoute
   '/setup/': typeof SetupIndexLazyRoute
   '/backups/$backupId': typeof AuthenticatedBackupsBackupIdLazyRoute
+  '/mappings/mirror': typeof AuthenticatedMappingsMirrorLazyRoute
   '/mappings/new': typeof AuthenticatedMappingsNewLazyRoute
   '/backups': typeof AuthenticatedBackupsIndexLazyRoute
   '/mappings': typeof AuthenticatedMappingsIndexLazyRoute
@@ -376,8 +413,10 @@ export interface FileRoutesByTo {
   '/settings/spotify': typeof SettingsSpotifyLazyRoute
   '/settings/youtube': typeof SettingsYoutubeLazyRoute
   '/setup/success': typeof SetupSuccessLazyRoute
+  '/settings': typeof SettingsIndexLazyRoute
   '/setup': typeof SetupIndexLazyRoute
   '/backups/$backupId': typeof AuthenticatedBackupsBackupIdLazyRoute
+  '/mappings/mirror': typeof AuthenticatedMappingsMirrorLazyRoute
   '/mappings/new': typeof AuthenticatedMappingsNewLazyRoute
   '/backups': typeof AuthenticatedBackupsIndexLazyRoute
   '/mappings': typeof AuthenticatedMappingsIndexLazyRoute
@@ -398,8 +437,10 @@ export interface FileRoutesById {
   '/settings/spotify': typeof SettingsSpotifyLazyRoute
   '/settings/youtube': typeof SettingsYoutubeLazyRoute
   '/setup/success': typeof SetupSuccessLazyRoute
+  '/settings/': typeof SettingsIndexLazyRoute
   '/setup/': typeof SetupIndexLazyRoute
   '/_authenticated/backups/$backupId': typeof AuthenticatedBackupsBackupIdLazyRoute
+  '/_authenticated/mappings/mirror': typeof AuthenticatedMappingsMirrorLazyRoute
   '/_authenticated/mappings/new': typeof AuthenticatedMappingsNewLazyRoute
   '/_authenticated/backups/': typeof AuthenticatedBackupsIndexLazyRoute
   '/_authenticated/mappings/': typeof AuthenticatedMappingsIndexLazyRoute
@@ -421,8 +462,10 @@ export interface FileRouteTypes {
     | '/settings/spotify'
     | '/settings/youtube'
     | '/setup/success'
+    | '/settings'
     | '/setup/'
     | '/backups/$backupId'
+    | '/mappings/mirror'
     | '/mappings/new'
     | '/backups'
     | '/mappings'
@@ -440,8 +483,10 @@ export interface FileRouteTypes {
     | '/settings/spotify'
     | '/settings/youtube'
     | '/setup/success'
+    | '/settings'
     | '/setup'
     | '/backups/$backupId'
+    | '/mappings/mirror'
     | '/mappings/new'
     | '/backups'
     | '/mappings'
@@ -460,8 +505,10 @@ export interface FileRouteTypes {
     | '/settings/spotify'
     | '/settings/youtube'
     | '/setup/success'
+    | '/settings/'
     | '/setup/'
     | '/_authenticated/backups/$backupId'
+    | '/_authenticated/mappings/mirror'
     | '/_authenticated/mappings/new'
     | '/_authenticated/backups/'
     | '/_authenticated/mappings/'
@@ -481,7 +528,9 @@ export interface RootRouteChildren {
   AuthenticatedMatchesLazyRoute: typeof AuthenticatedMatchesLazyRoute
   SettingsSpotifyLazyRoute: typeof SettingsSpotifyLazyRoute
   SettingsYoutubeLazyRoute: typeof SettingsYoutubeLazyRoute
+  SettingsIndexLazyRoute: typeof SettingsIndexLazyRoute
   AuthenticatedBackupsBackupIdLazyRoute: typeof AuthenticatedBackupsBackupIdLazyRoute
+  AuthenticatedMappingsMirrorLazyRoute: typeof AuthenticatedMappingsMirrorLazyRoute
   AuthenticatedMappingsNewLazyRoute: typeof AuthenticatedMappingsNewLazyRoute
   AuthenticatedBackupsIndexLazyRoute: typeof AuthenticatedBackupsIndexLazyRoute
   AuthenticatedMappingsIndexLazyRoute: typeof AuthenticatedMappingsIndexLazyRoute
@@ -500,7 +549,9 @@ const rootRouteChildren: RootRouteChildren = {
   AuthenticatedMatchesLazyRoute: AuthenticatedMatchesLazyRoute,
   SettingsSpotifyLazyRoute: SettingsSpotifyLazyRoute,
   SettingsYoutubeLazyRoute: SettingsYoutubeLazyRoute,
+  SettingsIndexLazyRoute: SettingsIndexLazyRoute,
   AuthenticatedBackupsBackupIdLazyRoute: AuthenticatedBackupsBackupIdLazyRoute,
+  AuthenticatedMappingsMirrorLazyRoute: AuthenticatedMappingsMirrorLazyRoute,
   AuthenticatedMappingsNewLazyRoute: AuthenticatedMappingsNewLazyRoute,
   AuthenticatedBackupsIndexLazyRoute: AuthenticatedBackupsIndexLazyRoute,
   AuthenticatedMappingsIndexLazyRoute: AuthenticatedMappingsIndexLazyRoute,
@@ -530,7 +581,9 @@ export const routeTree = rootRoute
         "/_authenticated/matches",
         "/settings/spotify",
         "/settings/youtube",
+        "/settings/",
         "/_authenticated/backups/$backupId",
+        "/_authenticated/mappings/mirror",
         "/_authenticated/mappings/new",
         "/_authenticated/backups/",
         "/_authenticated/mappings/",
@@ -576,12 +629,18 @@ export const routeTree = rootRoute
       "filePath": "setup/success.lazy.tsx",
       "parent": "/setup"
     },
+    "/settings/": {
+      "filePath": "settings/index.lazy.tsx"
+    },
     "/setup/": {
       "filePath": "setup/index.lazy.tsx",
       "parent": "/setup"
     },
     "/_authenticated/backups/$backupId": {
       "filePath": "_authenticated/backups/$backupId.lazy.tsx"
+    },
+    "/_authenticated/mappings/mirror": {
+      "filePath": "_authenticated/mappings/mirror.lazy.tsx"
     },
     "/_authenticated/mappings/new": {
       "filePath": "_authenticated/mappings/new.lazy.tsx"

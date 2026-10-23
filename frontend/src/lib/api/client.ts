@@ -114,6 +114,12 @@ export class APIClient {
     await this.fetch(endpoint, { method: 'DELETE' });
   }
 
+  // DELETE request whose response has a body
+  async deleteJSON<T>(endpoint: string): Promise<T> {
+    const response = await this.fetch(endpoint, { method: 'DELETE' });
+    return response.status === 204 ? (null as T) : response.json();
+  }
+
   // URL helper for building query parameters
   buildURL(endpoint: string, params: Record<string, string | number | boolean> = {}): string {
     const url = new URL(endpoint.startsWith('http') ? endpoint : `${this.baseURL}${endpoint}`);
@@ -146,6 +152,8 @@ function httpStatusToErrorCode(status: number): string {
       return 'conflict';
     case 422:
       return 'validation_failed';
+    case 429:
+      return 'quota';
     default:
       return 'http_error';
   }

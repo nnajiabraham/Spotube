@@ -7,6 +7,7 @@ import { MappingOptions, type MappingOptionsValue } from '../../../../components
 import { MappingSyncStatus, SyncNowButton } from '../../../../components/MappingSync'
 import { Card, Page, ServiceIcon } from '../../../../components/ui'
 import { buttonClass } from '../../../../lib/format'
+import { EVERY_DAY, nextRunLabel } from '../../../../lib/schedule'
 import { useSyncNow } from '../../../../lib/useSyncNow'
 
 function EditMapping() {
@@ -27,6 +28,9 @@ function EditMapping() {
         sync_tracks: mapping.sync_tracks,
         sync_name: mapping.sync_name,
         interval_minutes: mapping.interval_minutes,
+        schedule_start: mapping.schedule_start || '00:00',
+        schedule_days: mapping.schedule_days || EVERY_DAY,
+        schedule_tz: mapping.schedule_tz ?? '',
       })
     }
   }, [mapping, options])
@@ -71,8 +75,12 @@ function EditMapping() {
             {mapping.youtube_playlist_name || mapping.youtube_playlist_id}
           </span>
         </div>
-        <div className="mt-3 text-sm">
+        <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
           <MappingSyncStatus mapping={mapping} />
+          <span className="text-xs text-gray-500">
+            · {mapping.spotify_tracks_count ?? 0} on Spotify · {mapping.youtube_tracks_count ?? 0} on YouTube · next check{' '}
+            {nextRunLabel(mapping.next_run_at)}
+          </span>
         </div>
         {mapping.last_sync_error && (
           <p className="mt-2 rounded-lg bg-youtube-50 px-3 py-2 text-xs text-youtube-700">{mapping.last_sync_error}</p>

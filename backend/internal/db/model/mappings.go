@@ -22,4 +22,12 @@ type Mappings struct {
 	Updated             int32
 	LastSyncStatus      *string
 	LastSyncError       *string
+	SpotifyTracksCount  int32
+	YoutubeTracksCount  int32
+	YoutubeItemCount    *int32
+	LastFullReadAt      *int32
+	ScheduleStart       string
+	ScheduleDays        int32
+	ScheduleTz          *string
+	NextRunAt           *int32
 }

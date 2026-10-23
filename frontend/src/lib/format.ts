@@ -53,6 +53,14 @@ export function trackURL(service: string | undefined, id: string | undefined): s
 }
 
 /** "3:45" from milliseconds; empty when unknown. */
+/**
+ * A YouTube video's thumbnail, built from its ID. It is the URL the Data API returns, so it costs
+ * no quota.
+ */
+export function youtubeThumbnail(id?: string): string | undefined {
+  return id ? `https://i.ytimg.com/vi/${encodeURIComponent(id)}/mqdefault.jpg` : undefined
+}
+
 export function formatDuration(ms?: number): string {
   if (!ms || ms <= 0) return ''
   const total = Math.round(ms / 1000)

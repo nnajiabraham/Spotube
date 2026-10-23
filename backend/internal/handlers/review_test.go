@@ -17,6 +17,7 @@ import (
 	"github.com/manlikeabro/spotube/internal/apiusage"
 	"github.com/manlikeabro/spotube/internal/db/model"
 	"github.com/manlikeabro/spotube/internal/platform"
+	"github.com/manlikeabro/spotube/internal/quota"
 	"github.com/manlikeabro/spotube/internal/tracklinks"
 )
 
@@ -221,10 +222,14 @@ func TestTrackSearch_CachesAndScoresAgainstItem(t *testing.T) {
 func TestTrackSearch_YouTubeQuotaGuard(t *testing.T) {
 	db, cleanup := setupSyncItemsTestDB(t)
 	defer cleanup()
-	_, err := db.Exec(`INSERT INTO api_usage (day, service, units, calls) VALUES (?, 'youtube', 9600, 50)`, apiusage.Day(time.Now()))
+	_, err := db.Exec(`INSERT INTO api_usage (day, service, units, calls) VALUES (?, 'youtube', 9850, 50)`, apiusage.Day(time.Now()))
 	require.NoError(t, err)
 	yt, sp := &fakeCatalog{}, &fakeCatalog{}
-	e := tracksServer(db, sp, yt)
+	h := NewTracksHandler(db, sp, yt)
+	// 10,000 - 50 margin - 9,850 used leaves 100: one short of a search.
+	h.Budget = quota.New(db, func() int { return 10000 }, nil, nil)
+	e := echo.New()
+	RegisterTracksRoutes(e.Group("/api"), h)
 
 	assert.Equal(t, http.StatusTooManyRequests, get(e, "/api/tracks/search?service=youtube&q=x").Code)
 	assert.Empty(t, yt.queries)

@@ -31,6 +31,14 @@ type mappingsTable struct {
 	Updated             sqlite.ColumnInteger
 	LastSyncStatus      sqlite.ColumnString
 	LastSyncError       sqlite.ColumnString
+	SpotifyTracksCount  sqlite.ColumnInteger
+	YoutubeTracksCount  sqlite.ColumnInteger
+	YoutubeItemCount    sqlite.ColumnInteger
+	LastFullReadAt      sqlite.ColumnInteger
+	ScheduleStart       sqlite.ColumnString
+	ScheduleDays        sqlite.ColumnInteger
+	ScheduleTz          sqlite.ColumnString
+	NextRunAt           sqlite.ColumnInteger
 
 	AllColumns     sqlite.ColumnList
 	MutableColumns sqlite.ColumnList
@@ -86,9 +94,17 @@ func newMappingsTableImpl(schemaName, tableName, alias string) mappingsTable {
 		UpdatedColumn             = sqlite.IntegerColumn("updated")
 		LastSyncStatusColumn      = sqlite.StringColumn("last_sync_status")
 		LastSyncErrorColumn       = sqlite.StringColumn("last_sync_error")
-		allColumns                = sqlite.ColumnList{IDColumn, SpotifyPlaylistIDColumn, YoutubePlaylistIDColumn, SpotifyPlaylistNameColumn, YoutubePlaylistNameColumn, SyncNameColumn, SyncTracksColumn, IntervalMinutesColumn, LastAnalysisAtColumn, TracksCountColumn, CreatedColumn, UpdatedColumn, LastSyncStatusColumn, LastSyncErrorColumn}
-		mutableColumns            = sqlite.ColumnList{SpotifyPlaylistIDColumn, YoutubePlaylistIDColumn, SpotifyPlaylistNameColumn, YoutubePlaylistNameColumn, SyncNameColumn, SyncTracksColumn, IntervalMinutesColumn, LastAnalysisAtColumn, TracksCountColumn, CreatedColumn, UpdatedColumn, LastSyncStatusColumn, LastSyncErrorColumn}
-		defaultColumns            = sqlite.ColumnList{SyncNameColumn, SyncTracksColumn, IntervalMinutesColumn, TracksCountColumn}
+		SpotifyTracksCountColumn  = sqlite.IntegerColumn("spotify_tracks_count")
+		YoutubeTracksCountColumn  = sqlite.IntegerColumn("youtube_tracks_count")
+		YoutubeItemCountColumn    = sqlite.IntegerColumn("youtube_item_count")
+		LastFullReadAtColumn      = sqlite.IntegerColumn("last_full_read_at")
+		ScheduleStartColumn       = sqlite.StringColumn("schedule_start")
+		ScheduleDaysColumn        = sqlite.IntegerColumn("schedule_days")
+		ScheduleTzColumn          = sqlite.StringColumn("schedule_tz")
+		NextRunAtColumn           = sqlite.IntegerColumn("next_run_at")
+		allColumns                = sqlite.ColumnList{IDColumn, SpotifyPlaylistIDColumn, YoutubePlaylistIDColumn, SpotifyPlaylistNameColumn, YoutubePlaylistNameColumn, SyncNameColumn, SyncTracksColumn, IntervalMinutesColumn, LastAnalysisAtColumn, TracksCountColumn, CreatedColumn, UpdatedColumn, LastSyncStatusColumn, LastSyncErrorColumn, SpotifyTracksCountColumn, YoutubeTracksCountColumn, YoutubeItemCountColumn, LastFullReadAtColumn, ScheduleStartColumn, ScheduleDaysColumn, ScheduleTzColumn, NextRunAtColumn}
+		mutableColumns            = sqlite.ColumnList{SpotifyPlaylistIDColumn, YoutubePlaylistIDColumn, SpotifyPlaylistNameColumn, YoutubePlaylistNameColumn, SyncNameColumn, SyncTracksColumn, IntervalMinutesColumn, LastAnalysisAtColumn, TracksCountColumn, CreatedColumn, UpdatedColumn, LastSyncStatusColumn, LastSyncErrorColumn, SpotifyTracksCountColumn, YoutubeTracksCountColumn, YoutubeItemCountColumn, LastFullReadAtColumn, ScheduleStartColumn, ScheduleDaysColumn, ScheduleTzColumn, NextRunAtColumn}
+		defaultColumns            = sqlite.ColumnList{SyncNameColumn, SyncTracksColumn, IntervalMinutesColumn, TracksCountColumn, SpotifyTracksCountColumn, YoutubeTracksCountColumn, ScheduleStartColumn, ScheduleDaysColumn}
 	)
 
 	return mappingsTable{
@@ -109,6 +125,14 @@ func newMappingsTableImpl(schemaName, tableName, alias string) mappingsTable {
 		Updated:             UpdatedColumn,
 		LastSyncStatus:      LastSyncStatusColumn,
 		LastSyncError:       LastSyncErrorColumn,
+		SpotifyTracksCount:  SpotifyTracksCountColumn,
+		YoutubeTracksCount:  YoutubeTracksCountColumn,
+		YoutubeItemCount:    YoutubeItemCountColumn,
+		LastFullReadAt:      LastFullReadAtColumn,
+		ScheduleStart:       ScheduleStartColumn,
+		ScheduleDays:        ScheduleDaysColumn,
+		ScheduleTz:          ScheduleTzColumn,
+		NextRunAt:           NextRunAtColumn,
 
 		AllColumns:     allColumns,
 		MutableColumns: mutableColumns,

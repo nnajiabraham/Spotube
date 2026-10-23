@@ -36,7 +36,7 @@ func setupAnalysisTestDB(t *testing.T) (*sql.DB, func()) {
 	return db, cleanup
 }
 
-func TestAnalysisJobGetMappingsForAnalysis(t *testing.T) {
+func TestAnalysisJobDueMappings(t *testing.T) {
 	db, cleanup := setupAnalysisTestDB(t)
 	defer cleanup()
 
@@ -54,36 +54,29 @@ func TestAnalysisJobGetMappingsForAnalysis(t *testing.T) {
 		ActivityLogger: activityLogger,
 	}, clientFactory)
 
-	// Create test mappings
 	now := time.Now().Unix()
-
-	// Mapping that needs analysis (no last_analysis_at)
-	_, err := db.Exec(`INSERT INTO mappings (id, spotify_playlist_id, youtube_playlist_id, sync_name, sync_tracks, interval_minutes, tracks_count, created, updated) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		"mapping1", "spotify1", "youtube1", 1, 1, 60, 0, now, now)
+	insert := func(id string, lastAnalysis, nextRun any) {
+		_, err := db.Exec(`INSERT INTO mappings (id, spotify_playlist_id, youtube_playlist_id, sync_name, sync_tracks, interval_minutes, tracks_count, last_analysis_at, next_run_at, created, updated) VALUES (?, ?, ?, 1, 1, 60, 0, ?, ?, ?, ?)`,
+			id, "sp-"+id, "yt-"+id, lastAnalysis, nextRun, now, now)
+		require.NoError(t, err)
+	}
+	insert("never-run", nil, nil)      // never analysed: due
+	insert("not-yet", now-60, now+600) // next run in 10 minutes
+	insert("due", now-2*3600, now-60)  // next run a minute ago
+	insert("missed", now-3*3600, nil)  // from before schedules; an hourly run has passed
+	_, err := db.Exec(`UPDATE mappings SET sync_tracks = 0, sync_name = 0 WHERE id = 'not-yet'`)
+	require.NoError(t, err)
+	insert("disabled", nil, nil)
+	_, err = db.Exec(`UPDATE mappings SET sync_tracks = 0, sync_name = 0 WHERE id = 'disabled'`)
 	require.NoError(t, err)
 
-	// Mapping that was analyzed recently (should be skipped)
-	_, err = db.Exec(`INSERT INTO mappings (id, spotify_playlist_id, youtube_playlist_id, sync_name, sync_tracks, interval_minutes, tracks_count, last_analysis_at, created, updated) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		"mapping2", "spotify2", "youtube2", 1, 1, 60, 0, now-30*60, now, now) // 30 minutes ago
+	mappings, err := job.dueMappings(time.Now())
 	require.NoError(t, err)
-
-	// Mapping that needs analysis (old timestamp)
-	_, err = db.Exec(`INSERT INTO mappings (id, spotify_playlist_id, youtube_playlist_id, sync_name, sync_tracks, interval_minutes, tracks_count, last_analysis_at, created, updated) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		"mapping3", "spotify3", "youtube3", 1, 1, 60, 0, now-2*60*60, now, now) // 2 hours ago
-	require.NoError(t, err)
-
-	mappings, err := job.getMappingsForAnalysis(context.Background())
-	require.NoError(t, err)
-
-	// Should return mapping1 (null timestamp) and mapping3 (old timestamp)
-	assert.Len(t, mappings, 2)
-
 	ids := []string{}
 	for _, m := range mappings {
 		ids = append(ids, *m.ID)
 	}
-	assert.Contains(t, ids, "mapping1")
-	assert.Contains(t, ids, "mapping3")
+	assert.ElementsMatch(t, []string{"never-run", "due", "missed"}, ids)
 }
 
 func TestTrackInfosToMatching_SongAMatchesBothWays(t *testing.T) {
@@ -290,7 +283,7 @@ func TestAnalysisJobContainsTrack(t *testing.T) {
 	).Matched)
 }
 
-func TestAnalysisJobUpdateMappingTimestamp(t *testing.T) {
+func TestAnalysisJobUpdateMappingCounts(t *testing.T) {
 	db, cleanup := setupAnalysisTestDB(t)
 	defer cleanup()
 
@@ -307,25 +300,28 @@ func TestAnalysisJobUpdateMappingTimestamp(t *testing.T) {
 		ActivityLogger: activityLogger,
 	}, clientFactory)
 
-	// Create test mapping
 	now := time.Now().Unix()
 	_, err := db.Exec(`INSERT INTO mappings (id, spotify_playlist_id, youtube_playlist_id, sync_name, sync_tracks, interval_minutes, tracks_count, created, updated) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		"test-mapping", "spotify1", "youtube1", 1, 1, 60, 0, now-100, now-100)
 	require.NoError(t, err)
 
-	// Update timestamp
-	err = job.updateMappingAnalysisTimestamp(context.Background(), "test-mapping", 3, 5)
-	require.NoError(t, err)
+	// An empty Spotify side next to 3 videos is reported as 0 and 3, not "3 tracks".
+	require.NoError(t, job.updateMappingCounts(context.Background(), "test-mapping", 0, 3, true))
 
-	// Verify timestamp was updated
-	var lastAnalysisAt, updated sql.NullInt64
-	err = db.QueryRow("SELECT last_analysis_at, updated FROM mappings WHERE id = ?", "test-mapping").Scan(&lastAnalysisAt, &updated)
-	require.NoError(t, err)
-
-	assert.True(t, lastAnalysisAt.Valid)
-	assert.True(t, updated.Valid)
-	assert.True(t, lastAnalysisAt.Int64 >= now)
+	var spotifyCount, youtubeCount int
+	var itemCount, fullRead, updated sql.NullInt64
+	require.NoError(t, db.QueryRow("SELECT spotify_tracks_count, youtube_tracks_count, youtube_item_count, last_full_read_at, updated FROM mappings WHERE id = ?", "test-mapping").
+		Scan(&spotifyCount, &youtubeCount, &itemCount, &fullRead, &updated))
+	assert.Equal(t, 0, spotifyCount)
+	assert.Equal(t, 3, youtubeCount)
+	assert.Equal(t, int64(3), itemCount.Int64)
+	assert.True(t, fullRead.Int64 >= now)
 	assert.True(t, updated.Int64 >= now)
+
+	// Without a fresh read the probe baseline stays.
+	require.NoError(t, job.updateMappingCounts(context.Background(), "test-mapping", 2, 4, false))
+	require.NoError(t, db.QueryRow("SELECT youtube_item_count FROM mappings WHERE id = ?", "test-mapping").Scan(&itemCount))
+	assert.Equal(t, int64(3), itemCount.Int64)
 }
 
 type testAnalysisCredentialsRepo struct{}

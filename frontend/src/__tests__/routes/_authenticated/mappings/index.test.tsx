@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -92,8 +92,8 @@ describe('MappingsList', () => {
     )
     expect(screen.getAllByText('Name')).toHaveLength(1)
     expect(screen.getAllByText('Tracks')).toHaveLength(2)
-    expect(screen.getByText(/every 60 min/)).toBeInTheDocument()
-    expect(screen.getByText(/every 120 min/)).toBeInTheDocument()
+    expect(screen.getByText(/Every hour from 00:00, every day/)).toBeInTheDocument()
+    expect(screen.getByText(/Every 2 hours from 00:00, every day/)).toBeInTheDocument()
   })
 
   it('shows error message on API failure', async () => {
@@ -110,9 +110,15 @@ describe('MappingsList', () => {
     })
   })
 
-  it('asks for confirmation before deleting', async () => {
+  it('asks which playlists to delete, keeping both by default', async () => {
     const user = userEvent.setup()
-    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    let deleteURL = ''
+    server?.use(
+      http.delete('*/api/collections/mappings/records/:id', ({ request }) => {
+        deleteURL = request.url
+        return HttpResponse.json({ deleted: true, playlists: [] })
+      }),
+    )
 
     renderWithProviders(<MappingsList />)
 
@@ -121,8 +127,17 @@ describe('MappingsList', () => {
     expect(screen.getAllByRole('button', { name: 'Sync now' })).toHaveLength(2)
 
     await user.click(deleteButtons[0])
-    expect(confirmSpy).toHaveBeenCalled()
+    const dialog = await screen.findByRole('dialog')
+    const spotifyBox = within(dialog).getByRole('checkbox', { name: 'Also delete the Spotify playlist' })
+    const youtubeBox = within(dialog).getByRole('checkbox', { name: 'Also delete the YouTube playlist' })
+    expect(spotifyBox).not.toBeChecked()
+    expect(youtubeBox).not.toBeChecked()
 
-    confirmSpy.mockRestore()
+    await user.click(youtubeBox)
+    await user.click(within(dialog).getByRole('button', { name: 'Delete mapping and playlists' }))
+
+    await waitFor(() => expect(deleteURL).toContain('/mapping1'))
+    expect(deleteURL).toContain('delete_youtube_playlist=true')
+    expect(deleteURL).not.toContain('delete_spotify_playlist=true')
   })
-}) 
+})

@@ -7,11 +7,14 @@ package platform
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"html"
+	"net/http"
 	"strings"
 
 	spotify "github.com/zmb3/spotify/v2"
+	"google.golang.org/api/googleapi"
 	"google.golang.org/api/youtube/v3"
 
 	"github.com/manlikeabro/spotube/internal/auth"
@@ -149,6 +152,9 @@ func SpotifyPlaylistTracks(ctx context.Context, client *spotify.Client, playlist
 			track := item.Track.Track
 			t := matching.SpotifyTrack(string(track.ID), track.Name, firstArtist(track.Artists))
 			t.DurationMs = int(track.Duration)
+			if images := track.Album.Images; len(images) > 0 {
+				t.Image = images[len(images)-1].URL
+			}
 			tracks = append(tracks, t)
 		}
 		if page.Next == "" || len(page.Items) == 0 {
@@ -284,6 +290,13 @@ func (p *YouTube) RenamePlaylist(ctx context.Context, playlistID, title string) 
 // YouTubePlaylistTracks lists a playlist (1 unit per 50 videos) and fills in durations
 // (another 1 unit per 50 videos).
 func YouTubePlaylistTracks(ctx context.Context, service *youtube.Service, playlistID string) ([]matching.Track, error) {
+	return YouTubePlaylistTracksFor(ctx, service, playlistID, nil)
+}
+
+// YouTubePlaylistTracksFor lists a playlist and fetches durations only for videos where
+// needDuration returns true (all when nil). Durations only help match unknown videos, so a
+// sync skips them for videos it has already linked.
+func YouTubePlaylistTracksFor(ctx context.Context, service *youtube.Service, playlistID string, needDuration func(videoID string) bool) ([]matching.Track, error) {
 	var tracks []matching.Track
 	pageToken := ""
 	for {
@@ -296,6 +309,9 @@ func YouTubePlaylistTracks(ctx context.Context, service *youtube.Service, playli
 		}
 		response, err := call.Do()
 		if err != nil {
+			if isNotFound(err) {
+				return nil, ErrPlaylistNotFound
+			}
 			return nil, err
 		}
 		ids := make([]string, 0, len(response.Items))
@@ -303,20 +319,25 @@ func YouTubePlaylistTracks(ctx context.Context, service *youtube.Service, playli
 			if item.ContentDetails == nil || item.ContentDetails.VideoId == "" || item.Snippet == nil {
 				continue
 			}
-			ids = append(ids, item.ContentDetails.VideoId)
+			id := item.ContentDetails.VideoId
+			if needDuration == nil || needDuration(id) {
+				ids = append(ids, id)
+			}
 			tracks = append(tracks, matching.YouTubeTrack(
-				item.ContentDetails.VideoId,
+				id,
 				html.UnescapeString(item.Snippet.Title),
 				item.Snippet.VideoOwnerChannelTitle,
 			))
 		}
-		durations, err := youtubeDurations(ctx, service, ids)
-		if err != nil {
-			return nil, err
-		}
-		for i := range tracks {
-			if d, ok := durations[tracks[i].ID]; ok && tracks[i].DurationMs == 0 {
-				tracks[i].DurationMs = d
+		if len(ids) > 0 {
+			durations, err := youtubeDurations(ctx, service, ids)
+			if err != nil {
+				return nil, err
+			}
+			for i := range tracks {
+				if d, ok := durations[tracks[i].ID]; ok && tracks[i].DurationMs == 0 {
+					tracks[i].DurationMs = d
+				}
 			}
 		}
 		pageToken = response.NextPageToken
@@ -325,6 +346,56 @@ func YouTubePlaylistTracks(ctx context.Context, service *youtube.Service, playli
 		}
 	}
 	return tracks, nil
+}
+
+// ErrPlaylistNotFound means the playlist was deleted or is no longer visible to the account.
+var ErrPlaylistNotFound = errors.New("playlist not found (deleted, or no longer visible to this account)")
+
+// YouTubePlaylistInfo returns a playlist's title and itemCount (1 quota unit). itemCount
+// includes private and deleted videos and can lag a few seconds behind inserts.
+func YouTubePlaylistInfo(ctx context.Context, service *youtube.Service, playlistID string) (title string, itemCount int, err error) {
+	response, err := service.Playlists.List([]string{"snippet", "contentDetails"}).Id(playlistID).Context(ctx).Do()
+	if err != nil {
+		if isNotFound(err) {
+			return "", 0, ErrPlaylistNotFound
+		}
+		return "", 0, err
+	}
+	if len(response.Items) == 0 {
+		return "", 0, ErrPlaylistNotFound
+	}
+	p := response.Items[0]
+	if p.Snippet != nil {
+		title = strings.TrimSpace(p.Snippet.Title)
+	}
+	if p.ContentDetails != nil {
+		itemCount = int(p.ContentDetails.ItemCount)
+	}
+	return title, itemCount, nil
+}
+
+// SpotifyPlaylistName returns a playlist's name (free).
+func SpotifyPlaylistName(ctx context.Context, client *spotify.Client, playlistID string) (string, error) {
+	playlist, err := client.GetPlaylist(ctx, spotify.ID(playlistID), spotify.Fields("name"))
+	if err != nil {
+		if isNotFound(err) {
+			return "", ErrPlaylistNotFound
+		}
+		return "", err
+	}
+	return strings.TrimSpace(playlist.Name), nil
+}
+
+func isNotFound(err error) bool {
+	var gerr *googleapi.Error
+	if errors.As(err, &gerr) {
+		return gerr.Code == http.StatusNotFound
+	}
+	var serr spotify.Error
+	if errors.As(err, &serr) {
+		return serr.Status == http.StatusNotFound
+	}
+	return false
 }
 
 // YouTubeVideos fetches title, channel, duration and thumbnail for up to 50 videos
