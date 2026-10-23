@@ -30,8 +30,17 @@ commands are in the [README](../README.md); colours and components are in
 
 ### 2.2 Pair two playlists
 
-**Mappings → New mapping**: pick one playlist from each account, choose whether to sync names
-and tracks, and set the interval. The mapping syncs on its first run.
+**Mappings → Pair playlists**: pick one playlist from each account, choose whether to sync
+names and tracks, and set the interval (5 minutes to once a day). The mapping syncs on its
+first run.
+
+- A playlist can be in only one mapping; already-paired playlists are greyed out (the API
+  returns 409 for them).
+- **Only on one side?** Choose **New {service} playlist** at the top of the other list instead.
+  Spotube creates it (named after the source playlist unless you type a name), pairs it, and
+  the first sync copies the tracks across. Creating a YouTube playlist costs 50 quota units and
+  is private; Spotify ignores the private flag for apps, so a new Spotify playlist is public.
+  Videos with no confident match (talks, mixes) go to Review as usual.
 
 ### 2.3 A sync run
 
@@ -142,7 +151,8 @@ backups.
 ### Mappings `/mappings`, `/mappings/new`, `/mappings/:id/edit`, `/mappings/:id/blacklist`
 - **List**: playlist names with links to each service, options, last sync status and time,
   **Sync now**, **Edit**, **Blocked tracks** and **Delete**.
-- **New**: pick a Spotify playlist and a YouTube playlist, plus sync options.
+- **New** (`/mappings/new`): pick a Spotify playlist and a YouTube playlist, or create one side
+  from the other, plus sync options.
 - **Edit**: sync names, sync tracks and interval.
 - **Blocked tracks**: tracks never synced for this mapping, with **Unblock**.
 

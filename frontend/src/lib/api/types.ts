@@ -133,13 +133,17 @@ export interface SaveSettingsRequest {
 }
 
 export interface CreateMappingRequest {
+  /** Empty when `create_playlist` is "spotify". */
   spotify_playlist_id: string;
+  /** Empty when `create_playlist` is "youtube". */
   youtube_playlist_id: string;
   spotify_playlist_name?: string;
   youtube_playlist_name?: string;
   sync_name?: boolean;
   sync_tracks?: boolean;
   interval_minutes?: number;
+  /** Create this side's playlist (named by its *_playlist_name, else the other side's name). */
+  create_playlist?: 'spotify' | 'youtube';
 }
 
 export interface UpdateMappingRequest {

@@ -11,29 +11,35 @@ import { Button, EmptyState, Notice, Pill, ServiceIcon } from './ui'
 
 type Row = { id: string; name: string; image?: string; detail: string }
 
+// Same query keys and raw shapes as the mapping pages use, so the cache is shared safely;
+// rows are derived with `select`.
 function usePlaylists(service: Service) {
-  return useQuery({
-    queryKey: [`${service}-playlists`],
-    queryFn: async (): Promise<Row[]> => {
-      if (service === 'spotify') {
-        const items = await oauthAPI.spotify.getPlaylists()
-        return items.map((p) => ({
-          id: p.id,
-          name: p.name,
-          image: p.images?.[p.images.length - 1]?.url,
-          detail: [typeof p.track_count === 'number' ? `${p.track_count} tracks` : '', p.public === false ? 'private' : p.public ? 'public' : '']
-            .filter(Boolean)
-            .join(' · '),
-        }))
-      }
-      const items = await oauthAPI.youtube.getPlaylists()
-      return items.map((p) => ({
+  const spotify = useQuery({
+    queryKey: ['spotify-playlists'],
+    queryFn: oauthAPI.spotify.getPlaylists,
+    enabled: service === 'spotify',
+    select: (items): Row[] =>
+      items.map((p) => ({
+        id: p.id,
+        name: p.name,
+        image: p.images?.[p.images.length - 1]?.url,
+        detail: [typeof p.track_count === 'number' ? `${p.track_count} tracks` : '', p.public === false ? 'private' : p.public ? 'public' : '']
+          .filter(Boolean)
+          .join(' · '),
+      })),
+  })
+  const youtube = useQuery({
+    queryKey: ['youtube-playlists'],
+    queryFn: oauthAPI.youtube.getPlaylists,
+    enabled: service === 'youtube',
+    select: (items): Row[] =>
+      items.map((p) => ({
         id: p.id,
         name: p.name || p.title || p.id,
         detail: typeof p.itemCount === 'number' ? `${p.itemCount} videos` : '',
-      }))
-    },
+      })),
   })
+  return service === 'spotify' ? spotify : youtube
 }
 
 /** Backups keyed by "service|playlistID". */
@@ -57,7 +63,8 @@ export function PlaylistLibrary({ service, compact = false }: { service: Service
   const backups = useBackupIndex()
   const mappings = useQuery({
     queryKey: ['mappings', 'all'],
-    queryFn: () => mappingsAPI.getList({ per_page: 100 }).then((r) => r.items),
+    queryFn: () => mappingsAPI.getList({ per_page: 200 }),
+    select: (r) => r.items,
   })
 
   const create = useMutation({

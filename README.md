@@ -63,6 +63,10 @@ cron tick (SYNC_ANALYSIS_CRON_SPEC, default every minute)
   - In-app searches run only on submit and are cached for 30 minutes.
   - YouTube search is refused once 95% of the day's quota is used.
   - A run stops early when the quota is exhausted.
+- **Pairing:** a playlist can be in one mapping only. If a playlist exists on just one service,
+  `POST /api/collections/mappings/records` with `create_playlist: "youtube"` (or `"spotify"`)
+  and an empty ID for that side creates the playlist first (YouTube: 50 units, refused when
+  the quota can't cover it). The first sync fills it.
 - **Sync now:** the refresh button on the Mappings page runs steps 1–5 for that mapping
   immediately (`POST /api/collections/mappings/records/:id/sync`), even if cron workers are off.
 

@@ -141,6 +141,8 @@ func main() {
 	}
 	mappingsHandler := handlers.NewMappingsHandler(db)
 	mappingsHandler.Syncer = manualSync
+	mappingsHandler.Creator = &platform.Playlists{Factory: clientFactory}
+	mappingsHandler.QuotaLeft = func() int { return apiusage.Remaining(db) }
 	mappingsGroup := srv.Group("/api/collections/mappings/records")
 	handlers.RegisterMappingsRoutes(mappingsGroup, mappingsHandler)
 

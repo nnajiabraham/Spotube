@@ -26,6 +26,9 @@ type MappingRequest struct {
 	SyncName            *bool  `json:"sync_name"`
 	SyncTracks          *bool  `json:"sync_tracks"`
 	IntervalMinutes     *int   `json:"interval_minutes"`
+	// CreatePlaylist ("spotify" or "youtube") creates that side's playlist instead of pairing an
+	// existing one; its ID must then be empty. The name defaults to the other side's name.
+	CreatePlaylist string `json:"create_playlist,omitempty"`
 }
 
 // MappingResponse represents the API response for a single mapping.
@@ -60,11 +63,26 @@ type MappingSyncer interface {
 	SyncMapping(ctx context.Context, mapping model.Mappings)
 }
 
+// PlaylistCreator creates an empty playlist (private where the service allows it).
+type PlaylistCreator interface {
+	CreatePlaylist(ctx context.Context, service, name, description string) (string, error)
+}
+
+// maxIntervalMinutes is the longest sync interval the UI offers ("Once a day").
+const maxIntervalMinutes = 1440
+
+// youtubePlaylistCost is the quota for playlists.insert.
+const youtubePlaylistCost = 50
+
 // MappingsHandler handles mapping CRUD operations.
 type MappingsHandler struct {
 	DB *sql.DB
 	// Syncer powers POST /:id/sync; nil disables the endpoint.
 	Syncer MappingSyncer
+	// Creator powers create_playlist; nil disables it.
+	Creator PlaylistCreator
+	// QuotaLeft reports today's remaining YouTube units; nil skips the check.
+	QuotaLeft func() int
 }
 
 func NewMappingsHandler(db *sql.DB) *MappingsHandler {
@@ -204,6 +222,14 @@ func (h *MappingsHandler) Create(c echo.Context) error {
 	if err := validateMappingRequest(req); err != nil {
 		return err
 	}
+	if err := h.checkNotPaired(req); err != nil {
+		return err
+	}
+	if req.CreatePlaylist != "" {
+		if err := h.createMissingPlaylist(c.Request().Context(), &req); err != nil {
+			return err
+		}
+	}
 
 	now := time.Now().Unix()
 	id := uuid.NewString()
@@ -284,8 +310,8 @@ func (h *MappingsHandler) Update(c echo.Context) error {
 		args = append(args, intFromBool(*req.SyncTracks))
 	}
 	if req.IntervalMinutes != nil {
-		if *req.IntervalMinutes < 5 || *req.IntervalMinutes > 720 {
-			return echo.NewHTTPError(http.StatusUnprocessableEntity, "interval must be 5-720 minutes")
+		if *req.IntervalMinutes < 5 || *req.IntervalMinutes > maxIntervalMinutes {
+			return echo.NewHTTPError(http.StatusUnprocessableEntity, "interval must be 5-1440 minutes")
 		}
 		updateSQL += ", interval_minutes = ? "
 		args = append(args, *req.IntervalMinutes)
@@ -358,23 +384,86 @@ func parseIntParam(param string, defaultVal int) int {
 	return defaultVal
 }
 
+// checkNotPaired rejects a playlist that is already in a mapping: each playlist syncs with one
+// partner, so a second mapping would sync it twice.
+func (h *MappingsHandler) checkNotPaired(req MappingRequest) error {
+	var n int
+	err := h.DB.QueryRow(
+		`SELECT COUNT(*) FROM mappings WHERE (? != '' AND spotify_playlist_id = ?) OR (? != '' AND youtube_playlist_id = ?)`,
+		req.SpotifyPlaylistID, req.SpotifyPlaylistID, req.YoutubePlaylistID, req.YoutubePlaylistID,
+	).Scan(&n)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to check existing mappings")
+	}
+	if n > 0 {
+		return echo.NewHTTPError(http.StatusConflict, "one of these playlists is already paired")
+	}
+	return nil
+}
+
+// createMissingPlaylist creates the playlist named by req.CreatePlaylist and fills in its ID
+// and name. YouTube creation is refused when today's quota can't cover it.
+func (h *MappingsHandler) createMissingPlaylist(ctx context.Context, req *MappingRequest) error {
+	if h.Creator == nil {
+		return echo.NewHTTPError(http.StatusServiceUnavailable, "creating playlists is not configured")
+	}
+	service := req.CreatePlaylist
+	name, from := &req.YoutubePlaylistName, req.SpotifyPlaylistName
+	if service == "spotify" {
+		name, from = &req.SpotifyPlaylistName, req.YoutubePlaylistName
+	}
+	if strings.TrimSpace(*name) == "" {
+		*name = from
+	}
+	*name = strings.TrimSpace(*name)
+	if *name == "" {
+		return echo.NewHTTPError(http.StatusUnprocessableEntity, "a name is required for the new playlist")
+	}
+	if service == "youtube" && h.QuotaLeft != nil && h.QuotaLeft() < youtubePlaylistCost {
+		return echo.NewHTTPError(http.StatusTooManyRequests, "not enough YouTube quota left today to create a playlist")
+	}
+	id, err := h.Creator.CreatePlaylist(ctx, service, *name, "Synced by Spotube.")
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadGateway, "couldn't create the playlist: "+err.Error())
+	}
+	if service == "spotify" {
+		req.SpotifyPlaylistID = id
+	} else {
+		req.YoutubePlaylistID = id
+	}
+	return nil
+}
+
 func validateMappingRequest(req MappingRequest) error {
-	if strings.TrimSpace(req.SpotifyPlaylistID) == "" {
+	switch req.CreatePlaylist {
+	case "":
+	case "spotify", "youtube":
+		id := req.SpotifyPlaylistID
+		if req.CreatePlaylist == "youtube" {
+			id = req.YoutubePlaylistID
+		}
+		if strings.TrimSpace(id) != "" {
+			return echo.NewHTTPError(http.StatusUnprocessableEntity, req.CreatePlaylist+"_playlist_id must be empty when creating that playlist")
+		}
+	default:
+		return echo.NewHTTPError(http.StatusUnprocessableEntity, "create_playlist must be spotify or youtube")
+	}
+	if strings.TrimSpace(req.SpotifyPlaylistID) == "" && req.CreatePlaylist != "spotify" {
 		return echo.NewHTTPError(http.StatusUnprocessableEntity, "spotify_playlist_id is required")
 	}
-	if strings.TrimSpace(req.YoutubePlaylistID) == "" {
+	if strings.TrimSpace(req.YoutubePlaylistID) == "" && req.CreatePlaylist != "youtube" {
 		return echo.NewHTTPError(http.StatusUnprocessableEntity, "youtube_playlist_id is required")
 	}
-	if req.IntervalMinutes != nil && (*req.IntervalMinutes < 5 || *req.IntervalMinutes > 720) {
-		return echo.NewHTTPError(http.StatusUnprocessableEntity, "interval must be 5-720 minutes")
+	if req.IntervalMinutes != nil && (*req.IntervalMinutes < 5 || *req.IntervalMinutes > maxIntervalMinutes) {
+		return echo.NewHTTPError(http.StatusUnprocessableEntity, "interval must be 5-1440 minutes")
 	}
 	return nil
 }
 
 func validateMappingUpdateRequest(req MappingRequest) error {
 	// For updates, playlist IDs are not required (they can't be changed)
-	if req.IntervalMinutes != nil && (*req.IntervalMinutes < 5 || *req.IntervalMinutes > 720) {
-		return echo.NewHTTPError(http.StatusUnprocessableEntity, "interval must be 5-720 minutes")
+	if req.IntervalMinutes != nil && (*req.IntervalMinutes < 5 || *req.IntervalMinutes > maxIntervalMinutes) {
+		return echo.NewHTTPError(http.StatusUnprocessableEntity, "interval must be 5-1440 minutes")
 	}
 	return nil
 }
