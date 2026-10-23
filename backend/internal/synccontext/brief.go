@@ -17,10 +17,15 @@ func BriefExecutorLine(run ExecutorRun) string {
 	if run.Selected != nil {
 		selected = fmt.Sprintf("%q (%s)", strings.TrimSpace(run.Selected.Title), run.Selected.ID)
 	}
+	// Items are applied to the platform opposite the source.
+	dest := "youtube"
+	if run.Source.Platform == matching.PlatformYouTube {
+		dest = "spotify"
+	}
 	return fmt.Sprintf(
-		"executor %s %s: %q → %s outcome=%s",
+		"executor %s to %s: %q → %s outcome=%s",
 		run.Operation,
-		run.Source.Platform,
+		dest,
 		src,
 		selected,
 		run.Outcome,

@@ -48,6 +48,8 @@ var noisePatterns = []*regexp.Regexp{
 	// Featured-artist credits are formatted differently on each platform; compare without them.
 	regexp.MustCompile(`(?i)[\(\[]\s*(feat|ft|featuring|with)\.?\s[^\)\]]*[\)\]]`),
 	regexp.MustCompile(`(?i)\s(feat|ft|featuring)\.?\s.*$`),
+	// "Song x Artist2, Artist3" — collaborator lists appended to the title.
+	regexp.MustCompile(`(?i)\s+x\s+.*$`),
 }
 
 var channelSuffixes = regexp.MustCompile(`(?i)(\s*-\s*topic|vevo|\s*official(\s+(channel|music))?)$`)

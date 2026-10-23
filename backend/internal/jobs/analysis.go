@@ -190,6 +190,12 @@ func (j *AnalysisJob) analyzeMapping(ctx context.Context, mapping model.Mappings
 		}
 	}
 
+	if mapping.SyncTracks != 0 {
+		if err := j.reconcileQueuedAdds(ctx, mappingID, result.items, spotifyTracks, youtubeTracks); err != nil {
+			return nil, err
+		}
+	}
+
 	if err := j.updateMappingAnalysisTimestamp(ctx, mappingID, len(spotifyTracks), len(youtubeTracks)); err != nil {
 		return nil, err
 	}
@@ -480,6 +486,69 @@ func (j *AnalysisJob) insertSyncItems(ctx context.Context, syncItems []model.Syn
 
 // refreshMappingPlaylistNames loads current playlist titles from both services and stores them,
 // so rename detection compares live names rather than whatever was saved at mapping creation.
+// reconcileQueuedAdds skips pending/error add items that this analysis no longer
+// wants: the track is now on the destination, or it left the source playlist.
+func (j *AnalysisJob) reconcileQueuedAdds(ctx context.Context, mappingID string, wanted []model.SyncItems, spotifyTracks, youtubeTracks []TrackInfo) error {
+	key := func(service, trackID string) string { return service + "|" + trackID }
+	stillWanted := map[string]bool{}
+	for _, item := range wanted {
+		if item.Operation == "add" {
+			stillWanted[key(item.Service, lo.FromPtr(item.TrackID))] = true
+		}
+	}
+	// add→youtube items come from Spotify tracks and vice versa.
+	inSource := map[string]bool{}
+	for _, t := range spotifyTracks {
+		inSource[key("youtube", t.ID)] = true
+	}
+	for _, t := range youtubeTracks {
+		inSource[key("spotify", t.ID)] = true
+	}
+
+	rows, err := j.db.QueryContext(ctx,
+		`SELECT id, service, track_id FROM sync_items
+		 WHERE mapping_id = ? AND operation = 'add' AND status IN ('pending', 'error')`, mappingID)
+	if err != nil {
+		return err
+	}
+	type stale struct{ id, reason string }
+	var staleItems []stale
+	for rows.Next() {
+		var id, service string
+		var trackID sql.NullString
+		if err := rows.Scan(&id, &service, &trackID); err != nil {
+			rows.Close()
+			return err
+		}
+		k := key(service, trackID.String)
+		if stillWanted[k] {
+			continue
+		}
+		reason := "already in destination playlist"
+		if !inSource[k] {
+			reason = "no longer in source playlist"
+		}
+		staleItems = append(staleItems, stale{id, reason})
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	now := time.Now().Unix()
+	for _, s := range staleItems {
+		if _, err := j.db.ExecContext(ctx,
+			`UPDATE sync_items SET status = 'skipped', error_message = ?, updated = ? WHERE id = ?`,
+			s.reason, now, s.id); err != nil {
+			return err
+		}
+	}
+	if len(staleItems) > 0 {
+		j.logger.Info().Str("mapping_id", mappingID).Int("skipped", len(staleItems)).Msg("reconciled stale queue items")
+	}
+	return nil
+}
+
 func (j *AnalysisJob) refreshMappingPlaylistNames(
 	ctx context.Context,
 	mapping *model.Mappings,

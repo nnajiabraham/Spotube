@@ -105,6 +105,18 @@ func TestFindMatch_FeaturedArtistCredits(t *testing.T) {
 	assert.True(t, FindMatch(sp, []Track{yt}).Matched)
 }
 
+func TestFindMatch_CollaboratorListInTitle(t *testing.T) {
+	yt := YouTubeTrack("vid", "Moses Bliss - Umbrella x Festizie, Chizie, Son, Neeja", "Moses Bliss")
+	sp := SpotifyTrack("sp", "Umbrella", "Moses Bliss")
+	assert.True(t, FindMatch(sp, []Track{yt}).Matched)
+}
+
+func TestFindMatch_SameTitleDifferentArtistDoesNotMatch(t *testing.T) {
+	yt := YouTubeTrack("vid", "Jesus Culture - Fearless", "iWorship Lyrics")
+	sp := SpotifyTrack("sp", "Fearless", "Fearless Worship")
+	assert.False(t, FindMatch(sp, []Track{yt}).Matched)
+}
+
 func TestScorePair_HigherForCloserTitles(t *testing.T) {
 	source := Track{Title: "Pelo Negro", Artist: "Fernando Milagros"}
 	close := Track{Title: "Pelo Negro", Artist: "Fernando Milagros"}

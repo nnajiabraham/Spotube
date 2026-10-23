@@ -4,6 +4,7 @@ BINARY_NAME := spotube-server
 REPO_ROOT := ..
 DEV_LOG := $(REPO_ROOT)/dev.log
 BACKEND_PID := $(REPO_ROOT)/.backend-dev.pid
+BACKEND_PORT := 8090
 
 .PHONY: backend/install backend/dev backend/dev-bg backend/dev-stop backend/test backend/build backend/lint backend/clean
 .PHONY: backend/db/create backend/db/up backend/db/down backend/db/gen
@@ -11,7 +12,7 @@ BACKEND_PID := $(REPO_ROOT)/.backend-dev.pid
 backend/install: ## Install backend dependencies
 	@cd $(BACKEND_DIR) && go mod download
 
-backend/dev-bg: ## Start backend in background (append logs to dev.log only)
+backend/dev-bg: backend/dev-stop ## Start backend in background (append logs to dev.log only)
 	@touch $(DEV_LOG)
 	@printf '\n[backend] starting at %s\n' "$$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $(DEV_LOG)
 	@$(MAKE) backend/db/up >> $(DEV_LOG) 2>&1
@@ -28,6 +29,8 @@ backend/dev: backend/dev-stop ## Run backend in foreground; logs to terminal and
 
 backend/dev-stop: ## Stop background backend started by backend/dev-bg
 	@if [ -f $(BACKEND_PID) ]; then kill $$(cat $(BACKEND_PID)) 2>/dev/null || true; rm -f $(BACKEND_PID); fi
+	@# `go run` leaves the compiled server running, so also stop whatever holds the port.
+	@pids=$$(lsof -ti tcp:$(BACKEND_PORT) -sTCP:LISTEN 2>/dev/null); if [ -n "$$pids" ]; then kill $$pids 2>/dev/null || true; sleep 1; fi
 
 backend/test: ## Run backend tests
 	@cd $(BACKEND_DIR) && go test ./...

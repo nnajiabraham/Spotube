@@ -338,3 +338,46 @@ func (r *testAnalysisCredentialsRepo) GetSettings() (*auth.SettingsRecord, error
 		GoogleClientSecret:  sql.NullString{String: "test-google-secret", Valid: true},
 	}, nil
 }
+
+func TestReconcileQueuedAdds_SkipsItemsNoLongerNeeded(t *testing.T) {
+	db, cleanup := setupAnalysisTestDB(t)
+	defer cleanup()
+
+	job := NewAnalysisJob(JobDeps{DB: db, Logger: zerolog.Nop(), ActivityLogger: activitylogger.New(db)}, nil)
+	now := time.Now().Unix()
+	_, err := db.Exec(`INSERT INTO mappings (id, spotify_playlist_id, youtube_playlist_id, sync_name, sync_tracks, interval_minutes, tracks_count, created, updated) VALUES ('m1','sp','yt',0,1,60,0,?,?)`, now, now)
+	require.NoError(t, err)
+
+	insert := func(id, service, trackID, status string) {
+		_, err := db.Exec(`INSERT INTO sync_items (id, mapping_id, operation, service, track_id, status, created, updated) VALUES (?, 'm1', 'add', ?, ?, ?, ?, ?)`,
+			id, service, trackID, status, now, now)
+		require.NoError(t, err)
+	}
+	insert("still-wanted", "youtube", "sp-missing", "pending")
+	insert("now-matched", "youtube", "sp-matched", "pending")
+	insert("removed", "spotify", "yt-gone", "error")
+	insert("finished", "spotify", "yt-done", "done")
+
+	wanted := []model.SyncItems{{Operation: "add", Service: "youtube", TrackID: stringPtr("sp-missing")}}
+	spotifyTracks := []TrackInfo{{ID: "sp-missing"}, {ID: "sp-matched"}}
+	youtubeTracks := []TrackInfo{{ID: "yt-done"}}
+
+	require.NoError(t, job.reconcileQueuedAdds(context.Background(), "m1", wanted, spotifyTracks, youtubeTracks))
+
+	status := func(id string) (string, string) {
+		var s string
+		var msg sql.NullString
+		require.NoError(t, db.QueryRow(`SELECT status, error_message FROM sync_items WHERE id = ?`, id).Scan(&s, &msg))
+		return s, msg.String
+	}
+	s, _ := status("still-wanted")
+	assert.Equal(t, "pending", s)
+	s, msg := status("now-matched")
+	assert.Equal(t, "skipped", s)
+	assert.Equal(t, "already in destination playlist", msg)
+	s, msg = status("removed")
+	assert.Equal(t, "skipped", s)
+	assert.Equal(t, "no longer in source playlist", msg)
+	s, _ = status("finished")
+	assert.Equal(t, "done", s)
+}
