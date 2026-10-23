@@ -27,7 +27,7 @@ export function YouTubePlaylistsComponent() {
     return (
       <div className="p-4">
         <h2 className="text-xl font-bold mb-4">Your YouTube Playlists</h2>
-        <div className="text-red-500">Error fetching playlists: {error.message}</div>
+        <div className="text-youtube">Error fetching playlists: {error.message}</div>
       </div>
     );
   }

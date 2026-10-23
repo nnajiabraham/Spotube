@@ -50,7 +50,7 @@ function EditMapping() {
   if (error || !mapping || !options) {
     return (
       <Page title="Edit mapping" width="narrow">
-        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+        <div className="rounded-lg border border-youtube/30 bg-youtube-50 px-4 py-3 text-sm text-youtube-700">
           Mapping not found{error ? `: ${error.message}` : '.'}
         </div>
       </Page>
@@ -75,7 +75,7 @@ function EditMapping() {
           <MappingSyncStatus mapping={mapping} />
         </div>
         {mapping.last_sync_error && (
-          <p className="mt-2 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">{mapping.last_sync_error}</p>
+          <p className="mt-2 rounded-lg bg-youtube-50 px-3 py-2 text-xs text-youtube-700">{mapping.last_sync_error}</p>
         )}
       </Card>
 
@@ -90,7 +90,7 @@ function EditMapping() {
         </Card>
 
         {save.error && (
-          <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+          <div className="mt-4 rounded-lg border border-youtube/30 bg-youtube-50 px-4 py-3 text-sm text-youtube-700">
             {save.error.message}
           </div>
         )}

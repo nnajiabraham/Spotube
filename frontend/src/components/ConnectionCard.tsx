@@ -52,8 +52,8 @@ export function ConnectionCard({ service }: { service: Service }) {
         <>
           <div className="min-w-0 flex-1">
             <h3 className="font-medium text-gray-900">{name}</h3>
-            <p className="flex items-center gap-1.5 text-sm text-green-700">
-              <span className="h-2 w-2 rounded-full bg-green-500" />
+            <p className="flex items-center gap-1.5 text-sm text-spotify-700">
+              <span className="h-2 w-2 rounded-full bg-spotify" />
               Connected
             </p>
           </div>

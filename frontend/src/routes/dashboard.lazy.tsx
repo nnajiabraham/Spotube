@@ -6,7 +6,7 @@ import { DashboardStatsCards } from '../components/DashboardStatsCards'
 import { MappingSyncStatus, SyncNowButton } from '../components/MappingSync'
 import { useSyncNow } from '../lib/useSyncNow'
 import { Card, Page, SectionTitle, ServiceIcon } from '../components/ui'
-import { buttonClass, fullTime, timeAgo } from '../lib/format'
+import { buttonClass, fullTime, sectionLinkClass, timeAgo } from '../lib/format'
 import { dashboardAPI, mappingsAPI } from '../lib/api/index'
 
 const REFRESH_MS = 30_000
@@ -22,7 +22,7 @@ function AuthNotice() {
     <div
       role="status"
       className={`mb-6 rounded-lg border px-4 py-3 text-sm ${
-        ok ? 'border-green-200 bg-green-50 text-green-800' : 'border-red-200 bg-red-50 text-red-800'
+        ok ? 'border-spotify/40 bg-spotify-50 text-spotify-700' : 'border-youtube/30 bg-youtube-50 text-youtube-700'
       }`}
     >
       <span className="font-medium">{service}:</span>{' '}
@@ -61,7 +61,7 @@ function MappingsPanel() {
               <Link
                 to="/mappings/$mappingId/edit"
                 params={{ mappingId: m.id }}
-                className="flex min-w-0 flex-1 items-center gap-2 text-sm font-medium text-gray-900 hover:text-indigo-700"
+                className="flex min-w-0 flex-1 items-center gap-2 text-sm font-medium text-gray-900 hover:underline"
               >
                 <ServiceIcon service="spotify" />
                 <span className="truncate">{m.spotify_playlist_name || m.spotify_playlist_id}</span>
@@ -83,7 +83,7 @@ function MappingsPanel() {
 const levelDot: Record<string, string> = {
   info: 'bg-gray-300',
   warn: 'bg-amber-400',
-  error: 'bg-red-500',
+  error: 'bg-youtube',
 }
 
 function Dashboard() {
@@ -121,7 +121,7 @@ function Dashboard() {
       <section className="mb-8">
         <SectionTitle
           action={
-            <Link to="/sync-queue" className="text-sm text-indigo-600 hover:text-indigo-800">
+            <Link to="/sync-queue" className={sectionLinkClass}>
               Open queue →
             </Link>
           }
@@ -135,7 +135,7 @@ function Dashboard() {
         <section className="lg:col-span-3">
           <SectionTitle
             action={
-              <Link to="/mappings" className="text-sm text-indigo-600 hover:text-indigo-800">
+              <Link to="/mappings" className={sectionLinkClass}>
                 Manage →
               </Link>
             }
@@ -148,7 +148,7 @@ function Dashboard() {
         <section className="lg:col-span-2">
           <SectionTitle
             action={
-              <Link to="/logs" className="text-sm text-indigo-600 hover:text-indigo-800">
+              <Link to="/logs" className={sectionLinkClass}>
                 All activity →
               </Link>
             }

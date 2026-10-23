@@ -30,7 +30,7 @@ function Toggle({
         type="checkbox"
         checked={checked}
         onChange={(e) => onChange(e.target.checked)}
-        className="mt-0.5 h-4 w-4 accent-indigo-600"
+        className="mt-0.5 h-4 w-4 accent-ink"
       />
       <span>
         <span className="block text-sm font-medium text-gray-900">{label}</span>

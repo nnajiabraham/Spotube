@@ -42,7 +42,7 @@ export interface SyncItem {
   mapping_id: string;
   service: 'spotify' | 'youtube';
   action: 'add_track' | 'remove_track' | 'rename_playlist';
-  status: 'pending' | 'running' | 'done' | 'error' | 'skipped';
+  status: 'pending' | 'running' | 'done' | 'error' | 'skipped' | 'review';
   source_track_id?: string;
   source_track_title?: string;
   source_service?: 'spotify' | 'youtube';

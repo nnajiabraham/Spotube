@@ -28,7 +28,7 @@ function SpotifyPlaylistsComponent() {
         <div className="max-w-7xl mx-auto">
           <h1 className="text-2xl font-semibold text-gray-900 mb-8">Your Spotify Playlists</h1>
           <div className="text-center py-12">
-            <div className="text-red-600 mb-4">
+            <div className="text-youtube-700 mb-4">
               <svg className="mx-auto h-12 w-12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
@@ -99,7 +99,7 @@ function SpotifyPlaylistsComponent() {
                     {typeof playlist.public === 'boolean' && (
                       <span className={`px-2 py-1 rounded-full text-xs font-medium ${
                         playlist.public 
-                          ? 'bg-green-100 text-green-800' 
+                          ? 'bg-spotify-50 text-spotify-700' 
                           : 'bg-gray-100 text-gray-800'
                       }`}>
                         {playlist.public ? 'Public' : 'Private'}

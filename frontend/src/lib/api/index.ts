@@ -7,6 +7,7 @@ export { blacklistAPI } from './blacklist';
 export { activityLogsAPI } from './activity-logs';
 export { dashboardAPI } from './dashboard';
 export { syncItemsAPI } from './sync-items';
+export { tracksAPI } from './tracks';
 import { apiClient } from './client';
 
 // Re-export types for convenience

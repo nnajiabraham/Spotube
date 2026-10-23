@@ -51,7 +51,7 @@ function PlaylistPicker({
         {isLoading ? (
           <p className="p-4 text-sm text-gray-500">Loading playlists…</p>
         ) : error ? (
-          <p className="p-4 text-sm text-red-700">
+          <p className="p-4 text-sm text-youtube-700">
             Couldn't load playlists ({error.message}). Check the account on the{' '}
             <Link to="/dashboard" className="underline">
               dashboard
@@ -72,12 +72,12 @@ function PlaylistPicker({
                 disabled={p.paired}
                 onClick={() => onSelect(p.id)}
                 className={`flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm disabled:cursor-not-allowed disabled:opacity-50 ${
-                  selected ? 'bg-indigo-50' : 'hover:bg-gray-50'
+                  selected ? 'bg-gray-100' : 'hover:bg-gray-50'
                 }`}
               >
                 <span
                   className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${
-                    selected ? 'border-indigo-600 bg-indigo-600 text-white' : 'border-gray-300'
+                    selected ? 'border-ink bg-ink text-white' : 'border-gray-300'
                   }`}
                 >
                   {selected && <Check className="h-3 w-3" />}
@@ -180,7 +180,7 @@ function NewMapping() {
       </Card>
 
       {create.error && (
-        <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+        <div className="mt-4 rounded-lg border border-youtube/30 bg-youtube-50 px-4 py-3 text-sm text-youtube-700">
           {create.error.message}
         </div>
       )}

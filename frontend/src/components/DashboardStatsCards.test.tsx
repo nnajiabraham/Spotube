@@ -11,7 +11,7 @@ vi.mock('@tanstack/react-router', () => ({
 
 const stats: DashboardStats = {
   mappings: { total: 2 },
-  queue: { pending: 12, running: 0, done: 1024, error: 2, skipped: 3 },
+  queue: { pending: 12, running: 0, done: 1024, error: 2, skipped: 3, review: 7 },
   recent_runs: [],
   youtube_quota: { used: 2500, limit: 10000 },
 }
@@ -26,7 +26,15 @@ describe('DashboardStatsCards', () => {
     expect(screen.getByRole('link', { name: /pending/i })).toHaveAttribute('href', '/sync-queue?status=pending')
   })
 
-  it('shows estimated YouTube quota use against the daily limit', () => {
+  it('links the review count to the review page', () => {
+    render(<DashboardStatsCards stats={stats} isLoading={false} />)
+
+    const review = screen.getByRole('link', { name: /needs review/i })
+    expect(review).toHaveAttribute('href', '/review')
+    expect(review).toHaveTextContent('7')
+  })
+
+  it('shows measured YouTube quota use against the daily limit', () => {
     render(<DashboardStatsCards stats={stats} isLoading={false} />)
 
     expect(screen.getByText('YouTube quota today')).toBeInTheDocument()

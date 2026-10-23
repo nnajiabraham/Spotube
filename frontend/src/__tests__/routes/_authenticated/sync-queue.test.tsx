@@ -122,7 +122,7 @@ describe('Sync Queue Page', () => {
 
     await waitFor(() => {
       expect(executeCalls).toBe(1);
-      expect(screen.getByRole('alert')).toHaveTextContent('Song: synced.');
+      expect(screen.getByRole('status')).toHaveTextContent('Song: synced.');
     });
   });
 
@@ -192,10 +192,10 @@ describe('Sync Queue Page', () => {
 
     const drawer = await screen.findByRole('dialog');
     expect(await within(drawer).findByText('Why it was queued')).toBeInTheDocument();
-    expect(within(drawer).getByText('0.20')).toBeInTheDocument();
+    expect(within(drawer).getByText('20%')).toBeInTheDocument();
     expect(await within(drawer).findByText('“Umbrella Moses Bliss”')).toBeInTheDocument();
     const candidate = within(drawer).getAllByRole('link', { name: /umbrella — moses bliss/i });
     expect(candidate.some((a) => a.getAttribute('href') === 'https://www.youtube.com/watch?v=vid1')).toBe(true);
-    expect(within(drawer).getByText('1.00')).toBeInTheDocument();
+    expect(within(drawer).getByText('100%')).toBeInTheDocument();
   });
 });

@@ -106,3 +106,27 @@ func TestPickSearchCandidate_RecordsBreakdown(t *testing.T) {
 func testMapping(id string) model.Mappings {
 	return model.Mappings{ID: &id, SyncTracks: 1, SpotifyPlaylistID: "sp-pl", YoutubePlaylistID: "yt-pl"}
 }
+
+// Tracks already on both sides are remembered as links, so a later rename or retitle on
+// either service can't make analysis copy them again.
+func TestAnalysis_RemembersMatchedPairs(t *testing.T) {
+	db, cleanup := setupAnalysisTestDB(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	job := newTestAnalysisJob(db)
+	spotify := []TrackInfo{{ID: "sp-umbrella", Title: "Umbrella", Artist: "Moses Bliss", DurationMs: 240000}}
+	youtube := []TrackInfo{{ID: "yt-umbrella", Title: "Moses Bliss - Umbrella (Official Video)", RawTitle: "Moses Bliss - Umbrella (Official Video)", Channel: "Moses Bliss", DurationMs: 242000}}
+	result := job.generateSyncItems(testMapping("m"), spotify, youtube, nil)
+	require.Empty(t, result.items)
+	require.NoError(t, job.rememberPairs(ctx, result.pairs))
+	require.NoError(t, job.rememberPairs(ctx, result.pairs), "remembering twice is a no-op")
+
+	links, total, err := (&tracklinks.Store{DB: db}).List(ctx, "", "", 1, 10)
+	require.NoError(t, err)
+	require.Equal(t, 1, total, "both directions describe the same pair")
+	assert.Equal(t, "sp-umbrella", links[0].SpotifyID)
+	assert.Equal(t, "yt-umbrella", links[0].YouTubeID)
+	assert.Equal(t, "Umbrella", links[0].Title)
+	assert.Equal(t, tracklinks.OriginAuto, links[0].Origin)
+}

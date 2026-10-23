@@ -1,7 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router'
 import type { SyncItemStatus } from '../../lib/api/sync-items'
 
-const statuses: SyncItemStatus[] = ['pending', 'running', 'done', 'error', 'skipped']
+const statuses: SyncItemStatus[] = ['pending', 'running', 'done', 'error', 'skipped', 'review']
 
 export type SyncQueueSearch = { status?: SyncItemStatus }
 

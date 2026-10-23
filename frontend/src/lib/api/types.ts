@@ -108,6 +108,8 @@ export interface DashboardStats {
     done: number;
     error: number;
     skipped: number;
+    /** Adds with no confident match, waiting for the user. */
+    review: number;
   };
   recent_runs: Array<{
     timestamp: number;

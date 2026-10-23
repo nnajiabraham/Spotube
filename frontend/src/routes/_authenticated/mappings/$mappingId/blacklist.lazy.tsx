@@ -53,7 +53,7 @@ function BlacklistPage() {
           Loading…
         </p>
       ) : error ? (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+        <div className="rounded-lg border border-youtube/30 bg-youtube-50 px-4 py-3 text-sm text-youtube-700">
           Error loading blocked tracks: {error.message}
         </div>
       ) : entries.length === 0 ? (

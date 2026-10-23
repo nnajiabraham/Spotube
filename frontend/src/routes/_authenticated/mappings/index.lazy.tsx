@@ -18,11 +18,11 @@ function PlaylistName({ service, id, name }: { service: 'spotify' | 'youtube'; i
       href={playlistURL[service](id)}
       target="_blank"
       rel="noreferrer"
-      className="group inline-flex min-w-0 items-center gap-2 font-medium text-gray-900 hover:text-indigo-700"
+      className="group inline-flex min-w-0 items-center gap-2 font-medium text-gray-900 hover:underline"
     >
       <ServiceIcon service={service} className="h-5 w-5 shrink-0" />
       <span className="truncate">{name || id}</span>
-      <ExternalLink className="h-3.5 w-3.5 shrink-0 text-gray-300 group-hover:text-indigo-500" />
+      <ExternalLink className="h-3.5 w-3.5 shrink-0 text-gray-300 group-hover:text-gray-500" />
     </a>
   )
 }
@@ -60,7 +60,7 @@ function MappingCard({ mapping, sync }: { mapping: Mapping; sync: ReturnType<typ
           </Link>
           <button
             type="button"
-            className={`${buttonClass.ghost} hover:text-red-600`}
+            className={`${buttonClass.ghost} hover:text-youtube-700`}
             aria-label="Delete mapping"
             title="Delete"
             disabled={remove.isPending}
@@ -92,7 +92,7 @@ function MappingCard({ mapping, sync }: { mapping: Mapping; sync: ReturnType<typ
       </div>
 
       {mapping.last_sync_error && (
-        <p className="mt-2 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">{mapping.last_sync_error}</p>
+        <p className="mt-2 rounded-lg bg-youtube-50 px-3 py-2 text-xs text-youtube-700">{mapping.last_sync_error}</p>
       )}
     </Card>
   )
@@ -121,7 +121,7 @@ function MappingsList() {
           Loading mappings…
         </p>
       ) : error ? (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+        <div className="rounded-lg border border-youtube/30 bg-youtube-50 px-4 py-3 text-sm text-youtube-700">
           Error loading mappings: {error.message}
         </div>
       ) : mappings.length === 0 ? (
@@ -134,7 +134,7 @@ function MappingsList() {
       ) : (
         <div className="space-y-3">
           {sync.error && (
-            <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+            <div className="rounded-lg border border-youtube/30 bg-youtube-50 px-4 py-3 text-sm text-youtube-700">
               Sync failed: {sync.error.message}
             </div>
           )}

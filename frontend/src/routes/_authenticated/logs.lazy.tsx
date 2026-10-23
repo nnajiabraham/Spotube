@@ -7,7 +7,7 @@ import type { ActivityLog } from '../../lib/api/types'
 import type { ActivityLogsListOptions } from '../../lib/api/activity-logs'
 import { SyncItemDetail } from '../../components/SyncItemDetail'
 import { Card, Page } from '../../components/ui'
-import { buttonClass, fullTime, timeAgo } from '../../lib/format'
+import { buttonClass, fullTime, linkClass, timeAgo } from '../../lib/format'
 
 const PER_PAGE = 50
 
@@ -30,7 +30,7 @@ const jobLabel: Record<ActivityLog['job_type'], string> = {
 const levelDot: Record<ActivityLog['level'], string> = {
   info: 'bg-gray-300',
   warn: 'bg-amber-500',
-  error: 'bg-red-500',
+  error: 'bg-youtube',
 }
 
 function needsReconnect(message: string): string | null {
@@ -57,7 +57,7 @@ function LogRow({
       <div className="flex gap-3">
         <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${levelDot[log.level]}`} aria-label={log.level} />
         <div className="min-w-0 flex-1">
-          <p className={`break-words text-sm ${log.level === 'error' ? 'text-red-800' : 'text-gray-800'}`}>{log.message}</p>
+          <p className={`break-words text-sm ${log.level === 'error' ? 'text-youtube-700' : 'text-gray-800'}`}>{log.message}</p>
           <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-500">
             <span title={fullTime(log.created)}>{timeAgo(log.created)}</span>
             <span className="text-gray-300">·</span>
@@ -71,7 +71,7 @@ function LogRow({
             {reconnect && (
               <>
                 <span className="text-gray-300">·</span>
-                <Link to="/dashboard" className="font-medium text-indigo-600 hover:text-indigo-800">
+                <Link to="/dashboard" className={linkClass}>
                   Reconnect {reconnect}
                 </Link>
               </>
@@ -81,7 +81,7 @@ function LogRow({
                 <span className="text-gray-300">·</span>
                 <button
                   type="button"
-                  className="font-medium text-indigo-600 hover:text-indigo-800"
+                  className={linkClass}
                   onClick={() => onOpenItem(log.sync_item_id!)}
                 >
                   View track
@@ -170,7 +170,7 @@ function ActivityLogsPage() {
       </div>
 
       {error && (
-        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+        <div className="mb-4 rounded-lg border border-youtube/30 bg-youtube-50 px-4 py-3 text-sm text-youtube-700">
           Couldn't load activity: {error.message}
         </div>
       )}

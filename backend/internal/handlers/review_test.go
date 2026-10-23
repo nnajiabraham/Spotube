@@ -171,8 +171,12 @@ func (f *fakeCatalog) get(id string) (*platform.SearchHit, error) {
 	return nil, nil
 }
 
-func (f *fakeCatalog) GetTrack(_ context.Context, id string) (*platform.SearchHit, error) { return f.get(id) }
-func (f *fakeCatalog) GetVideo(_ context.Context, id string) (*platform.SearchHit, error) { return f.get(id) }
+func (f *fakeCatalog) GetTrack(_ context.Context, id string) (*platform.SearchHit, error) {
+	return f.get(id)
+}
+func (f *fakeCatalog) GetVideo(_ context.Context, id string) (*platform.SearchHit, error) {
+	return f.get(id)
+}
 
 func tracksServer(db *sql.DB, sp, yt *fakeCatalog) *echo.Echo {
 	e := echo.New()

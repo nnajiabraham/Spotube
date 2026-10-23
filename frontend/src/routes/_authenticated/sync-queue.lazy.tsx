@@ -1,7 +1,7 @@
-import { createLazyFileRoute, useNavigate, useSearch } from '@tanstack/react-router'
+import { createLazyFileRoute, Link, useNavigate, useSearch } from '@tanstack/react-router'
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowRight, ChevronLeft, ChevronRight, Loader2, RotateCw } from 'lucide-react'
+import { ArrowRight, Loader2, RotateCw } from 'lucide-react'
 import {
   syncItemsAPI,
   isSyncItemExecutable,
@@ -10,13 +10,14 @@ import {
   type SyncItemStatus,
 } from '../../lib/api/sync-items'
 import { SyncItemDetail } from '../../components/SyncItemDetail'
-import { Card, Page, QueueStatusPill, ServiceIcon } from '../../components/ui'
-import { buttonClass, fullTime, timeAgo } from '../../lib/format'
+import { Card, Notice, Page, Pagination, QueueStatusPill, ServiceIcon, Tabs } from '../../components/ui'
+import { buttonClass, fullTime, inputClass, timeAgo } from '../../lib/format'
 
 const PER_PAGE = 25
 
-const statusTabs: Array<{ value: SyncItemStatus | undefined; label: string }> = [
-  { value: undefined, label: 'All' },
+const statusTabs: Array<{ value: SyncItemStatus | ''; label: string }> = [
+  { value: '', label: 'All' },
+  { value: 'review', label: 'Needs review' },
   { value: 'pending', label: 'Pending' },
   { value: 'done', label: 'Synced' },
   { value: 'error', label: 'Failed' },
@@ -92,26 +93,16 @@ function SyncQueuePage() {
       description="Tracks found on one side but not the other, and what happened when Spotube tried to copy them."
     >
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <div className="inline-flex rounded-lg border border-gray-200 bg-white p-1" role="tablist">
-          {statusTabs.map((tab) => (
-            <button
-              key={tab.label}
-              type="button"
-              role="tab"
-              aria-selected={status === tab.value}
-              onClick={() => setStatus(tab.value)}
-              className={`rounded-md px-3 py-1.5 text-sm font-medium ${
-                status === tab.value ? 'bg-gray-900 text-white' : 'text-gray-600 hover:text-gray-900'
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
+        <Tabs<SyncItemStatus | ''>
+          label="Status"
+          value={status ?? ''}
+          onChange={(v) => setStatus(v || undefined)}
+          items={statusTabs}
+        />
         <label className="flex items-center gap-2 text-sm text-gray-600">
           Copying to
           <select
-            className="rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-sm"
+            className={`${inputClass} !w-auto`}
             value={destination}
             onChange={(e) => {
               setPage(1)
@@ -125,22 +116,21 @@ function SyncQueuePage() {
         </label>
       </div>
 
+      {status === 'review' && (
+        <Notice tone="warning" className="mb-4">
+          These tracks had no confident match. Decide them on the{' '}
+          <Link to="/review" className="font-medium underline underline-offset-4">
+            Review page
+          </Link>
+          , where you can search the other service or paste a link.
+        </Notice>
+      )}
       {notice && (
-        <div
-          role="alert"
-          className={`mb-4 rounded-lg border px-4 py-3 text-sm ${
-            notice.ok ? 'border-green-200 bg-green-50 text-green-800' : 'border-red-200 bg-red-50 text-red-800'
-          }`}
-        >
+        <Notice tone={notice.ok ? 'success' : 'error'} className="mb-4" onDismiss={() => setNotice(null)}>
           {notice.text}
-        </div>
+        </Notice>
       )}
-
-      {error && (
-        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
-          Couldn't load the queue: {error.message}
-        </div>
-      )}
+      {error && <Notice tone="error" className="mb-4">Couldn't load the queue: {error.message}</Notice>}
 
       <Card className="overflow-hidden">
         <div className="overflow-x-auto">
@@ -195,7 +185,7 @@ function SyncQueuePage() {
                         <QueueStatusPill status={item.status} />
                         {item.error_message && (
                           <div
-                            className={`mt-1 line-clamp-2 text-xs ${item.status === 'error' ? 'text-red-700' : 'text-gray-500'}`}
+                            className={`mt-1 line-clamp-2 text-xs ${item.status === 'error' ? 'text-youtube-700' : item.status === 'review' ? 'text-amber-800' : 'text-gray-500'}`}
                             title={item.error_message}
                           >
                             {item.error_message}
@@ -209,6 +199,11 @@ function SyncQueuePage() {
                         {timeAgo(item.updated)}
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 text-right" onClick={(e) => e.stopPropagation()}>
+                        {item.status === 'review' && (
+                          <Link to="/review" search={{ mapping: item.mapping_id }} className={buttonClass.primary}>
+                            Review
+                          </Link>
+                        )}
                         {isSyncItemExecutable(item.status) && (
                           <button
                             type="button"
@@ -228,26 +223,7 @@ function SyncQueuePage() {
             </tbody>
           </table>
         </div>
-        {data && data.totalItems > 0 && (
-          <div className="flex items-center justify-between border-t border-gray-200 px-4 py-2.5 text-sm text-gray-500">
-            <span>
-              {data.totalItems.toLocaleString()} item{data.totalItems === 1 ? '' : 's'}
-            </span>
-            {totalPages > 1 && (
-              <div className="flex items-center gap-2">
-                <button type="button" className={buttonClass.ghost} disabled={page <= 1} onClick={() => setPage(page - 1)} aria-label="Previous page">
-                  <ChevronLeft className="h-4 w-4" />
-                </button>
-                <span>
-                  {page} / {totalPages}
-                </span>
-                <button type="button" className={buttonClass.ghost} disabled={page >= totalPages} onClick={() => setPage(page + 1)} aria-label="Next page">
-                  <ChevronRight className="h-4 w-4" />
-                </button>
-              </div>
-            )}
-          </div>
-        )}
+        <Pagination page={page} totalPages={totalPages} totalItems={data?.totalItems ?? 0} onPage={setPage} />
       </Card>
 
       {detailItemId && <SyncItemDetail itemId={detailItemId} onClose={() => setDetailItemId(null)} />}

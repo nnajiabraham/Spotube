@@ -195,6 +195,9 @@ func (j *AnalysisJob) analyzeMapping(ctx context.Context, mapping model.Mappings
 	}
 
 	result := j.generateSyncItems(mapping, spotifyTracks, youtubeTracks, links)
+	if err := j.rememberPairs(ctx, result.pairs); err != nil {
+		return nil, err
+	}
 
 	inserted := 0
 	if len(result.items) > 0 {
@@ -247,6 +250,18 @@ func (j *AnalysisJob) analyzeMapping(ctx context.Context, mapping model.Mappings
 	return snapshot, nil
 }
 
+// rememberPairs links tracks already present on both sides, so later runs (and other
+// mappings holding the same songs) decide presence by ID. Existing links are kept.
+func (j *AnalysisJob) rememberPairs(ctx context.Context, pairs []matchedPair) error {
+	store := &tracklinks.Store{DB: j.db}
+	for _, p := range pairs {
+		if err := store.LinkAuto(ctx, p.spotifyID, p.youtubeID, p.title, p.artist, p.score); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func toTrackInfos(tracks []matching.Track) []TrackInfo {
 	out := make([]TrackInfo, 0, len(tracks))
 	for _, t := range tracks {
@@ -265,6 +280,13 @@ type syncItemsGenerateResult struct {
 	matchedSkipped int
 	// unavailable holds "service|sourceTrackID" keys for songs marked as not on service.
 	unavailable map[string]bool
+	// pairs are confident matches between the two playlists, remembered as track links.
+	pairs []matchedPair
+}
+
+type matchedPair struct {
+	spotifyID, youtubeID, title, artist string
+	score                               float64
 }
 
 // generateSyncItems queues an add for every track missing from the other playlist. A
@@ -274,6 +296,7 @@ func (j *AnalysisJob) generateSyncItems(mapping model.Mappings, spotifyTracks, y
 	var syncItems []model.SyncItems
 	matchedSkipped := 0
 	unavailable := map[string]bool{}
+	var pairs []matchedPair
 	spotifyIDs := map[string]bool{}
 	for _, t := range spotifyTracks {
 		spotifyIDs[t.ID] = true
@@ -340,6 +363,7 @@ func (j *AnalysisJob) generateSyncItems(mapping model.Mappings, spotifyTracks, y
 		decision := matching.FindMatch(source, youtubeMatching)
 		if decision.Matched {
 			matchedSkipped++
+			pairs = append(pairs, matchedPair{source.ID, decision.BestMatch.ID, source.Title, source.Artist, decision.Score})
 			j.logger.Debug().Str("mapping_id", mappingID).Msg(matching.BriefAnalysisLine(decision, "youtube", false))
 			continue
 		}
@@ -375,6 +399,8 @@ func (j *AnalysisJob) generateSyncItems(mapping model.Mappings, spotifyTracks, y
 		decision := matching.FindMatch(source, spotifyMatching)
 		if decision.Matched {
 			matchedSkipped++
+			best := decision.BestMatch
+			pairs = append(pairs, matchedPair{best.ID, source.ID, best.Title, best.Artist, decision.Score})
 			j.logger.Debug().Str("mapping_id", mappingID).Msg(matching.BriefAnalysisLine(decision, "spotify", false))
 			continue
 		}
@@ -397,7 +423,7 @@ func (j *AnalysisJob) generateSyncItems(mapping model.Mappings, spotifyTracks, y
 		j.logger.Info().Str("mapping_id", mappingID).Msg(matching.BriefAnalysisLine(decision, "spotify", true))
 	}
 
-	return syncItemsGenerateResult{items: syncItems, matchedSkipped: matchedSkipped, unavailable: unavailable}
+	return syncItemsGenerateResult{items: syncItems, matchedSkipped: matchedSkipped, unavailable: unavailable, pairs: pairs}
 }
 
 func trackInfosToYouTubeMatching(tracks []TrackInfo) []matching.Track {
