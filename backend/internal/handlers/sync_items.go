@@ -37,6 +37,8 @@ type SyncItemResponse struct {
 	DestinationService      string          `json:"destination_service"`
 	SourcePlaylistName      string          `json:"source_playlist_name"`
 	DestinationPlaylistName string          `json:"destination_playlist_name"`
+	// LastRun is the latest executor run (search and candidates), when requested.
+	LastRun json.RawMessage `json:"last_run,omitempty"`
 }
 
 // SyncItemsListResponse represents paginated sync items.
@@ -73,6 +75,7 @@ func RegisterSyncItemsRoutes(group *echo.Group, handler *SyncItemsHandler) {
 	group.GET("", handler.List)
 	group.GET("/:id", handler.Get)
 	group.POST("/:id/execute", handler.Execute)
+	group.POST("/:id/resolve", handler.Resolve)
 }
 
 func (h *SyncItemsHandler) List(c echo.Context) error {
@@ -158,6 +161,11 @@ func (h *SyncItemsHandler) List(c echo.Context) error {
 	responseItems := lo.Map(items, func(item model.SyncItems, _ int) SyncItemResponse {
 		return enrichSyncItemResponse(item, mappingNames[item.MappingID])
 	})
+	if c.QueryParam("include") == "last_run" {
+		if err := h.attachLastRuns(c.Request().Context(), responseItems); err != nil {
+			return echo.NewHTTPError(http.StatusInternalServerError, "failed to load last runs")
+		}
+	}
 
 	return c.JSON(http.StatusOK, SyncItemsListResponse{
 		Items:      responseItems,
@@ -182,7 +190,11 @@ func (h *SyncItemsHandler) Get(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to fetch sync item")
 	}
 
-	return c.JSON(http.StatusOK, enrichSyncItemResponse(item, mapping))
+	response := []SyncItemResponse{enrichSyncItemResponse(item, mapping)}
+	if err := h.attachLastRuns(c.Request().Context(), response); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to load last run")
+	}
+	return c.JSON(http.StatusOK, response[0])
 }
 
 func (h *SyncItemsHandler) Execute(c echo.Context) error {

@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/manlikeabro/spotube/internal/activitylogger"
+	"github.com/manlikeabro/spotube/internal/apiusage"
 	"github.com/manlikeabro/spotube/internal/migrate"
 	"github.com/manlikeabro/spotube/internal/sqliteconn"
 )
@@ -264,26 +265,26 @@ func TestDashboardStatsUnauthenticated(t *testing.T) {
 	assert.Equal(t, int64(10000), response.YouTubeQuota.Limit)
 }
 
-func TestEstimateYouTubeQuotaUsed(t *testing.T) {
+func TestGetStats_MeasuredQuotaAndReview(t *testing.T) {
 	db, cleanup := setupDashboardTestDB(t)
 	defer cleanup()
 
-	now := time.Now()
-	insert := func(id string, created int64, details string) {
-		_, err := db.Exec(`INSERT INTO activity_logs (id, level, message, job_type, created, details_json) VALUES (?, 'info', 'x', 'executor', ?, ?)`,
-			id, created, details)
-		require.NoError(t, err)
-	}
-	// Search + add to YouTube today: 150 units.
-	insert("a", now.Unix(), `{"data":{"source":{"platform":"spotify"},"search_query":"q","outcome":"added"}}`)
-	// Search with no match today: 100 units.
-	insert("b", now.Unix(), `{"data":{"source":{"platform":"spotify"},"search_query":"q","outcome":"no_match"}}`)
-	// Add to Spotify costs no YouTube quota.
-	insert("c", now.Unix(), `{"data":{"source":{"platform":"youtube"},"search_query":"q","outcome":"added"}}`)
-	// Yesterday's run is outside the quota day.
-	insert("d", youtubeQuotaDayStart(now).Unix()-60, `{"data":{"source":{"platform":"spotify"},"search_query":"q","outcome":"added"}}`)
-
-	used, err := NewDashboardHandler(db).estimateYouTubeQuotaUsed(now)
+	today := apiusage.Day(time.Now())
+	_, err := db.Exec(`INSERT INTO api_usage (day, service, units, calls) VALUES (?, 'youtube', 253, 4), ('2000-01-01', 'youtube', 9000, 90)`, today)
 	require.NoError(t, err)
-	assert.Equal(t, int64(250), used)
+	now := time.Now().Unix()
+	_, err = db.Exec(`INSERT INTO mappings (id, spotify_playlist_id, youtube_playlist_id, sync_name, sync_tracks, interval_minutes, tracks_count, created, updated) VALUES ('m', 'sp', 'yt', 1, 1, 60, 0, ?, ?)`, now, now)
+	require.NoError(t, err)
+	_, err = db.Exec(`INSERT INTO sync_items (id, mapping_id, operation, service, track_id, status, attempt_count, created, updated) VALUES ('r', 'm', 'add', 'youtube', 't', 'review', 1, ?, ?)`, now, now)
+	require.NoError(t, err)
+
+	e := echo.New()
+	rec := httptest.NewRecorder()
+	c := e.NewContext(httptest.NewRequest(http.MethodGet, "/api/dashboard/stats", nil), rec)
+	require.NoError(t, NewDashboardHandler(db).GetStats(c))
+
+	var response DashboardStatsResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &response))
+	assert.Equal(t, int64(253), response.YouTubeQuota.Used, "only today's usage counts")
+	assert.Equal(t, int64(1), response.Queue.Review)
 }

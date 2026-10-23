@@ -3,12 +3,12 @@ package handlers
 import (
 	"database/sql"
 	"net/http"
-	"time"
 
 	"github.com/go-jet/jet/v2/sqlite"
 	"github.com/labstack/echo/v4"
 	"github.com/samber/lo"
 
+	"github.com/manlikeabro/spotube/internal/apiusage"
 	"github.com/manlikeabro/spotube/internal/db/model"
 	"github.com/manlikeabro/spotube/internal/db/table"
 )
@@ -33,6 +33,8 @@ type QueueStats struct {
 	Done    int64 `json:"done"`
 	Error   int64 `json:"error"`
 	Skipped int64 `json:"skipped"`
+	// Review counts adds with no confident match, waiting for the user.
+	Review int64 `json:"review"`
 }
 
 // RecentRun represents a recent activity log entry.
@@ -44,8 +46,7 @@ type RecentRun struct {
 	MappingID *string `json:"mapping_id,omitempty"`
 }
 
-// YouTubeQuotaStats is an estimate of today's YouTube Data API usage, derived from executor
-// runs that wrote to YouTube (search = 100 units, playlist insert = 50). Reads are ignored.
+// YouTubeQuotaStats is today's measured YouTube Data API usage (see internal/apiusage).
 type YouTubeQuotaStats struct {
 	Used  int64 `json:"used"`
 	Limit int64 `json:"limit"`
@@ -88,13 +89,13 @@ func (h *DashboardHandler) GetStats(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to fetch recent runs")
 	}
 
-	quotaUsed, err := h.estimateYouTubeQuotaUsed(time.Now())
+	quotaUsed, err := apiusage.Today(h.DB, "youtube")
 	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, "failed to estimate youtube quota")
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to read youtube quota usage")
 	}
 	youtubeQuota := YouTubeQuotaStats{
-		Used:  quotaUsed,
-		Limit: youtubeDailyQuota,
+		Used:  int64(quotaUsed),
+		Limit: apiusage.YouTubeDailyQuota,
 	}
 
 	response := DashboardStatsResponse{
@@ -109,39 +110,11 @@ func (h *DashboardHandler) GetStats(c echo.Context) error {
 	return c.JSON(http.StatusOK, response)
 }
 
-const youtubeDailyQuota = 10000
-
-// youtubeQuotaDayStart returns the most recent midnight Pacific time, when YouTube resets quota.
-func youtubeQuotaDayStart(now time.Time) time.Time {
-	loc, err := time.LoadLocation("America/Los_Angeles")
-	if err != nil {
-		loc = time.FixedZone("PT", -8*60*60)
-	}
-	local := now.In(loc)
-	return time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, loc)
-}
-
-func (h *DashboardHandler) estimateYouTubeQuotaUsed(now time.Time) (int64, error) {
-	var used int64
-	err := h.DB.QueryRow(`
-		SELECT COALESCE(SUM(
-			CASE WHEN COALESCE(json_extract(details_json, '$.data.search_query'), '') <> '' THEN 100 ELSE 0 END +
-			CASE WHEN json_extract(details_json, '$.data.outcome') = 'added' THEN 50 ELSE 0 END
-		), 0)
-		FROM activity_logs
-		WHERE job_type = 'executor'
-		  AND json_extract(details_json, '$.data.source.platform') = 'spotify'
-		  AND created >= ?`,
-		youtubeQuotaDayStart(now).Unix(),
-	).Scan(&used)
-	return used, err
-}
-
 func (h *DashboardHandler) getQueueStats() (QueueStats, error) {
 	stats := QueueStats{}
 
 	// Query each status separately to avoid GROUP BY complexity
-	statuses := []string{"pending", "running", "done", "error", "skipped"}
+	statuses := []string{"pending", "running", "done", "error", "skipped", "review"}
 
 	for _, status := range statuses {
 		var count struct {
@@ -168,6 +141,8 @@ func (h *DashboardHandler) getQueueStats() (QueueStats, error) {
 			stats.Error = count.Count
 		case "skipped":
 			stats.Skipped = count.Count
+		case "review":
+			stats.Review = count.Count
 		}
 	}
 

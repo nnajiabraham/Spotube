@@ -24,6 +24,7 @@ import (
 	"github.com/manlikeabro/spotube/internal/httpserver"
 	"github.com/manlikeabro/spotube/internal/jobs"
 	"github.com/manlikeabro/spotube/internal/logging"
+	"github.com/manlikeabro/spotube/internal/platform"
 	"github.com/manlikeabro/spotube/internal/sqliteconn"
 )
 
@@ -141,6 +142,11 @@ func main() {
 	syncItemsHandler := handlers.NewSyncItemsHandler(db, syncExecutor)
 	syncItemsGroup := srv.Group("/api/collections/sync_items/records")
 	handlers.RegisterSyncItemsRoutes(syncItemsGroup, syncItemsHandler)
+
+	// In-app track search for the review queue, and remembered track links
+	tracksHandler := handlers.NewTracksHandler(db,
+		&platform.Spotify{Factory: clientFactory}, &platform.YouTube{Factory: clientFactory})
+	handlers.RegisterTracksRoutes(srv.Group("/api"), tracksHandler)
 
 	// Dashboard Stats (unauthenticated)
 	dashboardHandler := handlers.NewDashboardHandler(db)

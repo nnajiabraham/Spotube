@@ -235,9 +235,9 @@ func (e *Executor) destinationFor(service string, mapping model.Mappings) (desti
 	return destination{}, false
 }
 
-// sourceTrack rebuilds the source track for an add item, preferring the full track (with
+// SourceTrack rebuilds the source track for an add item, preferring the full track (with
 // duration and channel) recorded by analysis.
-func sourceTrack(item model.SyncItems) matching.Track {
+func SourceTrack(item model.SyncItems) matching.Track {
 	if raw := stringFromPtr(item.AnalysisContextJSON); raw != "" {
 		var ctx synccontext.AnalysisItemContext
 		if json.Unmarshal([]byte(raw), &ctx) == nil && ctx.Decision.Source.ID == stringFromPtr(item.TrackID) {
@@ -261,7 +261,7 @@ func sourceTrack(item model.SyncItems) matching.Track {
 // directly (no search); otherwise the destination is searched and a confident match is
 // linked for next time.
 func (e *Executor) executeAdd(ctx context.Context, item model.SyncItems, mapping model.Mappings) (synccontext.ExecutorRun, error) {
-	source := sourceTrack(item)
+	source := SourceTrack(item)
 	run := synccontext.ExecutorRun{Operation: "add", Source: source}
 
 	dest, ok := e.destinationFor(item.Service, mapping)
