@@ -16,7 +16,8 @@ There is **no Docker** in this repo: the database is a local SQLite file under `
 | `backend/migrations/` | SQL migrations |
 | `backend/internal/db/` | Jet-generated models and query builders (do not hand-edit table definitions here) |
 | `frontend/src/routes/` | TanStack file-based routes |
-| `frontend/src/lib/` | API client (`api.ts`), shared utilities |
+| `frontend/src/lib/` | API clients (`api/`, legacy `api.ts`), formatting helpers |
+| `frontend/src/components/ui/` | Design-system components (see `docs/design-system.md`) |
 | `frontend/e2e/` | Playwright E2E tests |
 | `docs/rfcs/` | Historical feature RFCs (plans at the time, not current design) |
 | `docs/archive/` | Old discovery reports and handoffs (unmaintained) |
