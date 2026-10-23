@@ -17,6 +17,7 @@ import (
 	"github.com/joho/godotenv"
 
 	"github.com/manlikeabro/spotube/internal/activitylogger"
+	"github.com/manlikeabro/spotube/internal/apiusage"
 	"github.com/manlikeabro/spotube/internal/auth"
 	"github.com/manlikeabro/spotube/internal/config"
 	"github.com/manlikeabro/spotube/internal/handlers"
@@ -41,6 +42,8 @@ func main() {
 		logger.Fatal().Err(err).Msg("failed to open database")
 	}
 	defer db.Close()
+	// Every YouTube API call is metered into api_usage so the dashboard shows real quota.
+	apiusage.SetDB(db)
 
 	srv := httpserver.New(cfg, logger)
 

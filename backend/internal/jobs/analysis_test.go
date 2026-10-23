@@ -140,7 +140,7 @@ func TestAnalysisJobGenerateSyncItems(t *testing.T) {
 		SyncTracks:        1,
 		YoutubePlaylistID: "youtube-playlist",
 	}
-	result := job.generateSyncItems(mapping, spotifyTracks, youtubeTracks)
+	result := job.generateSyncItems(mapping, spotifyTracks, youtubeTracks, nil)
 	syncItems := result.items
 
 	// Should generate sync items:
@@ -188,7 +188,7 @@ func TestAnalysisJobGenerateSyncItemsRename(t *testing.T) {
 		YoutubePlaylistName: &youtubeName,
 	}
 
-	syncItems := job.generateSyncItems(mapping, nil, nil).items
+	syncItems := job.generateSyncItems(mapping, nil, nil, nil).items
 	require.Len(t, syncItems, 1)
 	assert.Equal(t, "rename", syncItems[0].Operation)
 	assert.Equal(t, "youtube", syncItems[0].Service)
@@ -219,7 +219,7 @@ func TestAnalysisJobGenerateSyncItems_PeloNegroDoesNotQueueDuplicate(t *testing.
 		SyncTracks:        1,
 		YoutubePlaylistID: "youtube-playlist",
 	}
-	result := job.generateSyncItems(mapping, spotifyTracks, youtubeTracks)
+	result := job.generateSyncItems(mapping, spotifyTracks, youtubeTracks, nil)
 	assert.Empty(t, result.items)
 	assert.Equal(t, 2, result.matchedSkipped)
 }
@@ -362,7 +362,7 @@ func TestReconcileQueuedAdds_SkipsItemsNoLongerNeeded(t *testing.T) {
 	spotifyTracks := []TrackInfo{{ID: "sp-missing"}, {ID: "sp-matched"}}
 	youtubeTracks := []TrackInfo{{ID: "yt-done"}}
 
-	require.NoError(t, job.reconcileQueuedAdds(context.Background(), "m1", wanted, spotifyTracks, youtubeTracks))
+	require.NoError(t, job.reconcileQueuedAdds(context.Background(), "m1", wanted, spotifyTracks, youtubeTracks, nil))
 
 	status := func(id string) (string, string) {
 		var s string

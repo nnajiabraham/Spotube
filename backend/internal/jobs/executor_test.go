@@ -235,7 +235,7 @@ func TestExecuteOne_YouTubeRenameSuccess(t *testing.T) {
 	assert.Equal(t, "done", item.Status)
 }
 
-func TestExecuteOne_SearchEmptyMarksError(t *testing.T) {
+func TestExecuteOne_SearchEmptyNeedsReview(t *testing.T) {
 	db, cleanup := setupExecutorTestDB(t)
 	defer cleanup()
 
@@ -244,10 +244,9 @@ func TestExecuteOne_SearchEmptyMarksError(t *testing.T) {
 	e := newTestExecutor(t, db, &mockSpotifyPlatform{}, &mockYouTubePlatform{searchHits: nil})
 
 	item, err := e.ExecuteOne(context.Background(), "item-4")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "no match on youtube")
-	assert.Equal(t, "error", item.Status)
-	assert.NotEmpty(t, stringFromPtr(item.ErrorMessage))
+	require.ErrorIs(t, err, ErrNoConfidentMatch)
+	assert.Equal(t, "review", item.Status)
+	assert.Equal(t, "no results on youtube", stringFromPtr(item.ErrorMessage))
 }
 
 func TestExecuteOne_BlacklistedSkipped(t *testing.T) {

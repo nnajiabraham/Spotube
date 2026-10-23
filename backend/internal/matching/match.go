@@ -29,6 +29,10 @@ type Track struct {
 	Title    string   `json:"title"`
 	Artist   string   `json:"artist,omitempty"`
 	RawTitle string   `json:"raw_title,omitempty"`
+	// Channel is the YouTube uploader ("Artist - Topic" for YouTube Music uploads).
+	Channel string `json:"channel,omitempty"`
+	// DurationMs is 0 when unknown.
+	DurationMs int `json:"duration_ms,omitempty"`
 }
 
 // Decision captures whether a source track exists in a destination playlist.
@@ -36,6 +40,7 @@ type Decision struct {
 	Source     Track   `json:"source"`
 	BestMatch  *Track  `json:"best_match,omitempty"`
 	Score      float64 `json:"score"`
+	Breakdown  *Score  `json:"breakdown,omitempty"`
 	Method     string  `json:"method"`
 	Matched    bool    `json:"matched"`
 	QueuedAdd  bool    `json:"queued_add,omitempty"`
@@ -70,6 +75,7 @@ func YouTubeTrack(videoID, rawTitle, channelTitle string) Track {
 		Title:    title,
 		Artist:   artist,
 		RawTitle: rawTitle,
+		Channel:  strings.TrimSpace(channelTitle),
 	}
 }
 
@@ -91,43 +97,211 @@ func FindMatch(source Track, candidates []Track) Decision {
 	}
 
 	var best *Track
-	bestScore := 0.0
+	var bestScore *Score
 	for i := range candidates {
-		score := ScorePair(source, candidates[i])
-		if score > bestScore {
-			bestScore = score
+		score := ScoreCandidate(source, candidates[i])
+		if bestScore == nil || score.Total > bestScore.Total {
+			bestScore = &score
 			copy := candidates[i]
 			best = &copy
 		}
 	}
 
-	decision.Score = bestScore
-	decision.BestMatch = best
-	decision.Matched = bestScore >= MatchThreshold
+	if bestScore != nil && bestScore.Total > 0 {
+		decision.Score = bestScore.Total
+		decision.Breakdown = bestScore
+		decision.BestMatch = best
+	}
+	decision.Matched = decision.Score >= MatchThreshold
 	if decision.Matched {
 		decision.SkipReason = "already_in_destination"
 	}
 	return decision
 }
 
-// ScorePair compares two tracks using normalized title and artist tokens. It also scores the
-// combined title+artist token sets so a swapped or missing artist/title split still matches.
+// ScorePair is ScoreCandidate(a, b).Total.
 func ScorePair(a, b Track) float64 {
-	titleScore := tokenSimilarity(normalizeTitle(a.Title), normalizeTitle(b.Title))
-	combined := tokenSimilarity(
-		normalizeTitle(a.Title+" "+a.Artist),
-		normalizeTitle(b.Title+" "+b.Artist),
-	)
-	artistA := normalizeArtist(a.Artist)
-	artistB := normalizeArtist(b.Artist)
-	structured := titleScore
+	return ScoreCandidate(a, b).Total
+}
+
+// Score explains how two tracks compared. Total is in [0, 1]; MatchThreshold or more means
+// "same recording".
+type Score struct {
+	Total  float64 `json:"total"`
+	Title  float64 `json:"title"`
+	Artist float64 `json:"artist"`
+	// ArtistKnown is false when either side has no artist, in which case Artist is unused.
+	ArtistKnown bool `json:"artist_known"`
+	// DurationDiffSec is set when both durations are known.
+	DurationDiffSec *int         `json:"duration_diff_sec,omitempty"`
+	Adjustments     []Adjustment `json:"adjustments,omitempty"`
+}
+
+// Adjustment is a bonus or penalty applied on top of the title/artist score.
+type Adjustment struct {
+	Reason string  `json:"reason"`
+	Delta  float64 `json:"delta"`
+}
+
+// versionTags mark recordings that differ from the studio version even when the title matches.
+var versionTags = []struct {
+	label string
+	re    *regexp.Regexp
+}{
+	{"live", regexp.MustCompile(`(?i)\blive\b`)},
+	{"remix", regexp.MustCompile(`(?i)\b(remix|rmx)\b`)},
+	{"cover", regexp.MustCompile(`(?i)\bcover\b`)},
+	{"acoustic", regexp.MustCompile(`(?i)\bacoustic\b`)},
+	{"instrumental", regexp.MustCompile(`(?i)\binstrumental\b`)},
+	{"karaoke", regexp.MustCompile(`(?i)\bkaraoke\b`)},
+	{"sped up", regexp.MustCompile(`(?i)\bsped\s*up\b`)},
+	{"slowed", regexp.MustCompile(`(?i)\bslowed\b`)},
+	{"nightcore", regexp.MustCompile(`(?i)\bnightcore\b`)},
+	{"8D", regexp.MustCompile(`(?i)\b8d\b`)},
+	{"extended", regexp.MustCompile(`(?i)\bextended\b`)},
+	{"loop", regexp.MustCompile(`(?i)\b(loop|1\s*hour|one hour)\b`)},
+}
+
+// ScoreCandidate compares two tracks on normalized title and artist, then adjusts for
+// duration, version tags (live, remix, …), and official YouTube uploads.
+func ScoreCandidate(a, b Track) Score {
+	var s Score
+	s.Title = textSimilarity(normalizeTitle(a.Title), normalizeTitle(b.Title))
+	base := s.Title
+
+	artistA, artistB := normalizeArtist(a.Artist), normalizeArtist(b.Artist)
 	if artistA != "" && artistB != "" {
-		structured = titleScore*0.65 + artistSimilarity(artistA, artistB)*0.35
+		s.ArtistKnown = true
+		s.Artist = artistSimilarity(artistA, artistB)
+		// The uploader channel is often the artist even when the title was parsed differently.
+		if ch := normalizeArtist(cleanChannelArtist(b.Channel)); ch != "" {
+			s.Artist = max(s.Artist, artistSimilarity(artistA, ch))
+		}
+		if ch := normalizeArtist(cleanChannelArtist(a.Channel)); ch != "" {
+			s.Artist = max(s.Artist, artistSimilarity(ch, artistB))
+		}
+		base = s.Title*0.6 + s.Artist*0.4
 	}
-	if combined > structured {
-		return combined
+	// Title and artist swapped or merged ("Artist - Title" parsed the wrong way round).
+	combined := textSimilarity(normalizeTitle(a.Title+" "+a.Artist), normalizeTitle(b.Title+" "+b.Artist))
+	if combined > base {
+		base = combined
 	}
-	return structured
+
+	adjust := func(reason string, delta float64) {
+		s.Adjustments = append(s.Adjustments, Adjustment{Reason: reason, Delta: delta})
+		base += delta
+	}
+
+	if a.DurationMs > 0 && b.DurationMs > 0 {
+		diff := a.DurationMs - b.DurationMs
+		if diff < 0 {
+			diff = -diff
+		}
+		sec := diff / 1000
+		s.DurationDiffSec = &sec
+		switch {
+		case sec <= 3:
+			adjust("same length", 0.05)
+		case sec <= 10:
+			adjust("length within 10s", 0.02)
+		case sec <= 45:
+			// Music videos often add an intro or outro; no signal either way.
+		case sec <= 120:
+			adjust(fmt.Sprintf("length differs by %ds", sec), -0.08)
+		case sec <= 300:
+			adjust(fmt.Sprintf("length differs by %s", minutes(sec)), -0.2)
+		default:
+			adjust(fmt.Sprintf("length differs by %s", minutes(sec)), -0.4)
+		}
+	}
+
+	textA, textB := versionText(a), versionText(b)
+	for _, tag := range versionTags {
+		inA, inB := tag.re.MatchString(textA), tag.re.MatchString(textB)
+		if inA != inB {
+			adjust(fmt.Sprintf("only one is %s", tag.label), -0.2)
+		}
+	}
+
+	for _, t := range []Track{a, b} {
+		if t.Platform != PlatformYouTube || t.Channel == "" {
+			continue
+		}
+		if strings.HasSuffix(strings.ToLower(strings.TrimSpace(t.Channel)), "- topic") {
+			adjust("YouTube Music upload", 0.03)
+		}
+	}
+
+	s.Total = clamp01(base)
+	return s
+}
+
+func versionText(t Track) string {
+	if t.RawTitle != "" {
+		return t.RawTitle
+	}
+	return t.Title
+}
+
+func minutes(sec int) string {
+	return fmt.Sprintf("%dm%02ds", sec/60, sec%60)
+}
+
+func clamp01(v float64) float64 {
+	if v < 0 {
+		return 0
+	}
+	if v > 1 {
+		return 1
+	}
+	return float64(int(v*1000+0.5)) / 1000
+}
+
+// textSimilarity is the larger of token Jaccard and character-trigram Dice, so word-order
+// changes and small spelling differences both score well.
+func textSimilarity(a, b string) float64 {
+	tokens := tokenSimilarity(a, b)
+	if tri := trigramSimilarity(a, b); tri > tokens {
+		return tri
+	}
+	return tokens
+}
+
+func trigramSimilarity(a, b string) float64 {
+	if a == "" || b == "" {
+		return 0
+	}
+	if a == b {
+		return 1
+	}
+	ga, gb := trigrams(a), trigrams(b)
+	if len(ga) == 0 || len(gb) == 0 {
+		return 0
+	}
+	shared := 0
+	for g, n := range ga {
+		if m, ok := gb[g]; ok {
+			shared += min(n, m)
+		}
+	}
+	total := 0
+	for _, n := range ga {
+		total += n
+	}
+	for _, n := range gb {
+		total += n
+	}
+	return 2 * float64(shared) / float64(total)
+}
+
+func trigrams(s string) map[string]int {
+	r := []rune("  " + s + " ")
+	out := make(map[string]int, len(r))
+	for i := 0; i+3 <= len(r); i++ {
+		out[string(r[i:i+3])]++
+	}
+	return out
 }
 
 // BriefAnalysisLine is a single stdout-friendly summary for analysis decisions.

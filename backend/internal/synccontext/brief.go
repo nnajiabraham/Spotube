@@ -18,6 +18,9 @@ func BriefExecutorLine(run ExecutorRun, dest string) string {
 
 	switch run.Outcome {
 	case "added":
+		if run.Linked {
+			return fmt.Sprintf("Added %q to %s (remembered match)", src, service)
+		}
 		if run.Selected != nil {
 			return fmt.Sprintf("Added %q to %s as %q", src, service, strings.TrimSpace(run.Selected.Title))
 		}
@@ -26,6 +29,8 @@ func BriefExecutorLine(run ExecutorRun, dest string) string {
 		return fmt.Sprintf("%q is already in the %s playlist", src, service)
 	case "no_match":
 		return fmt.Sprintf("Couldn't find %q on %s: %s", src, service, run.Error)
+	case "not_available":
+		return fmt.Sprintf("Skipped %q: marked as not on %s", src, service)
 	case "renamed":
 		return fmt.Sprintf("Renamed the %s playlist to %q", service, src)
 	}

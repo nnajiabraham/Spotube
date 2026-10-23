@@ -3,24 +3,24 @@ package jobs
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
-	"html"
 	"strings"
 	"time"
 
 	"github.com/go-jet/jet/v2/sqlite"
 	"github.com/rs/zerolog"
-	spotify "github.com/zmb3/spotify/v2"
 	"google.golang.org/api/googleapi"
-	"google.golang.org/api/youtube/v3"
 
 	"github.com/manlikeabro/spotube/internal/activitylogger"
 	"github.com/manlikeabro/spotube/internal/auth"
 	"github.com/manlikeabro/spotube/internal/db/model"
 	"github.com/manlikeabro/spotube/internal/db/table"
 	"github.com/manlikeabro/spotube/internal/matching"
+	"github.com/manlikeabro/spotube/internal/platform"
 	"github.com/manlikeabro/spotube/internal/synccontext"
+	"github.com/manlikeabro/spotube/internal/tracklinks"
 )
 
 const (
@@ -58,8 +58,8 @@ func NewExecutor(deps JobDeps, clientFactory *auth.ClientFactory) *Executor {
 		activityLogger: deps.ActivityLogger,
 		clientFactory:  clientFactory,
 	}
-	e.spotify = &liveSpotifyPlatform{factory: clientFactory}
-	e.youtube = &liveYouTubePlatform{factory: clientFactory}
+	e.spotify = &platform.Spotify{Factory: clientFactory}
+	e.youtube = &platform.YouTube{Factory: clientFactory}
 	return e
 }
 
@@ -97,6 +97,13 @@ func (e *Executor) ExecuteOne(ctx context.Context, itemID string) (model.SyncIte
 	run.SyncItemID = itemID
 	e.recordExecutorLog(mappingID, itemID, item.Service, run, execErr)
 
+	if errors.Is(execErr, ErrNotAvailable) {
+		updated, skipErr := e.markSkipped(itemID, "not on "+serviceLabel(item.Service))
+		if skipErr != nil {
+			return model.SyncItems{}, skipErr
+		}
+		return updated, ErrNotAvailable
+	}
 	if errors.Is(execErr, ErrAlreadyInDestination) {
 		updated, skipErr := e.markSkipped(itemID, "already in destination playlist")
 		if skipErr != nil {
@@ -200,125 +207,161 @@ func (e *Executor) runOperation(ctx context.Context, item model.SyncItems, mappi
 
 var ErrAlreadyInDestination = errors.New("already in destination playlist")
 
-func (e *Executor) executeAdd(ctx context.Context, item model.SyncItems, mapping model.Mappings) (synccontext.ExecutorRun, error) {
+// ErrNoConfidentMatch means the search found nothing good enough; the item waits for review
+// instead of being retried automatically.
+var ErrNoConfidentMatch = errors.New("no confident match")
+
+// ErrNotAvailable means the user marked the song as not available on the destination service.
+var ErrNotAvailable = errors.New("not available on destination service")
+
+// destination bundles the playlist operations for the service an item is added to.
+type destination struct {
+	platform   matching.Platform
+	playlistID string
+	list       func(context.Context, string) ([]matching.Track, error)
+	search     func(context.Context, string, string, int) ([]platformSearchHit, error)
+	add        func(context.Context, string, string) error
+}
+
+func (e *Executor) destinationFor(service string, mapping model.Mappings) (destination, bool) {
+	switch service {
+	case "youtube":
+		return destination{matching.PlatformYouTube, mapping.YoutubePlaylistID,
+			e.youtube.ListPlaylistTracks, e.youtube.SearchVideos, e.youtube.AddVideoToPlaylist}, true
+	case "spotify":
+		return destination{matching.PlatformSpotify, mapping.SpotifyPlaylistID,
+			e.spotify.ListPlaylistTracks, e.spotify.SearchTracks, e.spotify.AddTrackToPlaylist}, true
+	}
+	return destination{}, false
+}
+
+// sourceTrack rebuilds the source track for an add item, preferring the full track (with
+// duration and channel) recorded by analysis.
+func sourceTrack(item model.SyncItems) matching.Track {
+	if raw := stringFromPtr(item.AnalysisContextJSON); raw != "" {
+		var ctx synccontext.AnalysisItemContext
+		if json.Unmarshal([]byte(raw), &ctx) == nil && ctx.Decision.Source.ID == stringFromPtr(item.TrackID) {
+			return ctx.Decision.Source
+		}
+	}
+	id := stringFromPtr(item.TrackID)
 	title := strings.TrimSpace(stringFromPtr(item.TrackTitle))
 	artist := strings.TrimSpace(stringFromPtr(item.TrackArtist))
-	query := strings.TrimSpace(title + " " + artist)
-
-	run := synccontext.ExecutorRun{
-		Operation:   "add",
-		SearchQuery: query,
+	if item.Service == "youtube" {
+		return matching.SpotifyTrack(id, title, artist)
 	}
+	if artist == "" {
+		// Items queued before titles were parsed at analysis time hold the raw video title.
+		return matching.YouTubeFromRaw(id, title)
+	}
+	return matching.Track{Platform: matching.PlatformYouTube, ID: id, Title: title, Artist: artist}
+}
 
-	switch item.Service {
-	case "youtube":
-		source := matching.SpotifyTrack(stringFromPtr(item.TrackID), title, artist)
-		run.Source = source
-		run.DestPlaylistID = mapping.YoutubePlaylistID
+// executeAdd copies one track to the destination playlist. A remembered link is used
+// directly (no search); otherwise the destination is searched and a confident match is
+// linked for next time.
+func (e *Executor) executeAdd(ctx context.Context, item model.SyncItems, mapping model.Mappings) (synccontext.ExecutorRun, error) {
+	source := sourceTrack(item)
+	run := synccontext.ExecutorRun{Operation: "add", Source: source}
 
-		destTracks, err := e.youtube.ListPlaylistTracks(ctx, mapping.YoutubePlaylistID)
-		if err != nil {
-			run.Outcome = "error"
-			run.Error = err.Error()
-			return run, err
-		}
-		playlistMatch := matching.FindMatch(source, destTracks)
-		run.PlaylistMatch = &playlistMatch
-		if playlistMatch.Matched {
-			run.AlreadyInPlaylist = true
-			run.Outcome = "skipped_duplicate"
-			return run, ErrAlreadyInDestination
-		}
-
-		hits, err := e.youtube.SearchVideos(ctx, title, artist, executorSearchLimit)
-		if err != nil {
-			run.Outcome = "error"
-			run.Error = err.Error()
-			return run, err
-		}
-		selected, candidates, pickErr := pickSearchCandidate(source, hits, matching.PlatformYouTube)
-		run.Candidates = candidates
-		if pickErr != nil {
-			run.Outcome = "no_match"
-			run.Error = pickErr.Error()
-			return run, pickErr
-		}
-		run.Selected = &selected
-
-		if playlistContainsID(destTracks, selected.ID) {
-			run.AlreadyInPlaylist = true
-			run.Outcome = "skipped_duplicate"
-			return run, ErrAlreadyInDestination
-		}
-
-		if err := e.youtube.AddVideoToPlaylist(ctx, mapping.YoutubePlaylistID, selected.ID); err != nil {
-			run.Outcome = "error"
-			run.Error = err.Error()
-			return run, err
-		}
-		run.Outcome = "added"
-		return run, nil
-
-	case "spotify":
-		source := matching.Track{
-			Platform: matching.PlatformYouTube,
-			ID:       stringFromPtr(item.TrackID),
-			Title:    title,
-			Artist:   artist,
-		}
-		if artist == "" {
-			// Items queued before titles were parsed at analysis time hold the raw video title.
-			source = matching.YouTubeFromRaw(source.ID, title)
-		}
-		title, artist = source.Title, source.Artist
-		run.Source = source
-		run.DestPlaylistID = mapping.SpotifyPlaylistID
-
-		destTracks, err := e.spotify.ListPlaylistTracks(ctx, mapping.SpotifyPlaylistID)
-		if err != nil {
-			run.Outcome = "error"
-			run.Error = err.Error()
-			return run, err
-		}
-		playlistMatch := matching.FindMatch(source, destTracks)
-		run.PlaylistMatch = &playlistMatch
-		if playlistMatch.Matched {
-			run.AlreadyInPlaylist = true
-			run.Outcome = "skipped_duplicate"
-			return run, ErrAlreadyInDestination
-		}
-
-		hits, err := e.spotify.SearchTracks(ctx, title, artist, executorSearchLimit)
-		if err != nil {
-			run.Outcome = "error"
-			run.Error = err.Error()
-			return run, err
-		}
-		selected, candidates, pickErr := pickSearchCandidate(source, hits, matching.PlatformSpotify)
-		run.Candidates = candidates
-		if pickErr != nil {
-			run.Outcome = "no_match"
-			run.Error = pickErr.Error()
-			return run, pickErr
-		}
-		run.Selected = &selected
-
-		if playlistContainsID(destTracks, selected.ID) {
-			run.AlreadyInPlaylist = true
-			run.Outcome = "skipped_duplicate"
-			return run, ErrAlreadyInDestination
-		}
-
-		if err := e.spotify.AddTrackToPlaylist(ctx, mapping.SpotifyPlaylistID, selected.ID); err != nil {
-			run.Outcome = "error"
-			run.Error = err.Error()
-			return run, err
-		}
-		run.Outcome = "added"
-		return run, nil
-	default:
+	dest, ok := e.destinationFor(item.Service, mapping)
+	if !ok {
 		return run, fmt.Errorf("unsupported service: %s", item.Service)
 	}
+	run.DestPlaylistID = dest.playlistID
+	fail := func(err error) (synccontext.ExecutorRun, error) {
+		run.Outcome = "error"
+		run.Error = err.Error()
+		return run, err
+	}
+
+	destTracks, err := dest.list(ctx, dest.playlistID)
+	if err != nil {
+		return fail(err)
+	}
+
+	links := e.linkStore()
+	link, err := links.Find(ctx, string(source.Platform), source.ID)
+	if err != nil {
+		return fail(err)
+	}
+	if link != nil {
+		target, missing := link.Counterpart(item.Service)
+		if missing {
+			run.Outcome = "not_available"
+			return run, ErrNotAvailable
+		}
+		run.Linked = true
+		run.Selected = &matching.Track{Platform: dest.platform, ID: target, Title: link.Title, Artist: link.Artist}
+		if playlistContainsID(destTracks, target) {
+			run.AlreadyInPlaylist = true
+			run.Outcome = "skipped_duplicate"
+			return run, ErrAlreadyInDestination
+		}
+		if err := dest.add(ctx, dest.playlistID, target); err != nil {
+			return fail(err)
+		}
+		run.Outcome = "added"
+		return run, nil
+	}
+
+	remember := func(target matching.Track, score float64) {
+		spotifyID, youtubeID := source.ID, target.ID
+		if source.Platform == matching.PlatformYouTube {
+			spotifyID, youtubeID = target.ID, source.ID
+		}
+		if err := links.LinkAuto(ctx, spotifyID, youtubeID, source.Title, source.Artist, score); err != nil {
+			e.logger.Warn().Err(err).Str("sync_item_id", stringFromPtr(item.ID)).Msg("failed to record track link")
+		}
+	}
+
+	playlistMatch := matching.FindMatch(source, destTracks)
+	run.PlaylistMatch = &playlistMatch
+	if playlistMatch.Matched {
+		remember(*playlistMatch.BestMatch, playlistMatch.Score)
+		run.AlreadyInPlaylist = true
+		run.Outcome = "skipped_duplicate"
+		return run, ErrAlreadyInDestination
+	}
+
+	run.SearchQuery = strings.TrimSpace(source.Title + " " + source.Artist)
+	hits, err := dest.search(ctx, source.Title, source.Artist, executorSearchLimit)
+	if err != nil {
+		return fail(err)
+	}
+	selected, candidates, pickErr := pickSearchCandidate(source, hits, dest.platform)
+	run.Candidates = candidates
+	if pickErr != nil {
+		run.Outcome = "no_match"
+		run.Error = pickErr.Error()
+		return run, fmt.Errorf("%w: %s", ErrNoConfidentMatch, pickErr.Error())
+	}
+	run.Selected = &selected
+
+	if playlistContainsID(destTracks, selected.ID) {
+		remember(selected, bestScore(candidates))
+		run.AlreadyInPlaylist = true
+		run.Outcome = "skipped_duplicate"
+		return run, ErrAlreadyInDestination
+	}
+	if err := dest.add(ctx, dest.playlistID, selected.ID); err != nil {
+		return fail(err)
+	}
+	remember(selected, bestScore(candidates))
+	run.Outcome = "added"
+	return run, nil
+}
+
+func (e *Executor) linkStore() *tracklinks.Store {
+	return &tracklinks.Store{DB: e.db}
+}
+
+func bestScore(candidates []synccontext.SearchCandidate) float64 {
+	best := 0.0
+	for _, c := range candidates {
+		best = max(best, c.Score)
+	}
+	return best
 }
 
 func (e *Executor) executeRename(ctx context.Context, item model.SyncItems, mapping model.Mappings) (synccontext.ExecutorRun, error) {
@@ -360,37 +403,45 @@ func (e *Executor) executeRename(ctx context.Context, item model.SyncItems, mapp
 
 func pickSearchCandidate(source matching.Track, hits []platformSearchHit, platform matching.Platform) (matching.Track, []synccontext.SearchCandidate, error) {
 	if len(hits) == 0 {
-		return matching.Track{}, nil, fmt.Errorf("no match on %s", platform)
+		return matching.Track{}, nil, fmt.Errorf("no results on %s", platform)
 	}
 
 	candidates := make([]synccontext.SearchCandidate, 0, len(hits))
 	var best matching.Track
-	bestScore := 0.0
+	bestTotal := 0.0
 	for i, hit := range hits {
-		candidate := matching.Track{
-			Platform: platform,
-			ID:       hit.ID,
-			Title:    hit.Title,
-			Artist:   hit.Artist,
-		}
-		score := matching.ScorePair(source, candidate)
+		candidate := hit.Track(platform)
+		score := matching.ScoreCandidate(source, candidate)
 		candidates = append(candidates, synccontext.SearchCandidate{
-			Rank:    i + 1,
-			ID:      hit.ID,
-			Title:   hit.Title,
-			Artist:  hit.Artist,
-			Channel: hit.Channel,
-			Score:   score,
+			Rank:       i + 1,
+			ID:         hit.ID,
+			Title:      hit.Title,
+			Artist:     hit.Artist,
+			Channel:    firstNonEmpty(hit.Channel, hit.Album),
+			RawTitle:   hit.RawTitle,
+			DurationMs: hit.DurationMs,
+			Image:      hit.Image,
+			Score:      score.Total,
+			Breakdown:  &score,
 		})
-		if score > bestScore {
-			bestScore = score
+		if score.Total > bestTotal {
+			bestTotal = score.Total
 			best = candidate
 		}
 	}
-	if bestScore < matching.MatchThreshold {
-		return matching.Track{}, candidates, fmt.Errorf("no confident match on %s (best score %.2f)", platform, bestScore)
+	if bestTotal < matching.MatchThreshold {
+		return matching.Track{}, candidates, fmt.Errorf("no confident match on %s (best score %.2f)", platform, bestTotal)
 	}
 	return best, candidates, nil
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 func playlistContainsID(tracks []matching.Track, id string) bool {
@@ -404,7 +455,11 @@ func playlistContainsID(tracks []matching.Track, id string) bool {
 
 func (e *Executor) recordExecutorLog(mappingID, itemID, dest string, run synccontext.ExecutorRun, execErr error) {
 	level := "info"
-	if execErr != nil && !errors.Is(execErr, ErrAlreadyInDestination) {
+	switch {
+	case execErr == nil, errors.Is(execErr, ErrAlreadyInDestination), errors.Is(execErr, ErrNotAvailable):
+	case errors.Is(execErr, ErrNoConfidentMatch):
+		level = "warn"
+	default:
 		level = "error"
 		if run.Error == "" {
 			run.Error = execErr.Error()
@@ -434,7 +489,10 @@ func (e *Executor) finalizeExecution(ctx context.Context, itemID, mappingID stri
 	}
 	if execErr != nil {
 		status = "error"
-		errMsg = truncateExecutorError(execErr.Error())
+		if errors.Is(execErr, ErrNoConfidentMatch) {
+			status = "review"
+		}
+		errMsg = truncateExecutorError(strings.TrimPrefix(execErr.Error(), ErrNoConfidentMatch.Error()+": "))
 	}
 
 	_, err := e.db.Exec(
@@ -505,12 +563,8 @@ func stringFromPtr(ptr *string) string {
 	return *ptr
 }
 
-type platformSearchHit struct {
-	ID      string
-	Title   string
-	Artist  string
-	Channel string
-}
+// platformSearchHit is a search result from either service.
+type platformSearchHit = platform.SearchHit
 
 type spotifyPlatform interface {
 	SearchTracks(ctx context.Context, title, artist string, limit int) ([]platformSearchHit, error)
@@ -526,211 +580,6 @@ type youtubePlatform interface {
 	RenamePlaylist(ctx context.Context, playlistID, title string) error
 }
 
-type liveSpotifyPlatform struct {
-	factory *auth.ClientFactory
-}
-
-func (p *liveSpotifyPlatform) SearchTracks(ctx context.Context, title, artist string, limit int) ([]platformSearchHit, error) {
-	client, err := p.factory.GetSpotifyClient(ctx)
-	if err != nil {
-		return nil, err
-	}
-	query := strings.TrimSpace(title + " " + artist)
-	if query == "" {
-		return nil, nil
-	}
-	if limit <= 0 {
-		limit = 1
-	}
-	result, err := client.Search(ctx, query, spotify.SearchTypeTrack, spotify.Limit(limit))
-	if err != nil {
-		return nil, err
-	}
-	if result.Tracks == nil || len(result.Tracks.Tracks) == 0 {
-		return nil, nil
-	}
-	hits := make([]platformSearchHit, 0, len(result.Tracks.Tracks))
-	for _, track := range result.Tracks.Tracks {
-		artistName := ""
-		if len(track.Artists) > 0 {
-			artistName = track.Artists[0].Name
-		}
-		album := ""
-		if track.Album.Name != "" {
-			album = track.Album.Name
-		}
-		hits = append(hits, platformSearchHit{
-			ID:      string(track.ID),
-			Title:   track.Name,
-			Artist:  artistName,
-			Channel: album,
-		})
-	}
-	return hits, nil
-}
-
-func (p *liveSpotifyPlatform) ListPlaylistTracks(ctx context.Context, playlistID string) ([]matching.Track, error) {
-	client, err := p.factory.GetSpotifyClient(ctx)
-	if err != nil {
-		return nil, err
-	}
-	var tracks []matching.Track
-	offset := 0
-	for {
-		page, err := client.GetPlaylistItems(ctx, spotify.ID(playlistID), spotify.Offset(offset), spotify.Limit(100))
-		if err != nil {
-			return nil, err
-		}
-		for _, item := range page.Items {
-			if item.Track.Track == nil {
-				continue
-			}
-			track := item.Track.Track
-			artist := ""
-			if len(track.Artists) > 0 {
-				artist = track.Artists[0].Name
-			}
-			tracks = append(tracks, matching.SpotifyTrack(string(track.ID), track.Name, artist))
-		}
-		if page.Next == "" || len(page.Items) == 0 {
-			break
-		}
-		offset += len(page.Items)
-	}
-	return tracks, nil
-}
-
-func (p *liveSpotifyPlatform) AddTrackToPlaylist(ctx context.Context, playlistID, trackID string) error {
-	client, err := p.factory.GetSpotifyClient(ctx)
-	if err != nil {
-		return err
-	}
-	_, err = client.AddTracksToPlaylist(ctx, spotify.ID(playlistID), spotify.ID(trackID))
-	return err
-}
-
-func (p *liveSpotifyPlatform) RenamePlaylist(ctx context.Context, playlistID, name string) error {
-	client, err := p.factory.GetSpotifyClient(ctx)
-	if err != nil {
-		return err
-	}
-	return client.ChangePlaylistName(ctx, spotify.ID(playlistID), name)
-}
-
-type liveYouTubePlatform struct {
-	factory *auth.ClientFactory
-}
-
-func (p *liveYouTubePlatform) SearchVideos(ctx context.Context, title, artist string, limit int) ([]platformSearchHit, error) {
-	service, err := p.factory.GetYouTubeService(ctx)
-	if err != nil {
-		return nil, err
-	}
-	query := strings.TrimSpace(title + " " + artist)
-	if query == "" {
-		return nil, nil
-	}
-	if limit <= 0 {
-		limit = 1
-	}
-	call := service.Search.List([]string{"snippet"}).Q(query).Type("video").MaxResults(int64(limit))
-	response, err := call.Do()
-	if err != nil {
-		return nil, err
-	}
-	hits := make([]platformSearchHit, 0, len(response.Items))
-	for _, item := range response.Items {
-		if item.Id == nil || item.Snippet == nil {
-			continue
-		}
-		videoID := item.Id.VideoId
-		if videoID == "" {
-			continue
-		}
-		parsed := matching.YouTubeTrack(videoID, html.UnescapeString(item.Snippet.Title), item.Snippet.ChannelTitle)
-		channel := ""
-		if item.Snippet.ChannelTitle != "" {
-			channel = item.Snippet.ChannelTitle
-		}
-		hits = append(hits, platformSearchHit{
-			ID:      videoID,
-			Title:   parsed.Title,
-			Artist:  parsed.Artist,
-			Channel: channel,
-		})
-	}
-	return hits, nil
-}
-
-func (p *liveYouTubePlatform) ListPlaylistTracks(ctx context.Context, playlistID string) ([]matching.Track, error) {
-	service, err := p.factory.GetYouTubeService(ctx)
-	if err != nil {
-		return nil, err
-	}
-	var tracks []matching.Track
-	pageToken := ""
-	for {
-		call := service.PlaylistItems.List([]string{"snippet", "contentDetails"}).
-			PlaylistId(playlistID).
-			MaxResults(50)
-		if pageToken != "" {
-			call = call.PageToken(pageToken)
-		}
-		response, err := call.Do()
-		if err != nil {
-			return nil, err
-		}
-		for _, item := range response.Items {
-			videoID := ""
-			if item.ContentDetails != nil {
-				videoID = item.ContentDetails.VideoId
-			}
-			if videoID == "" || item.Snippet == nil {
-				continue
-			}
-			tracks = append(tracks, matching.YouTubeTrack(videoID, item.Snippet.Title, item.Snippet.VideoOwnerChannelTitle))
-		}
-		pageToken = response.NextPageToken
-		if pageToken == "" {
-			break
-		}
-	}
-	return tracks, nil
-}
-
-func (p *liveYouTubePlatform) AddVideoToPlaylist(ctx context.Context, playlistID, videoID string) error {
-	service, err := p.factory.GetYouTubeService(ctx)
-	if err != nil {
-		return err
-	}
-	item := &youtube.PlaylistItem{
-		Snippet: &youtube.PlaylistItemSnippet{
-			PlaylistId: playlistID,
-			ResourceId: &youtube.ResourceId{
-				Kind:    "youtube#video",
-				VideoId: videoID,
-			},
-		},
-	}
-	_, err = service.PlaylistItems.Insert([]string{"snippet"}, item).Do()
-	return err
-}
-
-func (p *liveYouTubePlatform) RenamePlaylist(ctx context.Context, playlistID, title string) error {
-	service, err := p.factory.GetYouTubeService(ctx)
-	if err != nil {
-		return err
-	}
-	playlist := &youtube.Playlist{
-		Id: playlistID,
-		Snippet: &youtube.PlaylistSnippet{
-			Title: title,
-		},
-	}
-	_, err = service.Playlists.Update([]string{"snippet"}, playlist).Do()
-	return err
-}
-
 // PlaylistSnapshot holds destination playlist contents already fetched during analysis,
 // keyed by playlist ID, so applying a batch does not re-list playlists per item.
 type PlaylistSnapshot struct {
@@ -743,12 +592,14 @@ type BatchResult struct {
 	Attempted int
 	Done      int
 	Skipped   int
+	Review    int
 	Failed    int
 }
 
 // Summary is a one-line activity log message for the batch.
 func (b BatchResult) Summary() string {
-	return fmt.Sprintf("Applied sync queue: %d added, %d skipped, %d failed (of %d)", b.Done, b.Skipped, b.Failed, b.Attempted)
+	return fmt.Sprintf("Applied sync queue: %d added, %d skipped, %d need review, %d failed (of %d)",
+		b.Done, b.Skipped, b.Review, b.Failed, b.Attempted)
 }
 
 // maxAutoAttempts stops auto-apply from retrying an item that keeps failing; manual Execute still works.
@@ -797,6 +648,8 @@ func (e *Executor) ExecutePending(ctx context.Context, mappingID string, limit i
 			result.Done++
 		case item.Status == "skipped":
 			result.Skipped++
+		case item.Status == "review":
+			result.Review++
 		default:
 			result.Failed++
 			if errors.Is(execErr, auth.ErrReconnectRequired) || isQuotaExceeded(execErr) {
@@ -805,6 +658,13 @@ func (e *Executor) ExecutePending(ctx context.Context, mappingID string, limit i
 		}
 	}
 	return result, nil
+}
+
+func serviceLabel(service string) string {
+	if service == "youtube" {
+		return "YouTube"
+	}
+	return "Spotify"
 }
 
 func isQuotaExceeded(err error) bool {

@@ -15,6 +15,8 @@ import (
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/option"
 	"google.golang.org/api/youtube/v3"
+
+	"github.com/manlikeabro/spotube/internal/apiusage"
 )
 
 var (
@@ -99,7 +101,11 @@ func (f *ClientFactory) HTTPClient(ctx context.Context, provider string) (*http.
 		scopes:   token.Scopes,
 		last:     current.AccessToken,
 	}
-	return oauth2.NewClient(ctx, source), nil
+	client := oauth2.NewClient(ctx, source)
+	if provider == "google" {
+		client.Transport = &apiusage.Transport{Base: client.Transport}
+	}
+	return client, nil
 }
 
 // persistingTokenSource saves tokens to the repository whenever the access token changes.

@@ -20,7 +20,9 @@ import (
 	"github.com/manlikeabro/spotube/internal/db/model"
 	"github.com/manlikeabro/spotube/internal/db/table"
 	"github.com/manlikeabro/spotube/internal/matching"
+	"github.com/manlikeabro/spotube/internal/platform"
 	"github.com/manlikeabro/spotube/internal/synccontext"
+	"github.com/manlikeabro/spotube/internal/tracklinks"
 )
 
 // AnalysisJob compares mapped playlists, queues sync items, and (optionally) applies them.
@@ -175,18 +177,24 @@ func (j *AnalysisJob) analyzeMapping(ctx context.Context, mapping model.Mappings
 		}
 	}
 
+	var links *tracklinks.Index
 	if mapping.SyncTracks != 0 {
-		spotifyTracks, err = j.getSpotifyPlaylistTracks(ctx, spotifyClient, mapping.SpotifyPlaylistID)
+		sp, err := platform.SpotifyPlaylistTracks(ctx, spotifyClient, mapping.SpotifyPlaylistID)
 		if err != nil {
 			return nil, err
 		}
-		youtubeTracks, err = j.getYouTubePlaylistTracks(ctx, youtubeService, mapping.YoutubePlaylistID)
+		yt, err := platform.YouTubePlaylistTracks(ctx, youtubeService, mapping.YoutubePlaylistID)
+		if err != nil {
+			return nil, err
+		}
+		spotifyTracks, youtubeTracks = toTrackInfos(sp), toTrackInfos(yt)
+		links, err = (&tracklinks.Store{DB: j.db}).LoadIndex(ctx)
 		if err != nil {
 			return nil, err
 		}
 	}
 
-	result := j.generateSyncItems(mapping, spotifyTracks, youtubeTracks)
+	result := j.generateSyncItems(mapping, spotifyTracks, youtubeTracks, links)
 
 	inserted := 0
 	if len(result.items) > 0 {
@@ -197,7 +205,7 @@ func (j *AnalysisJob) analyzeMapping(ctx context.Context, mapping model.Mappings
 	}
 
 	if mapping.SyncTracks != 0 {
-		if err := j.reconcileQueuedAdds(ctx, mappingID, result.items, spotifyTracks, youtubeTracks); err != nil {
+		if err := j.reconcileQueuedAdds(ctx, mappingID, result.items, spotifyTracks, youtubeTracks, result.unavailable); err != nil {
 			return nil, err
 		}
 	}
@@ -239,91 +247,60 @@ func (j *AnalysisJob) analyzeMapping(ctx context.Context, mapping model.Mappings
 	return snapshot, nil
 }
 
-func (j *AnalysisJob) getSpotifyPlaylistTracks(ctx context.Context, client *spotify.Client, playlistID string) ([]TrackInfo, error) {
-	var tracks []TrackInfo
-	offset := 0
-
-	for {
-		page, err := client.GetPlaylistItems(ctx, spotify.ID(playlistID), spotify.Offset(offset), spotify.Limit(100))
-		if err != nil {
-			return nil, err
+func toTrackInfos(tracks []matching.Track) []TrackInfo {
+	out := make([]TrackInfo, 0, len(tracks))
+	for _, t := range tracks {
+		info := TrackInfo{ID: t.ID, Title: t.Title, Artist: t.Artist, DurationMs: t.DurationMs}
+		if t.Platform == matching.PlatformYouTube {
+			// YouTube titles are re-parsed from the raw upload title together with the channel.
+			info = TrackInfo{ID: t.ID, Title: t.RawTitle, RawTitle: t.RawTitle, Channel: t.Channel, DurationMs: t.DurationMs}
 		}
-
-		for _, item := range page.Items {
-			if item.Track.Track == nil {
-				continue
-			}
-			track := item.Track.Track
-			artist := ""
-			if len(track.Artists) > 0 {
-				artist = track.Artists[0].Name
-			}
-			tracks = append(tracks, TrackInfo{
-				ID:     string(track.ID),
-				Title:  track.Name,
-				Artist: artist,
-			})
-		}
-
-		if page.Next == "" || len(page.Items) == 0 {
-			break
-		}
-		offset += len(page.Items)
+		out = append(out, info)
 	}
-
-	return tracks, nil
-}
-
-func (j *AnalysisJob) getYouTubePlaylistTracks(ctx context.Context, service *youtube.Service, playlistID string) ([]TrackInfo, error) {
-	var tracks []TrackInfo
-	pageToken := ""
-
-	for {
-		call := service.PlaylistItems.List([]string{"snippet", "contentDetails"}).
-			PlaylistId(playlistID).
-			MaxResults(50)
-		if pageToken != "" {
-			call = call.PageToken(pageToken)
-		}
-
-		response, err := call.Do()
-		if err != nil {
-			return nil, err
-		}
-
-		for _, item := range response.Items {
-			videoID := ""
-			if item.ContentDetails != nil {
-				videoID = item.ContentDetails.VideoId
-			}
-			if videoID == "" || item.Snippet == nil {
-				continue
-			}
-			tracks = append(tracks, TrackInfo{
-				ID:       videoID,
-				Title:    item.Snippet.Title,
-				RawTitle: item.Snippet.Title,
-				Channel:  item.Snippet.VideoOwnerChannelTitle,
-			})
-		}
-
-		pageToken = response.NextPageToken
-		if pageToken == "" {
-			break
-		}
-	}
-
-	return tracks, nil
+	return out
 }
 
 type syncItemsGenerateResult struct {
 	items          []model.SyncItems
 	matchedSkipped int
+	// unavailable holds "service|sourceTrackID" keys for songs marked as not on service.
+	unavailable map[string]bool
 }
 
-func (j *AnalysisJob) generateSyncItems(mapping model.Mappings, spotifyTracks, youtubeTracks []TrackInfo) syncItemsGenerateResult {
+// generateSyncItems queues an add for every track missing from the other playlist. A
+// remembered link decides presence by ID before fuzzy matching, so a track Spotube copied is
+// never copied back, and a song marked "not on <service>" is never queued.
+func (j *AnalysisJob) generateSyncItems(mapping model.Mappings, spotifyTracks, youtubeTracks []TrackInfo, links *tracklinks.Index) syncItemsGenerateResult {
 	var syncItems []model.SyncItems
 	matchedSkipped := 0
+	unavailable := map[string]bool{}
+	spotifyIDs := map[string]bool{}
+	for _, t := range spotifyTracks {
+		spotifyIDs[t.ID] = true
+	}
+	youtubeIDs := map[string]bool{}
+	for _, t := range youtubeTracks {
+		youtubeIDs[t.ID] = true
+	}
+	// linkDecides reports whether a link settles the source track: present in dest, or
+	// known to be unavailable there.
+	linkDecides := func(sourceService, sourceID, destService string, destIDs map[string]bool) bool {
+		link, ok := links.For(sourceService, sourceID)
+		if !ok {
+			return false
+		}
+		target, missing := link.Counterpart(destService)
+		if missing {
+			unavailable[destService+"|"+sourceID] = true
+			matchedSkipped++
+			return true
+		}
+		if destIDs[target] {
+			matchedSkipped++
+			return true
+		}
+		return false
+	}
 	now := time.Now().Unix()
 	mappingID := lo.FromPtr(mapping.ID)
 
@@ -351,11 +328,15 @@ func (j *AnalysisJob) generateSyncItems(mapping model.Mappings, spotifyTracks, y
 	}
 
 	if mapping.SyncTracks == 0 {
-		return syncItemsGenerateResult{items: syncItems}
+		return syncItemsGenerateResult{items: syncItems, unavailable: unavailable}
 	}
 
 	for _, track := range spotifyTracks {
+		if linkDecides("spotify", track.ID, "youtube", youtubeIDs) {
+			continue
+		}
 		source := matching.SpotifyTrack(track.ID, track.Title, track.Artist)
+		source.DurationMs = track.DurationMs
 		decision := matching.FindMatch(source, youtubeMatching)
 		if decision.Matched {
 			matchedSkipped++
@@ -382,11 +363,15 @@ func (j *AnalysisJob) generateSyncItems(mapping model.Mappings, spotifyTracks, y
 	}
 
 	for _, track := range youtubeTracks {
+		if linkDecides("youtube", track.ID, "spotify", spotifyIDs) {
+			continue
+		}
 		rawTitle := track.RawTitle
 		if rawTitle == "" {
 			rawTitle = track.Title
 		}
 		source := matching.YouTubeTrack(track.ID, rawTitle, track.Channel)
+		source.DurationMs = track.DurationMs
 		decision := matching.FindMatch(source, spotifyMatching)
 		if decision.Matched {
 			matchedSkipped++
@@ -412,7 +397,7 @@ func (j *AnalysisJob) generateSyncItems(mapping model.Mappings, spotifyTracks, y
 		j.logger.Info().Str("mapping_id", mappingID).Msg(matching.BriefAnalysisLine(decision, "spotify", true))
 	}
 
-	return syncItemsGenerateResult{items: syncItems, matchedSkipped: matchedSkipped}
+	return syncItemsGenerateResult{items: syncItems, matchedSkipped: matchedSkipped, unavailable: unavailable}
 }
 
 func trackInfosToYouTubeMatching(tracks []TrackInfo) []matching.Track {
@@ -422,7 +407,9 @@ func trackInfosToYouTubeMatching(tracks []TrackInfo) []matching.Track {
 		if raw == "" {
 			raw = track.Title
 		}
-		out = append(out, matching.YouTubeTrack(track.ID, raw, track.Channel))
+		t := matching.YouTubeTrack(track.ID, raw, track.Channel)
+		t.DurationMs = track.DurationMs
+		out = append(out, t)
 	}
 	return out
 }
@@ -430,7 +417,9 @@ func trackInfosToYouTubeMatching(tracks []TrackInfo) []matching.Track {
 func trackInfosToSpotifyMatching(tracks []TrackInfo) []matching.Track {
 	out := make([]matching.Track, 0, len(tracks))
 	for _, track := range tracks {
-		out = append(out, matching.SpotifyTrack(track.ID, track.Title, track.Artist))
+		t := matching.SpotifyTrack(track.ID, track.Title, track.Artist)
+		t.DurationMs = track.DurationMs
+		out = append(out, t)
 	}
 	return out
 }
@@ -494,7 +483,7 @@ func (j *AnalysisJob) insertSyncItems(ctx context.Context, syncItems []model.Syn
 // so rename detection compares live names rather than whatever was saved at mapping creation.
 // reconcileQueuedAdds skips pending/error add items that this analysis no longer
 // wants: the track is now on the destination, or it left the source playlist.
-func (j *AnalysisJob) reconcileQueuedAdds(ctx context.Context, mappingID string, wanted []model.SyncItems, spotifyTracks, youtubeTracks []TrackInfo) error {
+func (j *AnalysisJob) reconcileQueuedAdds(ctx context.Context, mappingID string, wanted []model.SyncItems, spotifyTracks, youtubeTracks []TrackInfo, unavailable map[string]bool) error {
 	key := func(service, trackID string) string { return service + "|" + trackID }
 	stillWanted := map[string]bool{}
 	for _, item := range wanted {
@@ -513,7 +502,7 @@ func (j *AnalysisJob) reconcileQueuedAdds(ctx context.Context, mappingID string,
 
 	rows, err := j.db.QueryContext(ctx,
 		`SELECT id, service, track_id FROM sync_items
-		 WHERE mapping_id = ? AND operation = 'add' AND status IN ('pending', 'error')`, mappingID)
+		 WHERE mapping_id = ? AND operation = 'add' AND status IN ('pending', 'error', 'review')`, mappingID)
 	if err != nil {
 		return err
 	}
@@ -531,8 +520,11 @@ func (j *AnalysisJob) reconcileQueuedAdds(ctx context.Context, mappingID string,
 			continue
 		}
 		reason := "already in destination playlist"
-		if !inSource[k] {
+		switch {
+		case !inSource[k]:
 			reason = "no longer in source playlist"
+		case unavailable[k]:
+			reason = "not on " + serviceLabel(service)
 		}
 		staleItems = append(staleItems, stale{id, reason})
 	}
@@ -630,7 +622,8 @@ type TrackInfo struct {
 	Artist   string
 	RawTitle string
 	// Channel is the YouTube uploader channel ("Artist - Topic" for YouTube Music tracks).
-	Channel string
+	Channel    string
+	DurationMs int
 }
 
 func stringPtr(s string) *string {

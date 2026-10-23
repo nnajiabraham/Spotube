@@ -23,25 +23,31 @@ type AnalysisRun struct {
 
 // SearchCandidate is a ranked destination search hit.
 type SearchCandidate struct {
-	Rank    int     `json:"rank"`
-	ID      string  `json:"id"`
-	Title   string  `json:"title"`
-	Artist  string  `json:"artist,omitempty"`
-	Channel string  `json:"channel,omitempty"`
-	Score   float64 `json:"score"`
+	Rank       int             `json:"rank"`
+	ID         string          `json:"id"`
+	Title      string          `json:"title"`
+	Artist     string          `json:"artist,omitempty"`
+	Channel    string          `json:"channel,omitempty"`
+	RawTitle   string          `json:"raw_title,omitempty"`
+	DurationMs int             `json:"duration_ms,omitempty"`
+	Image      string          `json:"image,omitempty"`
+	Score      float64         `json:"score"`
+	Breakdown  *matching.Score `json:"breakdown,omitempty"`
 }
 
 // ExecutorRun captures executor search, selection, and outcome for one sync item.
 type ExecutorRun struct {
-	SyncItemID        string             `json:"sync_item_id"`
-	Operation         string             `json:"operation"`
-	Source            matching.Track     `json:"source"`
-	SearchQuery       string             `json:"search_query"`
-	Candidates        []SearchCandidate  `json:"candidates,omitempty"`
-	Selected          *matching.Track    `json:"selected,omitempty"`
-	DestPlaylistID    string             `json:"dest_playlist_id"`
-	AlreadyInPlaylist bool               `json:"already_in_playlist"`
-	PlaylistMatch     *matching.Decision `json:"playlist_match,omitempty"`
-	Outcome           string             `json:"outcome"`
-	Error             string             `json:"error,omitempty"`
+	SyncItemID        string            `json:"sync_item_id"`
+	Operation         string            `json:"operation"`
+	Source            matching.Track    `json:"source"`
+	SearchQuery       string            `json:"search_query"`
+	Candidates        []SearchCandidate `json:"candidates,omitempty"`
+	Selected          *matching.Track   `json:"selected,omitempty"`
+	DestPlaylistID    string            `json:"dest_playlist_id"`
+	AlreadyInPlaylist bool              `json:"already_in_playlist"`
+	// Linked is true when the destination came from a remembered track link (no search).
+	Linked        bool               `json:"linked,omitempty"`
+	PlaylistMatch *matching.Decision `json:"playlist_match,omitempty"`
+	Outcome       string             `json:"outcome"`
+	Error         string             `json:"error,omitempty"`
 }
